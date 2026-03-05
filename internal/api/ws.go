@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"github.com/immichto115/immichto115-web/internal/rclone"
+	"github.com/aYenx/immichto115/internal/rclone"
 )
 
 var upgrader = websocket.Upgrader{
