@@ -1,0 +1,109 @@
+package api
+
+import (
+	"log"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+	"github.com/immichto115/immichto115-web/internal/rclone"
+)
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true // 开发阶段允许所有来源；生产环境应限制
+	},
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+}
+
+// Hub 管理所有活跃的 WebSocket 连接，负责广播日志。
+type Hub struct {
+	mu      sync.RWMutex
+	clients map[*websocket.Conn]bool
+}
+
+// NewHub 创建一个新的 WebSocket Hub。
+func NewHub() *Hub {
+	return &Hub{
+		clients: make(map[*websocket.Conn]bool),
+	}
+}
+
+// Register 注册一个新的 WebSocket 连接。
+func (h *Hub) Register(conn *websocket.Conn) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.clients[conn] = true
+	log.Printf("[ws] client connected, total: %d", len(h.clients))
+}
+
+// Unregister 移除一个 WebSocket 连接。
+func (h *Hub) Unregister(conn *websocket.Conn) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.clients[conn]; ok {
+		delete(h.clients, conn)
+		conn.Close()
+		log.Printf("[ws] client disconnected, total: %d", len(h.clients))
+	}
+}
+
+// Broadcast 向所有已连接的客户端广播一条日志消息。
+func (h *Hub) Broadcast(line rclone.LogLine) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for conn := range h.clients {
+		err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if err != nil {
+			continue
+		}
+		err = conn.WriteJSON(line)
+		if err != nil {
+			log.Printf("[ws] write error: %v, removing client", err)
+			go h.Unregister(conn)
+		}
+	}
+}
+
+// BroadcastFromChannel 从 Rclone 输出 channel 中读取日志并广播。
+// 此函数会阻塞直到 channel 关闭（即 Rclone 进程结束）。
+func (h *Hub) BroadcastFromChannel(logCh <-chan rclone.LogLine) {
+	for line := range logCh {
+		h.Broadcast(line)
+	}
+}
+
+// HandleWebSocket 处理 WebSocket 连接升级请求。
+// 对应路由: GET /ws/logs
+func HandleWebSocket(hub *Hub) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			log.Printf("[ws] upgrade error: %v", err)
+			return
+		}
+
+		hub.Register(conn)
+
+		// 发送欢迎消息
+		_ = conn.WriteJSON(rclone.LogLine{
+			Stream: "stdout",
+			Text:   "[immichto115] connected to log stream",
+		})
+
+		// 持续读取客户端消息（主要用于检测断开连接）
+		go func() {
+			defer hub.Unregister(conn)
+			for {
+				_, _, err := conn.ReadMessage()
+				if err != nil {
+					break
+				}
+			}
+		}()
+	}
+}
