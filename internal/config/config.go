@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -80,7 +81,8 @@ func NewManager(cfgPath string) (*Manager, error) {
 	v.SetDefault("server.port", 8096)
 
 	if err := v.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+		var configFileNotFoundErr viper.ConfigFileNotFoundError
+		if errors.As(err, &configFileNotFoundErr) {
 			log.Printf("[config] config file not found, using defaults: %s", cfgPath)
 		} else if os.IsNotExist(err) {
 			log.Printf("[config] config file not found, using defaults: %s", cfgPath)
@@ -132,7 +134,7 @@ func (m *Manager) Update(newCfg AppConfig) error {
 	return nil
 }
 
-// IsSetupComplete 检查配置是否已完成初始设置（WebDAV 和备份路径已配置）。
+// IsSetupComplete 检查配置是否已完成初始设置（WebDAV 已配置且至少有一个备份路径）。
 func (m *Manager) IsSetupComplete() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
