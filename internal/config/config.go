@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/spf13/viper"
@@ -216,13 +217,7 @@ func ObscurePassword(password string) (string, error) {
 		return "", fmt.Errorf("rclone obscure failed: %w", err)
 	}
 
-	// 去除尾部换行
-	result := string(out)
-	for len(result) > 0 && (result[len(result)-1] == '\n' || result[len(result)-1] == '\r') {
-		result = result[:len(result)-1]
-	}
-
-	return result, nil
+	return strings.TrimSpace(string(out)), nil
 }
 
 // CleanupRcloneConf 删除临时 rclone 配置文件。
