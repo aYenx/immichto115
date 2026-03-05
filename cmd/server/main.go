@@ -100,6 +100,11 @@ func serveFrontend(r *gin.Engine) {
 		c.FileFromFS("favicon.ico", httpFS)
 	})
 
+	// favicon.svg (Vite 生成的 index.html 引用的是 svg)
+	r.GET("/favicon.svg", func(c *gin.Context) {
+		c.FileFromFS("favicon.svg", httpFS)
+	})
+
 	// SPA 回退：所有非 API/WS 路径都返回 index.html
 	r.NoRoute(func(c *gin.Context) {
 		// 不拦截 API 和 WebSocket 请求
