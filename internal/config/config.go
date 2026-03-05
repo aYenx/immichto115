@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -83,12 +84,13 @@ func NewManager(configPath string) (*Manager, error) {
 
 	// 尝试读取已有配置
 	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+		// SetConfigFile 时文件不存在返回 os.PathError，而非 viper.ConfigFileNotFoundError
+		var notFound viper.ConfigFileNotFoundError
+		if errors.As(err, &notFound) || os.IsNotExist(err) {
 			// 文件不存在，写入默认配置
-			if err := viper.SafeWriteConfig(); err != nil {
-				// SafeWriteConfig 不会覆盖，如果文件已存在则忽略
-				if err := viper.WriteConfig(); err != nil {
-					return nil, fmt.Errorf("failed to write default config: %w", err)
+			if writeErr := viper.SafeWriteConfig(); writeErr != nil {
+				if writeErr2 := viper.WriteConfig(); writeErr2 != nil {
+					return nil, fmt.Errorf("failed to write default config: %w", writeErr2)
 				}
 			}
 		} else {
