@@ -92,6 +92,11 @@ func (s *Server) triggerBackup() {
 func (s *Server) SetupRouter() *gin.Engine {
 	r := gin.Default()
 
+	// --- Health Check (Docker / 监控探针) ---
+	r.GET("/api/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
 	// --- API v1 ---
 	v1 := r.Group("/api/v1")
 	{

@@ -1,4 +1,11 @@
-version: "3.8"
+# ============================================================
+# ImmichTo115 Docker Compose 配置
+# 
+# 使用方法:
+#   1. 修改下方 volumes 中的路径为你实际的 Immich 数据目录
+#   2. 按需调整端口映射（默认 8096）
+#   3. 运行: docker compose up -d
+# ============================================================
 
 services:
   immichto115:
@@ -7,12 +14,21 @@ services:
     container_name: immichto115
     restart: unless-stopped
     ports:
+      # 宿主机端口:容器端口 — 修改冒号左边的数字来更换宿主机端口
       - "8096:8096"
     volumes:
-      # Immich 数据目录（只读挂载）
+      # ⬇️ 【必须修改】将下方路径替换为你的 Immich 实际数据目录
+      # Immich 照片库目录（只读挂载，仅用于备份读取）
       - /path/to/immich/library:/data/library:ro
+      # Immich 数据库备份目录（只读挂载）
       - /path/to/immich/backups:/data/backups:ro
-      # 配置文件持久化
+      # 配置文件持久化（请勿修改容器内路径）
       - ./config:/app/config
     environment:
       - TZ=Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8096/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
