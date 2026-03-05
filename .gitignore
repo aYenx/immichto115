@@ -1,0 +1,39 @@
+# Go
+/cmd/server/immichto115
+/cmd/server/dist/
+!/cmd/server/dist/.gitkeep
+
+# Dependencies
+vendor/
+
+# Frontend
+web/node_modules/
+web/dist/
+
+# Config (local dev)
+config/
+*.yaml
+!docker-compose.yml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test
+*.test
+*.out
+coverage/

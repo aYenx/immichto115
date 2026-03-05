@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  immichto115:
+    build: .
+    image: immichto115:latest
+    container_name: immichto115
+    restart: unless-stopped
+    ports:
+      - "8096:8096"
+    volumes:
+      # Immich 数据目录（只读挂载）
+      - /path/to/immich/library:/data/library:ro
+      - /path/to/immich/backups:/data/backups:ro
+      # 配置文件持久化
+      - ./config:/app/config
+    environment:
+      - TZ=Asia/Shanghai
