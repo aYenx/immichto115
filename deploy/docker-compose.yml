@@ -4,12 +4,14 @@
 # 使用方法:
 #   1. 修改下方 volumes 中的路径为你实际的 Immich 数据目录
 #   2. 按需调整端口映射（默认 8096）
-#   3. 运行: docker compose up -d
+#   3. 运行: cd deploy && docker compose up -d
 # ============================================================
 
 services:
   immichto115:
-    build: .
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
     image: immichto115:latest
     container_name: immichto115
     restart: unless-stopped
