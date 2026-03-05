@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
-	"github.com/immichto115/immichto115-web/internal/api"
-	"github.com/immichto115/immichto115-web/internal/config"
+	"github.com/aYenx/immichto115/internal/api"
+	"github.com/aYenx/immichto115/internal/config"
 )
 
 //go:embed all:dist

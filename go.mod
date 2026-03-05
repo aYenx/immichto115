@@ -1,4 +1,4 @@
-module github.com/immichto115/immichto115-web
+module github.com/aYenx/immichto115
 
 go 1.22
 

@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/immichto115/immichto115-web/internal/config"
-	appCron "github.com/immichto115/immichto115-web/internal/cron"
-	"github.com/immichto115/immichto115-web/internal/rclone"
+	"github.com/aYenx/immichto115/internal/config"
+	appCron "github.com/aYenx/immichto115/internal/cron"
+	"github.com/aYenx/immichto115/internal/rclone"
 )
 
 // Server 持有所有 API 依赖。
