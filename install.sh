@@ -52,8 +52,10 @@ download_binary() {
     arch=$(detect_arch)
     local os="linux"
 
-    # TODO: 替换为实际的 GitHub Release URL
-    local download_url="https://github.com/immichto115/immichto115-web/releases/latest/download/${APP_NAME}-${os}-${arch}"
+    # GitHub Release 下载地址 — 可通过环境变量 RELEASE_URL 覆盖
+    # 示例: RELEASE_URL=https://my-mirror.com/releases/latest/download bash install.sh
+    local base_url="${RELEASE_URL:-https://github.com/immichto115/immichto115-web/releases/latest/download}"
+    local download_url="${base_url}/${APP_NAME}-${os}-${arch}"
 
     info "正在下载 ${APP_NAME} (${os}/${arch})..."
 

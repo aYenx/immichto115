@@ -1,0 +1,36 @@
+# Git
+.git
+.gitignore
+
+# Node
+web/node_modules/
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+immichto115
+
+# Frontend build output (rebuilt in Docker)
+cmd/server/dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local config
+config/
+*.yaml
+!docker-compose.yml
+
+# Misc
+nul
+*.test
+*.out
+coverage/
