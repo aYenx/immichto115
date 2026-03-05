@@ -34,8 +34,12 @@ func main() {
 		cfgPath = os.Getenv("IMMICHTO115_CONFIG")
 	}
 	if cfgPath == "" {
-		// 默认路径
-		exe, _ := os.Executable()
+		// 默认路径：可执行文件同级 config/config.yaml
+		exe, err := os.Executable()
+		if err != nil {
+			log.Printf("[immichto115] warning: failed to get executable path: %v, using current dir", err)
+			exe = "."
+		}
 		cfgPath = filepath.Join(filepath.Dir(exe), "config", "config.yaml")
 	}
 

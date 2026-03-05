@@ -13,7 +13,24 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true // 开发阶段允许所有来源；生产环境应限制
+		// 允许 same-origin 和本地开发环境
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // 无 Origin 头（非浏览器客户端）
+		}
+		host := r.Host
+		// 允许 same-origin: http(s)://host
+		if origin == "http://"+host || origin == "https://"+host {
+			return true
+		}
+		// 允许本地开发常见端口
+		for _, prefix := range []string{"http://localhost:", "http://127.0.0.1:", "http://[::1]:"} {
+			if len(origin) > len(prefix) && origin[:len(prefix)] == prefix {
+				return true
+			}
+		}
+		log.Printf("[ws] rejected origin: %s (host: %s)", origin, host)
+		return false
 	},
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,

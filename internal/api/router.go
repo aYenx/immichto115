@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/immichto115/immichto115-web/internal/config"
@@ -245,34 +247,31 @@ func (s *Server) handleWebDAVTest(c *gin.Context) {
 		password = s.Config.Get().WebDAV.Password
 	}
 
-	// 使用 rclone 的环境变量方式测试连接
-	cmd := exec.Command("rclone", "lsd", ":webdav:", "--webdav-url", req.URL,
-		"--webdav-user", req.User, "--webdav-pass-command", "echo "+password,
+	// 先对密码做 obscure 处理，避免命令注入风险
+	obscured, obscErr := config.ObscurePassword(password)
+	if obscErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "failed to obscure password: " + obscErr.Error(),
+		})
+		return
+	}
+
+	// 带超时的 context 防止 rclone 挂起
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "rclone", "lsd", ":webdav:", "--webdav-url", req.URL,
+		"--webdav-user", req.User, "--webdav-pass", obscured,
 		"--max-depth", "1", "--contimeout", "10s")
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		// 回退：尝试 obscure 密码方式
-		obscured, obscErr := config.ObscurePassword(password)
-		if obscErr != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "connection failed: " + string(out),
-			})
-			return
-		}
-
-		cmd2 := exec.Command("rclone", "lsd", ":webdav:", "--webdav-url", req.URL,
-			"--webdav-user", req.User, "--webdav-pass", obscured,
-			"--max-depth", "1", "--contimeout", "10s")
-		out2, err2 := cmd2.CombinedOutput()
-		if err2 != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "connection failed: " + string(out2),
-			})
-			return
-		}
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "connection failed: " + string(out),
+		})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -280,6 +279,7 @@ func (s *Server) handleWebDAVTest(c *gin.Context) {
 		"message": "WebDAV connection successful",
 	})
 }
+
 
 func (s *Server) handleBackupStart(c *gin.Context) {
 	if s.Runner.IsRunning() {
@@ -324,7 +324,11 @@ func (s *Server) handleRemoteList(c *gin.Context) {
 	remote := config.GetRemoteName(cfg)
 	remotePath := remote + req.Path
 
-	cmd := exec.Command("rclone", "lsjson", remotePath, "--config", confPath)
+	// 带超时的 context 防止 rclone 挂起
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "rclone", "lsjson", remotePath, "--config", confPath)
 	out, err := cmd.Output()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list remote: " + err.Error()})
