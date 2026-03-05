@@ -104,6 +104,24 @@ systemctl restart immichto115    # 重启
 journalctl -u immichto115 -f    # 日志
 ```
 
+## 🗑️ 卸载
+
+### Docker
+
+```bash
+cd immichto115/deploy
+docker compose down              # 停止并删除容器
+docker compose down --rmi all    # 连镜像一起删除
+```
+
+### 一键安装
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uninstall.sh | sudo bash
+```
+
+> 卸载不会影响 115 网盘上已备份的文件。
+
 ## 📋 API
 
 | 方法 | 路径 | 说明 |
@@ -138,7 +156,8 @@ immichto115/
 ├── deploy/
 │   ├── Dockerfile       # 多阶段构建
 │   ├── docker-compose.yml
-│   └── install.sh       # Linux 一键安装
+│   ├── install.sh       # Linux 一键安装
+│   └── uninstall.sh     # 卸载脚本
 └── .github/workflows/   # CI 自动构建 Release
 ```
 
