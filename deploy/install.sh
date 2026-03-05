@@ -54,7 +54,7 @@ download_binary() {
 
     # GitHub Release 下载地址 — 可通过环境变量 RELEASE_URL 覆盖
     # 示例: RELEASE_URL=https://my-mirror.com/releases/latest/download bash install.sh
-    local base_url="${RELEASE_URL:-https://github.com/immichto115/immichto115-web/releases/latest/download}"
+    local base_url="${RELEASE_URL:-https://github.com/aYenx/immichto115/releases/latest/download}"
     local download_url="${base_url}/${APP_NAME}-${os}-${arch}"
 
     info "正在下载 ${APP_NAME} (${os}/${arch})..."
