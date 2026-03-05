@@ -11,7 +11,7 @@ web/node_modules/
 web/dist/
 
 # Config (local dev)
-config/
+/config/
 *.yaml
 !docker-compose.yml
 
