@@ -90,6 +90,13 @@ func serveFrontend(r *gin.Engine) {
 
 	httpFS := http.FS(distFS)
 
+	// 预读 index.html 内容，避免 http.FileServer 对 /index.html 的自动 301 重定向
+	indexHTML, err := fs.ReadFile(distFS, "index.html")
+	if err != nil {
+		log.Printf("[immichto115] warning: index.html not found in dist: %v", err)
+		return
+	}
+
 	// 静态资源直接服务
 	r.GET("/assets/*filepath", func(c *gin.Context) {
 		c.FileFromFS(c.Request.URL.Path, httpFS)
@@ -106,8 +113,10 @@ func serveFrontend(r *gin.Engine) {
 	})
 
 	// SPA 回退：所有非 API/WS 路径都返回 index.html
+	// 注意：不能用 c.FileFromFS("index.html", httpFS)，
+	// 因为 http.FileServer 内部会对 /index.html 路径 301 重定向到 /，导致死循环。
+	// 改为直接写入预读的 index.html 字节内容。
 	r.NoRoute(func(c *gin.Context) {
-		// 不拦截 API 和 WebSocket 请求
 		path := c.Request.URL.Path
 		if len(path) >= 4 && path[:4] == "/api" {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
@@ -118,6 +127,6 @@ func serveFrontend(r *gin.Engine) {
 			return
 		}
 
-		c.FileFromFS("index.html", httpFS)
+		c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 	})
 }
