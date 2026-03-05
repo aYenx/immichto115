@@ -93,6 +93,8 @@ func (s *Server) triggerBackup() {
 // SetupRouter 注册所有 API 路由。
 func (s *Server) SetupRouter() *gin.Engine {
 	r := gin.Default()
+	r.RedirectTrailingSlash = false
+	r.RedirectFixedPath = false
 
 	// --- Health Check (Docker / 监控探针) ---
 	r.GET("/api/health", func(c *gin.Context) {
