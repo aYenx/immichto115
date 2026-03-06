@@ -171,6 +171,26 @@
                 </button>
               </div>
             </div>
+
+            <div class="input-field">
+              <span class="input-label">备份模式</span>
+              <div class="radio-group">
+                <label class="radio-option" :class="{ active: draftConfig.backup.mode === 'copy' }">
+                  <input type="radio" v-model="draftConfig.backup.mode" value="copy" />
+                  <div class="radio-option-text">
+                    <strong>增量备份 (copy)</strong>
+                    <span>只复制新增/修改的文件，不删除远端已有文件</span>
+                  </div>
+                </label>
+                <label class="radio-option" :class="{ active: draftConfig.backup.mode === 'sync' }">
+                  <input type="radio" v-model="draftConfig.backup.mode" value="sync" />
+                  <div class="radio-option-text">
+                    <strong>镜像同步 (sync)</strong>
+                    <span>保持远端与本地完全一致，会删除远端多余文件</span>
+                  </div>
+                </label>
+              </div>
+            </div>
           </template>
 
           <template v-else-if="activeSection === 'encrypt'">
@@ -199,7 +219,7 @@
             <div class="toggle-field" @click="draftConfig.server.auth_enabled = !draftConfig.server.auth_enabled">
               <div class="toggle-info">
                 <span class="toggle-title">启用访问保护</span>
-                <span class="toggle-desc">开启后，访问管理界面和 API 需要管理员账号密码。</span>
+                <span class="toggle-desc">开启后，进入管理页面、调用接口和查看实时日志都需要管理员账号密码，适合部署到局域网或公网时使用。</span>
               </div>
               <div :class="['switch', draftConfig.server.auth_enabled ? 'active' : '']">
                 <div class="thumb"></div>
@@ -399,6 +419,7 @@ const createDefaultConfig = (): AppConfig => ({
     library_dir: '',
     backups_dir: '',
     remote_dir: '/immich-backup',
+    mode: 'copy' as 'copy' | 'sync',
   },
   encrypt: {
     enabled: false,
@@ -1291,6 +1312,54 @@ const confirmRemoteFolder = () => {
 
 .path-manual-input {
   margin-top: 6px;
+}
+
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.radio-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.radio-option:hover {
+  border-color: var(--border-strong);
+}
+
+.radio-option.active {
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.radio-option input[type="radio"] {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.radio-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.radio-option-text strong {
+  font-size: 14px;
+  color: #ffffff;
+}
+
+.radio-option-text span {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 @media (max-width: 960px) {

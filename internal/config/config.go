@@ -42,6 +42,7 @@ type BackupConfig struct {
 	LibraryDir string `mapstructure:"library_dir" json:"library_dir" yaml:"library_dir"`
 	BackupsDir string `mapstructure:"backups_dir" json:"backups_dir" yaml:"backups_dir"`
 	RemoteDir  string `mapstructure:"remote_dir"  json:"remote_dir"  yaml:"remote_dir"`
+	Mode       string `mapstructure:"mode"        json:"mode"        yaml:"mode"` // "copy" (增量) 或 "sync" (镜像)
 }
 
 // EncryptConfig Rclone Crypt 加密配置。
@@ -84,6 +85,7 @@ func NewManager(configPath string) (*Manager, error) {
 	viper.SetDefault("server.auth_enabled", false)
 	viper.SetDefault("webdav.vendor", "other")
 	viper.SetDefault("backup.remote_dir", "/immich-backup")
+	viper.SetDefault("backup.mode", "copy")
 	viper.SetDefault("cron.expression", "0 2 * * *")
 	viper.SetDefault("cron.enabled", false)
 	viper.SetDefault("encrypt.enabled", false)
@@ -138,6 +140,7 @@ func (m *Manager) Update(cfg AppConfig) error {
 	viper.Set("backup.library_dir", cfg.Backup.LibraryDir)
 	viper.Set("backup.backups_dir", cfg.Backup.BackupsDir)
 	viper.Set("backup.remote_dir", cfg.Backup.RemoteDir)
+	viper.Set("backup.mode", cfg.Backup.Mode)
 
 	viper.Set("encrypt.enabled", cfg.Encrypt.Enabled)
 	viper.Set("encrypt.password", cfg.Encrypt.Password)

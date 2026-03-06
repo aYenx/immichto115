@@ -48,8 +48,9 @@ func (r *Runner) Stop() error {
 	return nil
 }
 
-// RunSync 启动 rclone sync 命令，通过返回的 Channel 实时推送输出。
+// Run 启动 rclone 备份命令，通过返回的 Channel 实时推送输出。
 //
+// mode:   rclone 子命令，"copy"（增量备份）或 "sync"（镜像同步）
 // source: 本地源目录路径
 // dest:   Rclone 远端目标路径 (如 "remote:path")
 // flags:  附加的 Rclone 命令行参数
@@ -58,7 +59,7 @@ func (r *Runner) Stop() error {
 // 返回的 channel 会在进程结束后自动关闭。
 // 调用者可以通过返回的 context.CancelFunc 提前终止进程，
 // 但推荐使用 Runner.Stop() 方法。
-func (r *Runner) RunSync(source, dest string, flags []string, configPath string) (<-chan LogLine, error) {
+func (r *Runner) Run(mode, source, dest string, flags []string, configPath string) (<-chan LogLine, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -68,7 +69,7 @@ func (r *Runner) RunSync(source, dest string, flags []string, configPath string)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	args := []string{"sync", source, dest, "--verbose", "--stats", "5s", "--stats-one-line"}
+	args := []string{mode, source, dest, "--verbose", "--stats", "5s", "--stats-one-line"}
 	if configPath != "" {
 		args = append([]string{"--config", configPath}, args...)
 	}
@@ -98,7 +99,11 @@ func (r *Runner) RunSync(source, dest string, flags []string, configPath string)
 	r.running = true
 
 	logCh := make(chan LogLine, 128)
-	logCh <- LogLine{Stream: "stdout", Text: "[immichto115] 已启动 rclone sync，正在建立连接并扫描文件差异..."}
+	modeName := "copy (增量备份)"
+	if mode == "sync" {
+		modeName = "sync (镜像同步)"
+	}
+	logCh <- LogLine{Stream: "stdout", Text: "[immichto115] 已启动 rclone " + modeName + "，正在扫描文件差异..."}
 	logCh <- LogLine{Stream: "stdout", Text: fmt.Sprintf("[immichto115] 源目录: %s", source)}
 	logCh <- LogLine{Stream: "stdout", Text: fmt.Sprintf("[immichto115] 目标目录: %s", dest)}
 
