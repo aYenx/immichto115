@@ -11,16 +11,9 @@ permissions:
   packages: write
 
 jobs:
-  build:
+  # ── 前端只编译一次（平台无关） ──────────────────────────
+  build-frontend:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-          - goos: linux
-            goarch: arm64
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,10 +31,34 @@ jobs:
           npm ci
           npm run build
 
-      - name: Copy Frontend to Embed Dir
-        run: |
-          rm -rf cmd/server/dist
-          cp -r web/dist cmd/server/dist
+      - name: Upload Frontend Dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: web/dist
+          retention-days: 1
+
+  # ── 后端按架构编译（复用前端产物） ─────────────────────
+  build:
+    runs-on: ubuntu-latest
+    needs: build-frontend
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Frontend Dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: cmd/server/dist
 
       - name: Setup Go
         uses: actions/setup-go@v5

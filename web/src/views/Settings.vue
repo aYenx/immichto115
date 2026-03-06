@@ -24,7 +24,9 @@
 
     <div class="settings-grid">
       <button class="settings-card" @click="openSection('webdav')">
-        <div class="settings-card-icon">🌐</div>
+        <div class="settings-card-icon webdav">
+          <LucideGlobe :size="28" />
+        </div>
         <div class="settings-card-body">
           <div class="settings-card-head">
             <div>
@@ -41,7 +43,9 @@
       </button>
 
       <button class="settings-card" @click="openSection('backup')">
-        <div class="settings-card-icon">📁</div>
+        <div class="settings-card-icon backup">
+          <LucideFolder :size="28" />
+        </div>
         <div class="settings-card-body">
           <div class="settings-card-head">
             <div>
@@ -58,7 +62,9 @@
       </button>
 
       <button class="settings-card" @click="openSection('encrypt')">
-        <div class="settings-card-icon">🔐</div>
+        <div class="settings-card-icon encrypt">
+          <LucideLock :size="28" />
+        </div>
         <div class="settings-card-body">
           <div class="settings-card-head">
             <div>
@@ -75,7 +81,9 @@
       </button>
 
       <button class="settings-card" @click="openSection('automation')">
-        <div class="settings-card-icon">⏰</div>
+        <div class="settings-card-icon automation">
+          <LucideClock :size="28" />
+        </div>
         <div class="settings-card-body">
           <div class="settings-card-head">
             <div>
@@ -100,7 +108,7 @@
             <h3>{{ sectionMeta[activeSection].title }}</h3>
             <p>{{ sectionMeta[activeSection].description }}</p>
           </div>
-          <button class="settings-close" @click="closeSection">×</button>
+          <button class="settings-close" @click="closeSection"><LucideX :size="20" /></button>
         </div>
 
         <div class="settings-modal-body">
@@ -123,9 +131,9 @@
             <div class="input-field">
               <span class="input-label">Remote Dir</span>
               <div class="path-input-row">
-                <input class="input-control" v-model="draftConfig.backup.remote_dir" type="text" placeholder="/immich-backup" style="flex: 1" />
                 <button class="btn secondary browse-btn" @click="openRemoteFolderPicker">
-                  选择目录
+                  <LucideFolderOpen :size="16" />
+                  WebDAV
                 </button>
               </div>
               <span class="input-hint">备份会写入这里指定的 WebDAV 目录。</span>
@@ -146,7 +154,10 @@
               <span class="input-label">照片库路径</span>
               <div class="path-input-row">
                 <input class="input-control" v-model="draftConfig.backup.library_dir" type="text" placeholder="/path/to/library" style="flex: 1" />
-                <button class="btn secondary browse-btn" @click="openFolderPicker('library_dir')">浏览</button>
+                <button class="btn secondary browse-btn" @click="openFolderPicker('library_dir')">
+                  <LucideFolderOpen :size="16" />
+                  浏览
+                </button>
               </div>
             </div>
 
@@ -154,7 +165,10 @@
               <span class="input-label">数据库备份路径</span>
               <div class="path-input-row">
                 <input class="input-control" v-model="draftConfig.backup.backups_dir" type="text" placeholder="/path/to/db_dumps" style="flex: 1" />
-                <button class="btn secondary browse-btn" @click="openFolderPicker('backups_dir')">浏览</button>
+                <button class="btn secondary browse-btn" @click="openFolderPicker('backups_dir')">
+                  <LucideFolderOpen :size="16" />
+                  浏览
+                </button>
               </div>
             </div>
           </template>
@@ -231,18 +245,22 @@
       <div class="picker-modal">
         <div class="picker-header">
           <h3>选择本地文件夹</h3>
-          <button class="settings-close" @click="showFolderPicker = false">×</button>
+          <button class="settings-close" @click="showFolderPicker = false"><LucideX :size="20" /></button>
         </div>
         <div class="picker-body">
           <div class="breadcrumb-bar">
             <div class="breadcrumb-inner">
-              <button class="breadcrumb-item" @click="loadLocalDir(isWindowsPath ? 'C:\\' : '/')">根目录</button>
+              <button class="breadcrumb-item" @click="loadLocalDir(isWindowsPath ? 'C:\\' : '/')">
+                <LucideHardDrive :size="14" />
+              </button>
               <template v-for="(seg, idx) in pathSegments" :key="idx">
                 <span class="breadcrumb-sep">/</span>
                 <button class="breadcrumb-item" @click="navigateToSegment(idx)">{{ seg }}</button>
               </template>
             </div>
-            <button class="breadcrumb-edit-btn" @click="showPathInput = !showPathInput">手动输入</button>
+            <button class="breadcrumb-edit-btn" @click="showPathInput = !showPathInput" title="手动输入路径">
+              <LucidePencil :size="14" />
+            </button>
           </div>
 
           <input
@@ -255,18 +273,31 @@
           />
 
           <div class="folder-list">
-            <div v-if="isLoadingLocal" class="folder-empty">加载中...</div>
-            <div v-else-if="localDirs.length === 0" class="folder-empty">该目录下没有子文件夹</div>
+            <div v-if="isLoadingLocal" class="folder-empty">
+              <LucideLoader2 :size="20" class="spin-icon" />
+              <span>加载中...</span>
+            </div>
+            <div v-else-if="localDirs.length === 0" class="folder-empty">
+              <LucideFolderOpen :size="20" />
+              <span>该目录下没有子文件夹</span>
+            </div>
             <div v-else class="folder-scroll">
-              <div v-if="canGoUp" class="folder-item go-up" @click="goUpLocalDir">返回上级目录</div>
+              <div v-if="canGoUp" class="folder-item go-up" @click="goUpLocalDir">
+                <LucideCornerLeftUp :size="16" />
+                <span>返回上级目录</span>
+              </div>
               <div v-for="item in localDirs" :key="item.Path" class="folder-item" @click="enterLocalDir(item)">
-                {{ item.Name }}
+                <LucideFolder :size="16" />
+                <span>{{ item.Name }}</span>
               </div>
             </div>
           </div>
         </div>
         <div class="picker-footer">
-          <div class="selected-path-preview" v-if="currentLocalPath">{{ currentLocalPath }}</div>
+          <div class="selected-path-preview" v-if="currentLocalPath">
+            <LucideCheck :size="14" />
+            <span>{{ currentLocalPath }}</span>
+          </div>
           <div class="picker-footer-actions">
             <button class="btn secondary" @click="showFolderPicker = false">取消</button>
             <button class="btn primary" @click="confirmFolder">选择此目录</button>
@@ -279,12 +310,14 @@
       <div class="picker-modal">
         <div class="picker-header">
           <h3>选择 WebDAV 备份目录</h3>
-          <button class="settings-close" @click="showRemoteFolderPicker = false">×</button>
+          <button class="settings-close" @click="showRemoteFolderPicker = false"><LucideX :size="20" /></button>
         </div>
         <div class="picker-body">
           <div class="breadcrumb-bar">
             <div class="breadcrumb-inner">
-              <button class="breadcrumb-item" @click="loadRemoteDir('/')">根目录</button>
+              <button class="breadcrumb-item" @click="loadRemoteDir('/')">
+                <LucideFolder :size="14" />
+              </button>
               <template v-for="(seg, idx) in remotePathSegments" :key="idx">
                 <span class="breadcrumb-sep">/</span>
                 <button class="breadcrumb-item" @click="navigateToRemoteSegment(idx)">{{ seg }}</button>
@@ -293,18 +326,31 @@
           </div>
 
           <div class="folder-list">
-            <div v-if="isLoadingRemote" class="folder-empty">加载中...</div>
-            <div v-else-if="remoteDirs.length === 0" class="folder-empty">该目录下没有子文件夹</div>
+            <div v-if="isLoadingRemote" class="folder-empty">
+              <LucideLoader2 :size="20" class="spin-icon" />
+              <span>加载中...</span>
+            </div>
+            <div v-else-if="remoteDirs.length === 0" class="folder-empty">
+              <LucideFolderOpen :size="20" />
+              <span>该目录下没有子文件夹</span>
+            </div>
             <div v-else class="folder-scroll">
-              <div v-if="remoteCanGoUp" class="folder-item go-up" @click="goUpRemoteDir">返回上级目录</div>
+              <div v-if="remoteCanGoUp" class="folder-item go-up" @click="goUpRemoteDir">
+                <LucideCornerLeftUp :size="16" />
+                <span>返回上级目录</span>
+              </div>
               <div v-for="item in remoteDirs" :key="item.Path || item.Name" class="folder-item" @click="enterRemoteDir(item)">
-                {{ item.Name }}
+                <LucideFolder :size="16" />
+                <span>{{ item.Name }}</span>
               </div>
             </div>
           </div>
         </div>
         <div class="picker-footer">
-          <div class="selected-path-preview">{{ currentRemotePath }}</div>
+          <div class="selected-path-preview">
+            <LucideCheck :size="14" />
+            <span>{{ currentRemotePath }}</span>
+          </div>
           <div class="picker-footer-actions">
             <button class="btn secondary" @click="showRemoteFolderPicker = false">取消</button>
             <button class="btn primary" @click="confirmRemoteFolder">选择此目录</button>
@@ -320,6 +366,19 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { api, getErrorMessage, handleAuthFailure, type AppConfig, type DirEntry, type SystemStatus } from '../api'
 import CronScheduler from '../components/CronScheduler.vue'
 import { showToast } from '../composables/toast'
+import {
+  LucideGlobe,
+  LucideFolder,
+  LucideLock,
+  LucideClock,
+  LucideFolderOpen,
+  LucideLoader2,
+  LucideCornerLeftUp,
+  LucideX,
+  LucideHardDrive,
+  LucidePencil,
+  LucideCheck
+} from 'lucide-vue-next'
 
 type SectionKey = 'webdav' | 'backup' | 'encrypt' | 'automation'
 type LocalField = 'library_dir' | 'backups_dir'
@@ -740,9 +799,12 @@ const confirmRemoteFolder = () => {
 
 <style scoped>
 .settings-page {
-  min-height: 100%;
-  padding: 40px;
-  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  padding: 48px 64px;
+  gap: 40px;
+  max-width: 1400px;
+  margin: 0 auto;
 }
 
 .settings-hero {
@@ -750,7 +812,6 @@ const confirmRemoteFolder = () => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 32px;
 }
 
 .settings-eyebrow,
@@ -764,8 +825,12 @@ const confirmRemoteFolder = () => {
 }
 
 .settings-title {
-  font-size: 40px;
-  margin-bottom: 10px;
+  font-family: var(--font-primary);
+  font-weight: 800;
+  font-size: 32px;
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
+  margin-bottom: 8px;
 }
 
 .settings-subtitle,
@@ -821,38 +886,56 @@ const confirmRemoteFolder = () => {
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  gap: 24px;
 }
 
 .settings-card {
   display: flex;
   align-items: flex-start;
-  gap: 18px;
+  gap: 16px;
   width: 100%;
   padding: 24px;
-  border: 1px solid var(--border-strong);
-  border-radius: 24px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-card) 92%, transparent), var(--bg-card));
+  border-radius: 16px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
   text-align: left;
-  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  transition: all 0.2s ease;
 }
 
 .settings-card:hover {
   transform: translateY(-2px);
-  border-color: var(--text-secondary);
-  box-shadow: 0 14px 32px rgba(24, 24, 27, 0.08);
+  border-color: var(--border-strong);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
 .settings-card-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 18px;
-  background: var(--bg-primary);
-  font-size: 24px;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
   flex-shrink: 0;
+}
+
+.settings-card-icon.webdav {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.settings-card-icon.backup {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.settings-card-icon.encrypt {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.settings-card-icon.automation {
+  color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.1);
 }
 
 .settings-card-body {
@@ -876,7 +959,10 @@ const confirmRemoteFolder = () => {
 }
 
 .settings-card-head h2 {
-  font-size: 22px;
+  font-size: 20px;
+  font-weight: 800;
+  font-family: var(--font-primary);
+  color: #ffffff;
 }
 
 .settings-card-head span {
@@ -887,8 +973,8 @@ const confirmRemoteFolder = () => {
 
 .settings-card p {
   color: var(--text-secondary);
-  font-size: 15px;
-  line-height: 1.7;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .settings-card-signals {
@@ -935,9 +1021,10 @@ const confirmRemoteFolder = () => {
   max-height: min(88vh, 920px);
   display: flex;
   flex-direction: column;
-  border-radius: 28px;
+  border-radius: 16px;
   background: var(--bg-primary);
   border: 1px solid var(--border-strong);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
   overflow: hidden;
 }
 
@@ -962,13 +1049,20 @@ const confirmRemoteFolder = () => {
 }
 
 .settings-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 36px;
   height: 36px;
   border-radius: 18px;
   background: var(--bg-card);
   color: var(--text-primary);
-  font-size: 24px;
-  line-height: 1;
+  border: none;
+  cursor: pointer;
+}
+
+.settings-close:hover {
+  background: var(--border-subtle);
 }
 
 .settings-modal-body,
@@ -1002,8 +1096,8 @@ const confirmRemoteFolder = () => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 18px;
-  border-radius: 20px;
+  padding: 16px;
+  border-radius: 12px;
   background: var(--bg-card);
 }
 
@@ -1046,13 +1140,13 @@ const confirmRemoteFolder = () => {
 
 .input-control {
   width: 100%;
-  min-height: 46px;
-  padding: 0 14px;
+  height: 48px;
+  padding: 0 16px;
   border: 1px solid var(--border-strong);
-  border-radius: 14px;
-  background: var(--bg-primary);
+  border-radius: 12px;
+  background-color: transparent;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .path-input-row {
@@ -1062,15 +1156,33 @@ const confirmRemoteFolder = () => {
 
 .browse-btn {
   flex-shrink: 0;
+  height: 48px;
+  border-radius: 12px;
+  padding: 0 16px !important;
+  font-size: 16px;
+}
+
+.btn.primary {
+  height: 48px;
+  border-radius: 12px;
+  font-size: 16px;
+  padding: 0 32px;
+}
+
+.btn.secondary {
+  height: 48px;
+  border-radius: 12px;
+  font-size: 16px;
+  padding: 0 24px;
 }
 
 .switch {
-  width: 52px;
-  height: 30px;
-  border-radius: 999px;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
   background: var(--border-strong);
-  padding: 4px;
-  transition: background-color 0.2s ease;
+  position: relative;
+  transition: all 0.2s ease;
 }
 
 .switch.active {
@@ -1078,15 +1190,18 @@ const confirmRemoteFolder = () => {
 }
 
 .thumb {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
   background: var(--text-inverted);
-  transition: transform 0.2s ease;
+  transition: all 0.2s ease;
 }
 
 .switch.active .thumb {
-  transform: translateX(22px);
+  left: 22px;
 }
 
 .breadcrumb-bar {
@@ -1129,7 +1244,7 @@ const confirmRemoteFolder = () => {
   min-height: 280px;
   max-height: 48vh;
   border: 1px solid var(--border-strong);
-  border-radius: 18px;
+  border-radius: 10px;
   overflow: hidden;
   background: var(--bg-primary);
 }
@@ -1150,15 +1265,28 @@ const confirmRemoteFolder = () => {
 
 .folder-item {
   cursor: pointer;
+  gap: 10px;
 }
 
 .folder-item.go-up {
   color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .folder-empty {
   justify-content: center;
-  color: var(--text-secondary);
+  gap: 8px;
+  color: var(--text-tertiary);
+}
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .path-manual-input {
