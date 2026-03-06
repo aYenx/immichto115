@@ -38,8 +38,6 @@ FROM alpine:3.20
 
 # 锁定 Rclone 版本 — 升级时只需修改此变量
 ARG RCLONE_VERSION=1.73.1
-# 自动适配构建平台架构 (amd64 / arm64)
-ARG TARGETARCH=amd64
 
 RUN apk add --no-cache \
     ca-certificates \
@@ -47,10 +45,12 @@ RUN apk add --no-cache \
     curl \
     unzip \
     fuse3 \
-    && echo "Downloading rclone v${RCLONE_VERSION} for linux/${TARGETARCH}..." \
-    && curl -fsSL -o rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-${TARGETARCH}.zip" \
+    && ARCH=$(uname -m) \
+    && case "$ARCH" in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; esac \
+    && echo "Downloading rclone v${RCLONE_VERSION} for linux/${ARCH}..." \
+    && curl -fsSL -o rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-${ARCH}.zip" \
     && unzip rclone.zip \
-    && cp "rclone-v${RCLONE_VERSION}-linux-${TARGETARCH}/rclone" /usr/local/bin/ \
+    && cp "rclone-v${RCLONE_VERSION}-linux-${ARCH}/rclone" /usr/local/bin/ \
     && chmod +x /usr/local/bin/rclone \
     && rm -rf rclone-* rclone.zip \
     && rclone version
