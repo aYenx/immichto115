@@ -15,7 +15,21 @@ SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[1;34m'
+CYAN='\033[1;36m'
+UNDERLINE='\033[4m'
 NC='\033[0m'
+
+# 生成可点击的终端超链接 (OSC 8)
+# 用法: link <url> [显示文本]
+# 现代终端 (iTerm2, GNOME Terminal ≥3.26, Windows Terminal, Alacritty 等) 会渲染为可点击链接
+link() {
+    local url="$1"
+    local text="${2:-$url}"
+    # OSC 8 超链接: \e]8;;URL\aTEXT\e]8;;\a
+    # 使用 \a (BEL) 替代 \e\\ 作为终止符，兼容性更好
+    printf '\e]8;;%s\a%b%s%b\e]8;;\a' "$url" "${UNDERLINE}${CYAN}" "$text" "${NC}"
+}
 
 info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
@@ -124,7 +138,13 @@ main() {
 
     echo ""
     info "✅ 安装完成！"
-    info "访问 http://$(hostname -I | awk '{print $1}'):8096 开始配置"
+    echo ""
+    local host_ip
+    host_ip=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+    local url="http://${host_ip}:8096"
+    info "请打开浏览器访问以下地址开始配置："
+    echo ""
+    echo -e "   👉 $(link "${url}")"
     echo ""
 }
 
