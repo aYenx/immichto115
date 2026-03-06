@@ -1,18 +1,15 @@
 # ============================================================
 # ImmichTo115 Docker Compose 配置
-# 
+#
 # 使用方法:
 #   1. 修改下方 volumes 中的路径为你实际的 Immich 数据目录
 #   2. 按需调整端口映射（默认 8096）
-#   3. 运行: cd deploy && docker compose up -d
+#   3. 运行: docker compose up -d
 # ============================================================
 
 services:
   immichto115:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-    image: immichto115:latest
+    image: ghcr.io/ayenx/immichto115:latest
     container_name: immichto115
     restart: unless-stopped
     ports:
@@ -29,7 +26,8 @@ services:
     environment:
       - TZ=Asia/Shanghai
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8096/api/health"]
+      test:
+        ["CMD", "wget", "--spider", "-q", "http://localhost:8096/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
