@@ -176,7 +176,7 @@
           <div class="toggle-field" @click="config.server.auth_enabled = !config.server.auth_enabled">
             <div class="toggle-info">
               <span class="toggle-title">启用访问保护</span>
-              <span class="toggle-desc">启用后，访问管理界面和 API 需要输入管理员账号密码</span>
+              <span class="toggle-desc">启用后，管理页面、接口和实时日志都会受管理员账号密码保护；完成配置后会立即重新验证身份</span>
             </div>
             <div :class="['switch', config.server.auth_enabled ? 'active' : '']">
               <div class="thumb"></div>
@@ -363,6 +363,7 @@ const config = reactive<AppConfig>({
     library_dir: '',
     backups_dir: '',
     remote_dir: '/immich-backup',
+    mode: 'copy' as 'copy' | 'sync',
   },
   encrypt: {
     enabled: false,
@@ -599,6 +600,10 @@ const finishSetup = async () => {
   try {
     await api.saveConfig(config)
     markSetupComplete()
+    if (config.server.auth_enabled) {
+      window.location.replace('/dashboard')
+      return
+    }
     if (isSettingsMode.value) {
       showToast('success', '保存成功', '配置已保存并立即生效。')
     }
