@@ -14,9 +14,33 @@ Go 后端 + Vue 3 前端，编译为**单个二进制文件**，开箱即用。
 
 ---
 
-[快速开始](#-快速开始) · [功能特性](#-功能特性) · [配置说明](#️-配置说明) · [API 文档](#-api-文档) · [项目结构](#️-项目结构)
+[安装 / 更新 / 卸载](#-安装--更新--卸载) · [快速开始](#-快速开始) · [功能特性](#-功能特性) · [配置说明](#️-配置说明) · [API 文档](#-api-文档) · [项目结构](#️-项目结构)
 
 </div>
+
+---
+
+## 📦 安装 / 更新 / 卸载
+
+### Docker Compose
+
+| 操作 | 命令 |
+| --- | --- |
+| 安装 | `docker compose up -d` |
+| 更新 | `docker compose pull && docker compose up -d` |
+| 卸载 | `docker compose down --rmi all` |
+
+> 首次安装前，请先按下方 `docker-compose.yml` 示例创建并修改挂载路径。更新不会删除 `./config` 中的配置文件。
+
+### 一键安装（Linux / systemd）
+
+| 操作 | 命令 |
+| --- | --- |
+| 安装 | `curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/install.sh | sudo bash` |
+| 更新 | `curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/install.sh | sudo bash` |
+| 卸载 | `curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uninstall.sh | sudo bash` |
+
+> 一键安装的“更新”会重新下载最新发布版二进制并覆盖安装，保留现有 `config.yaml` 配置。
 
 ---
 
