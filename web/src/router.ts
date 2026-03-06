@@ -79,8 +79,12 @@ router.beforeEach(async (to, _from, next) => {
     }
 
     console.error("Failed to get system status", error);
-    // API 不可达时直接放行，避免阻塞页面
-    next();
+    // API 不可达时引导到 setup 页，避免进入半失效的管理页面
+    if (to.name === "wizard") {
+      next(); // 已经在 wizard 则放行
+    } else {
+      next({ name: "wizard", query: { error: "api_unreachable" } });
+    }
   }
 });
 

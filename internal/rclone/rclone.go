@@ -56,15 +56,16 @@ func (r *Runner) Stop() error {
 // flags:  附加的 Rclone 命令行参数
 // configPath: Rclone 配置文件路径（为空则使用默认）
 //
-// 返回的 channel 会在进程结束后自动关闭。
-// 调用者可以通过返回的 context.CancelFunc 提前终止进程，
-// 但推荐使用 Runner.Stop() 方法。
-func (r *Runner) Run(mode, source, dest string, flags []string, configPath string) (<-chan LogLine, error) {
+// 返回值:
+//   - logCh: 实时日志 channel，进程结束后自动关闭
+//   - errCh: 进程退出结果 channel，发送 nil（成功）或 error（失败/取消），仅发送一次
+//   - error: 启动失败时的错误
+func (r *Runner) Run(mode, source, dest string, flags []string, configPath string) (<-chan LogLine, <-chan error, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if r.running {
-		return nil, fmt.Errorf("rclone is already running")
+		return nil, nil, fmt.Errorf("rclone is already running")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -80,18 +81,18 @@ func (r *Runner) Run(mode, source, dest string, flags []string, configPath strin
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+		return nil, nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
+		return nil, nil, fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
 		cancel()
-		return nil, fmt.Errorf("failed to start rclone: %w", err)
+		return nil, nil, fmt.Errorf("failed to start rclone: %w", err)
 	}
 
 	r.cmd = cmd
@@ -99,6 +100,7 @@ func (r *Runner) Run(mode, source, dest string, flags []string, configPath strin
 	r.running = true
 
 	logCh := make(chan LogLine, 128)
+	errCh := make(chan error, 1)
 	modeName := "copy (增量备份)"
 	if mode == "sync" {
 		modeName = "sync (镜像同步)"
@@ -145,20 +147,24 @@ func (r *Runner) Run(mode, source, dest string, flags []string, configPath strin
 		r.mu.Unlock()
 
 		if exitErr != nil {
-			// context 取消不算错误
-			if ctx.Err() == nil {
-				logCh <- LogLine{Stream: "stderr", Text: fmt.Sprintf("[immichto115] rclone exited with error: %v", exitErr)}
-			} else {
+			// context 取消不算错误（手动停止）
+			if ctx.Err() != nil {
 				logCh <- LogLine{Stream: "stderr", Text: "[immichto115] rclone 进程已收到停止信号，正在安全退出"}
+				errCh <- fmt.Errorf("cancelled")
+			} else {
+				logCh <- LogLine{Stream: "stderr", Text: fmt.Sprintf("[immichto115] rclone exited with error: %v", exitErr)}
+				errCh <- exitErr
 			}
 		} else {
 			logCh <- LogLine{Stream: "stdout", Text: "[immichto115] rclone sync completed successfully"}
 			logCh <- LogLine{Stream: "stdout", Text: "[immichto115] 当前同步阶段已成功完成"}
+			errCh <- nil
 		}
 		close(logCh)
+		close(errCh)
 	}()
 
-	return logCh, nil
+	return logCh, errCh, nil
 }
 
 // 缓存 rclone 版本信息，避免每次请求都启动子进程

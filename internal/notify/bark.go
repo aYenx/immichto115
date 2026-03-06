@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -39,10 +40,11 @@ func SendBark(barkURL, title, body string) error {
 		return fmt.Errorf("failed to marshal bark payload: %w", err)
 	}
 
-	url := base + "/" + title + "/" + body
+	// 对标题和正文进行 URL 编码，避免中文/emoji/特殊字符导致请求失败
+	encodedURL := base + "/" + url.PathEscape(title) + "/" + url.PathEscape(body)
 	client := &http.Client{Timeout: 10 * time.Second}
 
-	resp, err := client.Get(url)
+	resp, err := client.Get(encodedURL)
 	if err != nil {
 		// 回退到 POST JSON
 		log.Printf("[notify] GET failed, falling back to POST: %v", err)

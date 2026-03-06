@@ -102,7 +102,7 @@ func (s *Server) triggerBackup() {
 		}
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 开始备份照片库目录: " + cfg.Backup.LibraryDir})
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 目标位置: " + dest})
-		logCh, err := s.Runner.Run(backupMode, cfg.Backup.LibraryDir, dest, nil, confPath)
+		logCh, errCh, err := s.Runner.Run(backupMode, cfg.Backup.LibraryDir, dest, nil, confPath)
 		if err != nil {
 			log.Printf("[backup] failed to start library backup: %v", err)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 无法启动照片库备份: " + err.Error()})
@@ -110,6 +110,12 @@ func (s *Server) triggerBackup() {
 			return
 		}
 		s.Hub.BroadcastFromChannel(logCh) // 阻塞直到完成
+		if runErr := <-errCh; runErr != nil {
+			log.Printf("[backup] library backup failed: %v", runErr)
+			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 照片库备份失败: " + runErr.Error()})
+			s.sendBackupNotify(cfg, false, "照片库备份失败")
+			return
+		}
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 照片库目录备份阶段已结束"})
 		if jobCtx.Err() != nil {
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] backup stopped after library sync"})
@@ -132,7 +138,7 @@ func (s *Server) triggerBackup() {
 		}
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 开始备份数据库备份目录: " + cfg.Backup.BackupsDir})
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 目标位置: " + dest})
-		logCh, err := s.Runner.Run(backupMode, cfg.Backup.BackupsDir, dest, nil, confPath)
+		logCh, errCh, err := s.Runner.Run(backupMode, cfg.Backup.BackupsDir, dest, nil, confPath)
 		if err != nil {
 			log.Printf("[backup] failed to start backups backup: %v", err)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 无法启动数据库备份目录同步: " + err.Error()})
@@ -140,6 +146,12 @@ func (s *Server) triggerBackup() {
 			return
 		}
 		s.Hub.BroadcastFromChannel(logCh) // 阻塞直到完成
+		if runErr := <-errCh; runErr != nil {
+			log.Printf("[backup] backups backup failed: %v", runErr)
+			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 数据库备份失败: " + runErr.Error()})
+			s.sendBackupNotify(cfg, false, "数据库备份失败")
+			return
+		}
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 数据库备份目录同步阶段已结束"})
 		if jobCtx.Err() != nil {
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] backup stopped after backups sync"})
@@ -206,7 +218,19 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 		}
 
 		cfg := s.Config.Get()
-		if !cfg.Server.AuthEnabled || !s.Config.IsSetupComplete() {
+
+		// Setup 未完成时：仅放行 setup 必需接口，拒绝其余
+		if !s.Config.IsSetupComplete() {
+			if isSetupWhitelisted(c.Request) {
+				c.Next()
+			} else {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "setup not complete"})
+			}
+			return
+		}
+
+		// Setup 已完成但未开启认证 → 放行
+		if !cfg.Server.AuthEnabled {
 			c.Next()
 			return
 		}
@@ -225,6 +249,38 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 		c.Header("WWW-Authenticate", `Basic realm="immichto115"`)
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 	}
+}
+
+// isSetupWhitelisted 判断请求是否属于 setup 阶段的白名单。
+// 仅允许初始化必需的接口通过，其余全部拒绝。
+func isSetupWhitelisted(r *http.Request) bool {
+	path := r.URL.Path
+	// 健康检查始终放行
+	if path == "/api/health" {
+		return true
+	}
+	// Setup 阶段允许的接口
+	setupPaths := map[string][]string{
+		"/api/v1/system/status": {"GET"},
+		"/api/v1/config":        {"GET", "POST"},
+		"/api/v1/webdav/test":   {"POST"},
+		"/api/v1/webdav/ls":     {"POST"},
+		"/api/v1/local/ls":      {"GET"},
+	}
+	methods, ok := setupPaths[path]
+	if !ok {
+		// 前端静态资源与 WebSocket 也需要放行
+		if !strings.HasPrefix(path, "/api/") && !strings.HasPrefix(path, "/ws/") {
+			return true
+		}
+		return false
+	}
+	for _, m := range methods {
+		if r.Method == m {
+			return true
+		}
+	}
+	return false
 }
 
 // SetupRouter 注册所有 API 路由。

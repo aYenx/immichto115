@@ -80,7 +80,7 @@ func NewManager(configPath string) (*Manager, error) {
 
 	// 确保配置目录存在
 	dir := filepath.Dir(configPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create config dir: %w", err)
 	}
 
