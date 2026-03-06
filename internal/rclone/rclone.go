@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"sync"
 )
 
@@ -67,7 +68,7 @@ func (r *Runner) RunSync(source, dest string, flags []string, configPath string)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	args := []string{"sync", source, dest, "--progress", "--verbose"}
+	args := []string{"sync", source, dest, "--verbose", "--stats", "5s", "--stats-one-line"}
 	if configPath != "" {
 		args = append([]string{"--config", configPath}, args...)
 	}
@@ -108,8 +109,13 @@ func (r *Runner) RunSync(source, dest string, flags []string, configPath string)
 		// Rclone 的进度输出有时单行很长，增大缓冲区
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		for scanner.Scan() {
+			line := scanner.Text()
+			// 过滤掉重复的进度统计行，只保留有意义的输出
+			if isProgressNoise(line) {
+				continue
+			}
 			select {
-			case logCh <- LogLine{Stream: stream, Text: scanner.Text()}:
+			case logCh <- LogLine{Stream: stream, Text: line}:
 			case <-ctx.Done():
 				return
 			}
@@ -157,4 +163,27 @@ func GetVersion() (string, error) {
 		}
 	}
 	return string(out), nil
+}
+
+// isProgressNoise 判断一行是否是重复的进度统计信息。
+// 这些行每 0.5-5 秒输出一次，会刷屏日志，应该过滤掉。
+// 重要的实际传输/错误日志不会被过滤。
+func isProgressNoise(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return true
+	}
+	// 过滤 rclone 进度行（Transferred: 0 B / 0 B, Checks: xxx, Elapsed time: xxx 等）
+	noisePatterns := []string{
+		"Transferred:",
+		"Checks:",
+		"Elapsed time:",
+		"Transferring:",
+	}
+	for _, pattern := range noisePatterns {
+		if strings.HasPrefix(trimmed, pattern) {
+			return true
+		}
+	}
+	return false
 }
