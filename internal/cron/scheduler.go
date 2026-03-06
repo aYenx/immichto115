@@ -66,10 +66,14 @@ func (s *Scheduler) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.entryID != 0 {
+		s.c.Remove(s.entryID)
+		s.entryID = 0
+	}
+
 	if s.running {
 		s.c.Stop()
 		s.running = false
-		s.entryID = 0
 		log.Println("[cron] scheduler stopped")
 	}
 }
