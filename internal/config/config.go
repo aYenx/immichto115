@@ -18,6 +18,7 @@ type AppConfig struct {
 	Backup  BackupConfig  `mapstructure:"backup"  json:"backup"  yaml:"backup"`
 	Encrypt EncryptConfig `mapstructure:"encrypt" json:"encrypt" yaml:"encrypt"`
 	Cron    CronConfig    `mapstructure:"cron"    json:"cron"    yaml:"cron"`
+	Notify  NotifyConfig  `mapstructure:"notify"  json:"notify"  yaml:"notify"`
 }
 
 // ServerConfig 服务器配置。
@@ -58,6 +59,12 @@ type CronConfig struct {
 	Expression string `mapstructure:"expression" json:"expression" yaml:"expression"` // 如 "0 2 * * *"
 }
 
+// NotifyConfig 通知推送配置。
+type NotifyConfig struct {
+	Enabled bool   `mapstructure:"enabled"  json:"enabled"  yaml:"enabled"`
+	BarkURL string `mapstructure:"bark_url" json:"bark_url" yaml:"bark_url"` // Bark 推送地址，如 https://api.day.app/YOUR_KEY
+}
+
 // Manager 配置管理器，线程安全。
 type Manager struct {
 	mu       sync.RWMutex
@@ -89,6 +96,7 @@ func NewManager(configPath string) (*Manager, error) {
 	viper.SetDefault("cron.expression", "0 2 * * *")
 	viper.SetDefault("cron.enabled", false)
 	viper.SetDefault("encrypt.enabled", false)
+	viper.SetDefault("notify.enabled", false)
 
 	// 尝试读取已有配置
 	if err := viper.ReadInConfig(); err != nil {
@@ -148,6 +156,9 @@ func (m *Manager) Update(cfg AppConfig) error {
 
 	viper.Set("cron.enabled", cfg.Cron.Enabled)
 	viper.Set("cron.expression", cfg.Cron.Expression)
+
+	viper.Set("notify.enabled", cfg.Notify.Enabled)
+	viper.Set("notify.bark_url", cfg.Notify.BarkURL)
 
 	if err := viper.WriteConfig(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)

@@ -98,6 +98,22 @@
           </ul>
         </div>
       </button>
+
+      <button class="settings-card" @click="openSection('notify')">
+        <div class="settings-card-icon notify">
+          <LucideBell :size="28" />
+        </div>
+        <div class="settings-card-body">
+          <div class="settings-card-head">
+            <div>
+              <h2>推送通知</h2>
+              <span>Bark 通知</span>
+            </div>
+            <span :class="['card-badge', config.notify.enabled ? 'good' : 'neutral']">{{ config.notify.enabled ? '已启用' : '未启用' }}</span>
+          </div>
+          <p>{{ config.notify.enabled ? '备份成功/失败时推送通知到手机' : '启用后可接收备份结果推送' }}</p>
+        </div>
+      </button>
     </div>
 
     <div v-if="activeSection" class="settings-modal-overlay" @click.self="closeSection">
@@ -249,6 +265,31 @@
             <CronScheduler v-if="draftConfig.cron.enabled" v-model="draftConfig.cron.expression" />
           </template>
 
+          <template v-else-if="activeSection === 'notify'">
+            <div class="toggle-field" @click="draftConfig.notify.enabled = !draftConfig.notify.enabled">
+              <div class="toggle-info">
+                <span class="toggle-title">启用 Bark 推送通知</span>
+                <span class="toggle-desc">备份成功或失败时，通过 Bark 推送通知到你的 iPhone。</span>
+              </div>
+              <div :class="['switch', draftConfig.notify.enabled ? 'active' : '']">
+                <div class="thumb"></div>
+              </div>
+            </div>
+
+            <div v-if="draftConfig.notify.enabled" class="input-field">
+              <span class="input-label">Bark 推送地址</span>
+              <input class="input-control" v-model="draftConfig.notify.bark_url" type="text" placeholder="https://api.day.app/YOUR_DEVICE_KEY" />
+              <span class="input-hint">在 Bark App 中复制推送地址，格式如 https://api.day.app/xxxxxx</span>
+            </div>
+
+            <div v-if="draftConfig.notify.enabled && draftConfig.notify.bark_url" class="notify-test-row">
+              <button class="btn secondary" @click="testNotify" :disabled="isTestingNotify">
+                <LucideSend :size="16" />
+                {{ isTestingNotify ? '发送中...' : '发送测试通知' }}
+              </button>
+            </div>
+          </template>
+
           <p v-if="validationError" class="validation-error">{{ validationError }}</p>
         </div>
 
@@ -397,10 +438,12 @@ import {
   LucideX,
   LucideHardDrive,
   LucidePencil,
-  LucideCheck
+  LucideCheck,
+  LucideBell,
+  LucideSend
 } from 'lucide-vue-next'
 
-type SectionKey = 'webdav' | 'backup' | 'encrypt' | 'automation'
+type SectionKey = 'webdav' | 'backup' | 'encrypt' | 'automation' | 'notify'
 type LocalField = 'library_dir' | 'backups_dir'
 
 const createDefaultConfig = (): AppConfig => ({
@@ -430,6 +473,10 @@ const createDefaultConfig = (): AppConfig => ({
     enabled: true,
     expression: '0 3 * * *',
   },
+  notify: {
+    enabled: false,
+    bark_url: '',
+  },
 })
 
 const cloneConfig = (value: AppConfig): AppConfig => JSON.parse(JSON.stringify(value)) as AppConfig
@@ -442,6 +489,7 @@ const activeSection = ref<SectionKey | null>(null)
 const isRefreshing = ref(false)
 const isSaving = ref(false)
 const isTesting = ref(false)
+const isTestingNotify = ref(false)
 const testResult = ref('')
 const testSuccess = ref(false)
 const validationError = ref('')
@@ -466,6 +514,11 @@ const sectionMeta: Record<SectionKey, { title: string; kicker: string; descripti
     title: '定时任务与访问保护',
     kicker: '自动化与安全',
     description: '管理自动备份计划，以及后台的访问鉴权。',
+  },
+  notify: {
+    title: '推送通知',
+    kicker: 'Bark 通知',
+    description: '备份完成或失败时，通过 Bark 推送通知到手机。',
   },
 }
 
@@ -625,6 +678,22 @@ const requiresAuthRefresh = (previous: AppConfig, next: AppConfig) => {
   const nextPassword = (next.server.auth_password ?? '').trim()
   const previousPassword = (previous.server.auth_password ?? '').trim()
   return nextPassword !== '' && nextPassword !== previousPassword
+}
+
+const testNotify = async () => {
+  isTestingNotify.value = true
+  try {
+    // 先保存当前配置以确保后端有最新的 Bark 地址
+    await api.saveConfig(draftConfig.value)
+    Object.assign(config, cloneConfig(draftConfig.value))
+    await api.testNotify()
+    showToast('success', '测试通知已发送', '请检查你的 Bark App 是否收到通知')
+  } catch (error) {
+    if (handleAuthFailure(error)) return
+    showToast('error', '发送失败', getErrorMessage(error))
+  } finally {
+    isTestingNotify.value = false
+  }
 }
 
 const saveSection = async () => {
@@ -977,6 +1046,29 @@ const confirmRemoteFolder = () => {
 .settings-card-icon.automation {
   color: #8b5cf6;
   background: rgba(139, 92, 246, 0.1);
+}
+
+.settings-card-icon.notify {
+  color: #ec4899;
+  background: rgba(236, 72, 153, 0.1);
+}
+
+.notify-test-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.notify-test-row .btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.input-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
 }
 
 .settings-card-body {

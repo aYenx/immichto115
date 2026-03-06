@@ -13,6 +13,7 @@ import (
 
 	"github.com/aYenx/immichto115/internal/config"
 	appCron "github.com/aYenx/immichto115/internal/cron"
+	"github.com/aYenx/immichto115/internal/notify"
 	"github.com/aYenx/immichto115/internal/rclone"
 	"github.com/gin-gonic/gin"
 )
@@ -70,6 +71,7 @@ func (s *Server) triggerBackup() {
 	if err != nil {
 		log.Printf("[backup] failed to generate rclone.conf: %v", err)
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] failed to generate rclone config: " + err.Error()})
+		s.sendBackupNotify(cfg, false, "生成 rclone 配置失败")
 		return
 	}
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] rclone 配置生成完成，开始执行同步任务"})
@@ -104,6 +106,7 @@ func (s *Server) triggerBackup() {
 		if err != nil {
 			log.Printf("[backup] failed to start library backup: %v", err)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 无法启动照片库备份: " + err.Error()})
+			s.sendBackupNotify(cfg, false, "照片库备份启动失败")
 			return
 		}
 		s.Hub.BroadcastFromChannel(logCh) // 阻塞直到完成
@@ -133,6 +136,7 @@ func (s *Server) triggerBackup() {
 		if err != nil {
 			log.Printf("[backup] failed to start backups backup: %v", err)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 无法启动数据库备份目录同步: " + err.Error()})
+			s.sendBackupNotify(cfg, false, "数据库备份启动失败")
 			return
 		}
 		s.Hub.BroadcastFromChannel(logCh) // 阻塞直到完成
@@ -151,6 +155,7 @@ func (s *Server) triggerBackup() {
 	}
 
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 所有备份阶段执行完毕"})
+	s.sendBackupNotify(cfg, true, "")
 }
 
 func (s *Server) beginBackupJob() (context.Context, bool) {
@@ -261,6 +266,9 @@ func (s *Server) SetupRouter() *gin.Engine {
 
 		// 本地文件浏览 (向导路径选择)
 		v1.GET("/local/ls", s.handleLocalList)
+
+		// 通知测试
+		v1.POST("/notify/test", s.handleNotifyTest)
 	}
 
 	// --- WebSocket ---
@@ -596,4 +604,27 @@ func (s *Server) handleLocalList(c *gin.Context) {
 	}
 
 	c.Data(http.StatusOK, "application/json", out)
+}
+
+// sendBackupNotify 在备份完成时发送 Bark 推送通知。
+func (s *Server) sendBackupNotify(cfg config.AppConfig, success bool, detail string) {
+	if !cfg.Notify.Enabled || cfg.Notify.BarkURL == "" {
+		return
+	}
+	go notify.NotifyBackupResult(cfg.Notify.BarkURL, success, detail)
+}
+
+// handleNotifyTest 测试 Bark 推送通知。
+func (s *Server) handleNotifyTest(c *gin.Context) {
+	cfg := s.Config.Get()
+	if !cfg.Notify.Enabled || cfg.Notify.BarkURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "通知未启用或 Bark 地址为空，请先保存通知配置"})
+		return
+	}
+	err := notify.SendBark(cfg.Notify.BarkURL, "🔔 测试通知", "ImmichTo115 通知服务连接正常")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "推送失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "测试通知已发送"})
 }

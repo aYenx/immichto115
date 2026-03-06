@@ -24,20 +24,20 @@ Go 后端 + Vue 3 前端，编译为**单个二进制文件**，开箱即用。
 
 ### Docker Compose
 
-| 操作 | 命令 |
-| --- | --- |
-| 安装 | `docker compose up -d` |
+| 操作 | 命令                                          |
+| ---- | --------------------------------------------- |
+| 安装 | `docker compose up -d`                        |
 | 更新 | `docker compose pull && docker compose up -d` |
-| 卸载 | `docker compose down --rmi all` |
+| 卸载 | `docker compose down --rmi all`               |
 
 > 首次安装前，请先按下方 `docker-compose.yml` 示例创建并修改挂载路径。更新不会删除 `./config` 中的配置文件。
 
 ### 一键安装（Linux / systemd）
 
-| 操作 | 命令 |
-| --- | --- |
-| 安装 | `curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/install.sh | sudo bash` |
-| 更新 | `curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/install.sh | sudo bash` |
+| 操作 | 命令                                                                                       |
+| ---- | ------------------------------------------------------------------------------------------ | ---------- |
+| 安装 | `curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/install.sh   | sudo bash` |
+| 更新 | `curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/install.sh   | sudo bash` |
 | 卸载 | `curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uninstall.sh | sudo bash` |
 
 > 一键安装的“更新”会重新下载最新发布版二进制并覆盖安装，保留现有 `config.yaml` 配置。
@@ -46,16 +46,17 @@ Go 后端 + Vue 3 前端，编译为**单个二进制文件**，开箱即用。
 
 ## ✨ 功能特性
 
-|     | 功能                 | 说明                                                   |
-| :-: | -------------------- | ------------------------------------------------------ |
-| 🧙  | **Setup Wizard**     | 4 步引导式配置 — WebDAV 连接、备份路径、加密、定时任务 |
-| 📡  | **实时日志**         | WebSocket 推送 Rclone 备份输出，秒级可观测             |
-| ⏰  | **定时备份**         | 可视化 Cron 调度器：每日 / 每周 / 间隔 / 自定义表达式  |
-| 🔐  | **加密传输**         | 可选 Rclone Crypt，数据在云端始终加密存储              |
-| 🛡️  | **访问保护**         | 可选管理员账号密码，保护 Web UI / API / WebSocket      |
-| 📂  | **Restore Explorer** | 浏览云端备份文件，支持透明解密查看与批量选择           |
-| 📦  | **单文件部署**       | 前端资源 `go:embed` 内嵌，零外部依赖                   |
-| 🏗️  | **多架构**           | `linux/amd64` + `linux/arm64` 双架构构建               |
+|     | 功能                 | 说明                                                                  |
+| :-: | -------------------- | --------------------------------------------------------------------- |
+| 🧙  | **Setup Wizard**     | 4 步引导式配置 — WebDAV 连接、备份路径、加密、定时任务                |
+| 📡  | **实时日志**         | WebSocket 推送 Rclone 备份输出，秒级可观测                            |
+| ⏰  | **定时备份**         | 可视化 Cron 调度器：每日 / 每周 / 间隔 / 自定义表达式                 |
+| 🔄  | **备份模式**         | 增量备份 (copy) 或镜像同步 (sync)，可在设置页自由切换                 |
+| 🔐  | **加密传输**         | 可选 Rclone Crypt，数据在云端始终加密存储                             |
+| 🛡️  | **访问保护**         | 可选管理员账号密码，保护 Web UI / API / WebSocket；更改后自动刷新验证 |
+| 📂  | **Restore Explorer** | 浏览云端备份文件，支持透明解密查看与批量选择                          |
+| 📦  | **单文件部署**       | 前端资源 `go:embed` 内嵌，零外部依赖                                  |
+| 🏗️  | **多架构**           | `linux/amd64` + `linux/arm64` 双架构构建                              |
 
 ---
 
@@ -150,15 +151,16 @@ docker compose up -d --build
 
 首次访问 Web UI 会进入 **Setup Wizard**，配置完成后自动生成 `config.yaml`。
 
-| 配置项               | 说明                                           | 必填 |
-| -------------------- | ---------------------------------------------- | :--: |
-| WebDAV URL           | 115 网盘 WebDAV 地址                           |  ✅  |
-| WebDAV 用户名 / 密码 | 登录凭据                                       |  ✅  |
-| 照片库路径           | Immich 照片存储目录                            |  ✅  |
-| 数据库备份路径       | Immich DB dump 目录                            |  ✅  |
-| Cron 表达式          | 定时备份周期（如 `0 3 * * *` = 每天凌晨 3 点） |  ✅  |
-| 加密密码             | Rclone Crypt 加密口令                          |  ⬜  |
-| 管理员账号 / 密码    | HTTP Basic Auth 保护界面与 API                 |  ⬜  |
+| 配置项               | 说明                                                          | 必填 |
+| -------------------- | ------------------------------------------------------------- | :--: |
+| WebDAV URL           | 115 网盘 WebDAV 地址                                          |  ✅  |
+| WebDAV 用户名 / 密码 | 登录凭据                                                      |  ✅  |
+| 照片库路径           | Immich 照片存储目录                                           |  ✅  |
+| 数据库备份路径       | Immich DB dump 目录                                           |  ✅  |
+| 备份模式             | `copy`（增量，默认）或 `sync`（镜像同步，会删除远端多余文件） |  ⬜  |
+| Cron 表达式          | 定时备份周期（如 `0 3 * * *` = 每天凌晨 3 点）                |  ✅  |
+| 加密密码             | Rclone Crypt 加密口令                                         |  ⬜  |
+| 管理员账号 / 密码    | HTTP Basic Auth 保护界面与 API                                |  ⬜  |
 
 > [!IMPORTANT]
 > 建议限制 `config/` 目录访问权限（`chmod 700`），避免敏感配置被其他用户读取。
