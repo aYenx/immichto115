@@ -52,6 +52,7 @@ Go 后端 + Vue 3 前端，编译为**单个二进制文件**，开箱即用。
 | 📡  | **实时日志**         | WebSocket 推送 Rclone 备份输出，秒级可观测                            |
 | ⏰  | **定时备份**         | 可视化 Cron 调度器：每日 / 每周 / 间隔 / 自定义表达式                 |
 | 🔄  | **备份模式**         | 增量备份 (copy) 或镜像同步 (sync)，可在设置页自由切换                 |
+| 🔔  | **Bark 推送通知**    | 备份成功/失败时推送通知到 iPhone，支持在设置页一键测试                |
 | 🔐  | **加密传输**         | 可选 Rclone Crypt，数据在云端始终加密存储                             |
 | 🛡️  | **访问保护**         | 可选管理员账号密码，保护 Web UI / API / WebSocket；更改后自动刷新验证 |
 | 📂  | **Restore Explorer** | 浏览云端备份文件，支持透明解密查看与批量选择                          |
@@ -161,6 +162,7 @@ docker compose up -d --build
 | Cron 表达式          | 定时备份周期（如 `0 3 * * *` = 每天凌晨 3 点）                |  ✅  |
 | 加密密码             | Rclone Crypt 加密口令                                         |  ⬜  |
 | 管理员账号 / 密码    | HTTP Basic Auth 保护界面与 API                                |  ⬜  |
+| Bark 推送地址        | 如 `https://api.day.app/YOUR_KEY`，备份结果推送到 iPhone      |  ⬜  |
 
 > [!IMPORTANT]
 > 建议限制 `config/` 目录访问权限（`chmod 700`），避免敏感配置被其他用户读取。
