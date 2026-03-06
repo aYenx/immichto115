@@ -3,6 +3,7 @@ package rclone
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -15,6 +16,9 @@ type LogLine struct {
 	Stream string `json:"stream"` // "stdout" 或 "stderr"
 	Text   string `json:"text"`
 }
+
+// ErrCancelled 表示任务被用户主动停止。
+var ErrCancelled = errors.New("cancelled")
 
 // Runner 管理 Rclone 子进程的生命周期。
 type Runner struct {
@@ -150,7 +154,7 @@ func (r *Runner) Run(mode, source, dest string, flags []string, configPath strin
 			// context 取消不算错误（手动停止）
 			if ctx.Err() != nil {
 				logCh <- LogLine{Stream: "stderr", Text: "[immichto115] rclone 进程已收到停止信号，正在安全退出"}
-				errCh <- fmt.Errorf("cancelled")
+				errCh <- ErrCancelled
 			} else {
 				logCh <- LogLine{Stream: "stderr", Text: fmt.Sprintf("[immichto115] rclone exited with error: %v", exitErr)}
 				errCh <- exitErr
