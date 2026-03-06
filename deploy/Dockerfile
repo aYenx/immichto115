@@ -44,15 +44,16 @@ RUN apk add --no-cache \
     tzdata \
     curl \
     unzip \
-    fuse3 \
-    && ARCH=$(uname -m) \
-    && case "$ARCH" in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; esac \
-    && echo "Downloading rclone v${RCLONE_VERSION} for linux/${ARCH}..." \
-    && curl -fsSL -o rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-${ARCH}.zip" \
-    && unzip rclone.zip \
-    && cp "rclone-v${RCLONE_VERSION}-linux-${ARCH}/rclone" /usr/local/bin/ \
+    fuse3
+
+# 安装 Rclone（自动检测 amd64/arm64）
+RUN ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') \
+    && echo "Installing rclone v${RCLONE_VERSION} for linux/${ARCH}..." \
+    && curl -fsSL -o /tmp/rclone.zip \
+       "https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-${ARCH}.zip" \
+    && unzip -j /tmp/rclone.zip '*/rclone' -d /usr/local/bin/ \
     && chmod +x /usr/local/bin/rclone \
-    && rm -rf rclone-* rclone.zip \
+    && rm -f /tmp/rclone.zip \
     && rclone version
 
 # 创建应用目录和数据挂载点
