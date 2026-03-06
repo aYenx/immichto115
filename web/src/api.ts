@@ -58,6 +58,11 @@ export interface NotifyConfig {
   bark_url: string
 }
 
+export interface WebDAVTestResponse {
+  success: boolean
+  message: string
+}
+
 export interface SystemStatus {
   rclone_installed: boolean
   rclone_version: string
@@ -159,8 +164,8 @@ export const api = {
     })
   },
 
-  testWebDAV: async (data: { url: string; user: string; password: string }): Promise<{ success: boolean; message: string }> => {
-    return await requestJSON<{ success: boolean; message: string }>(`${BASE_URL}/webdav/test`, {
+  testWebDAV: async (data: { url: string; user: string; password: string }): Promise<WebDAVTestResponse> => {
+    return await requestJSON<WebDAVTestResponse>(`${BASE_URL}/webdav/test`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
 	"log"
 	"net/http"
 	"os/exec"
@@ -111,6 +112,11 @@ func (s *Server) triggerBackup() {
 		}
 		s.Hub.BroadcastFromChannel(logCh) // 阻塞直到完成
 		if runErr := <-errCh; runErr != nil {
+			if errors.Is(runErr, rclone.ErrCancelled) {
+				log.Printf("[backup] library backup cancelled by user")
+				s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 照片库备份已手动停止"})
+				return
+			}
 			log.Printf("[backup] library backup failed: %v", runErr)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 照片库备份失败: " + runErr.Error()})
 			s.sendBackupNotify(cfg, false, "照片库备份失败")
@@ -147,6 +153,11 @@ func (s *Server) triggerBackup() {
 		}
 		s.Hub.BroadcastFromChannel(logCh) // 阻塞直到完成
 		if runErr := <-errCh; runErr != nil {
+			if errors.Is(runErr, rclone.ErrCancelled) {
+				log.Printf("[backup] backups backup cancelled by user")
+				s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 数据库备份已手动停止"})
+				return
+			}
 			log.Printf("[backup] backups backup failed: %v", runErr)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 数据库备份失败: " + runErr.Error()})
 			s.sendBackupNotify(cfg, false, "数据库备份失败")

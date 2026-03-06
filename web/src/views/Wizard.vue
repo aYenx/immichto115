@@ -552,11 +552,16 @@ const testConnection = async () => {
   testResult.value = '测试中...'
   testSuccess.value = false
   try {
-    await api.testWebDAV({
+    const result = await api.testWebDAV({
       url: config.webdav.url,
       user: config.webdav.user,
       password: config.webdav.password
     })
+
+    if (!result.success) {
+      throw new Error(result.message || 'WebDAV 连接失败')
+    }
+
     testSuccess.value = true
     testResult.value = '连接成功!'
     showToast('success', '连接成功', 'WebDAV 已通过测试，可以继续下一步配置。')
