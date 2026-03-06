@@ -44,6 +44,7 @@ RUN apk add --no-cache \
     ca-certificates \
     tzdata \
     fuse3 \
+    curl \
     rclone
 
 RUN rclone version
