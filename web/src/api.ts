@@ -50,6 +50,12 @@ export interface AppConfig {
   backup: BackupConfig
   encrypt: EncryptConfig
   cron: CronConfig
+  notify: NotifyConfig
+}
+
+export interface NotifyConfig {
+  enabled: boolean
+  bark_url: string
 }
 
 export interface SystemStatus {
@@ -187,5 +193,9 @@ export const api = {
       params.append('path', path)
     }
     return await requestJSON<DirEntry[]>(`${BASE_URL}/local/ls?${params.toString()}`)
+  },
+
+  testNotify: async (): Promise<{ message: string }> => {
+    return await requestJSON<{ message: string }>(`${BASE_URL}/notify/test`, { method: 'POST' })
   }
 }
