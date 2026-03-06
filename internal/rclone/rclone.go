@@ -156,17 +156,35 @@ func (r *Runner) RunSync(source, dest string, flags []string, configPath string)
 	return logCh, nil
 }
 
-// GetVersion 获取系统上安装的 Rclone 版本号。
+// 缓存 rclone 版本信息，避免每次请求都启动子进程
+var (
+	versionOnce   sync.Once
+	cachedVersion string
+	cachedVerErr  error
+)
+
+// GetVersion 获取系统上安装的 Rclone 版本号（结果会缓存，只执行一次子进程）。
 func GetVersion() (string, error) {
-	out, err := exec.Command("rclone", "version", "--check").CombinedOutput()
-	if err != nil {
-		// 回退：尝试不带 --check
-		out, err = exec.Command("rclone", "version").CombinedOutput()
+	versionOnce.Do(func() {
+		out, err := exec.Command("rclone", "version", "--check").CombinedOutput()
 		if err != nil {
-			return "", fmt.Errorf("rclone not found or failed: %w", err)
+			// 回退：尝试不带 --check
+			out, err = exec.Command("rclone", "version").CombinedOutput()
+			if err != nil {
+				cachedVerErr = fmt.Errorf("rclone not found or failed: %w", err)
+				return
+			}
 		}
-	}
-	return string(out), nil
+		cachedVersion = string(out)
+	})
+	return cachedVersion, cachedVerErr
+}
+
+// ResetVersionCache 清除版本缓存，下次调用 GetVersion 时重新检测。
+func ResetVersionCache() {
+	versionOnce = sync.Once{}
+	cachedVersion = ""
+	cachedVerErr = nil
 }
 
 // isProgressNoise 判断一行是否是重复的进度统计信息。
