@@ -219,7 +219,7 @@
             <div class="toggle-field" @click="draftConfig.server.auth_enabled = !draftConfig.server.auth_enabled">
               <div class="toggle-info">
                 <span class="toggle-title">启用访问保护</span>
-                <span class="toggle-desc">开启后，进入管理页面、调用接口和查看实时日志都需要管理员账号密码，适合部署到局域网或公网时使用。</span>
+                <span class="toggle-desc">开启后，管理页面、接口和实时日志都会受管理员账号密码保护；保存后会立即重新验证身份。</span>
               </div>
               <div :class="['switch', draftConfig.server.auth_enabled ? 'active' : '']">
                 <div class="thumb"></div>
@@ -617,6 +617,16 @@ const validateSection = (section: SectionKey): string | null => {
   return null
 }
 
+const requiresAuthRefresh = (previous: AppConfig, next: AppConfig) => {
+  if (!previous.server.auth_enabled && !next.server.auth_enabled) return false
+  if (previous.server.auth_enabled !== next.server.auth_enabled) return true
+  if (previous.server.auth_user !== next.server.auth_user) return true
+
+  const nextPassword = (next.server.auth_password ?? '').trim()
+  const previousPassword = (previous.server.auth_password ?? '').trim()
+  return nextPassword !== '' && nextPassword !== previousPassword
+}
+
 const saveSection = async () => {
   if (!activeSection.value) return
 
@@ -628,9 +638,19 @@ const saveSection = async () => {
 
   validationError.value = ''
   isSaving.value = true
+  const authRefreshNeeded = requiresAuthRefresh(config, draftConfig.value)
   try {
     await api.saveConfig(draftConfig.value)
     Object.assign(config, cloneConfig(draftConfig.value))
+
+    if (authRefreshNeeded) {
+      showToast('info', '正在重新验证身份', '访问保护配置已更新，页面将立即刷新。', 1200)
+      window.setTimeout(() => {
+        window.location.replace(window.location.pathname || '/')
+      }, 180)
+      return
+    }
+
     await refreshConfig()
     closeSection()
     showToast('success', '保存成功', '配置已更新，新的状态摘要已经同步刷新。')
