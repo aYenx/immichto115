@@ -2,44 +2,37 @@
   <div class="explore-container">
     <div class="header">
       <div class="title-group">
-        <h1>恢复照片</h1>
-        <p>浏览并恢复云端备份的文件数据</p>
+        <h1>云端文件浏览</h1>
+        <p>浏览云端备份的文件与目录结构（恢复功能开发中）</p>
       </div>
       <div class="actions">
         <button class="btn secondary" @click="fetchList" :disabled="isLoading">
           <LucideRefreshCw :size="16" :class="{ 'spin': isLoading }" />
           刷新列表
         </button>
-        <button class="btn primary" :disabled="selectedFiles.length === 0" @click="batchRestore">
-          <LucideDownloadCloud :size="16" />
-          批量恢复 ({{ selectedFiles.length }})
-        </button>
       </div>
     </div>
 
     <div class="explorer-card">
-      <div class="breadcrumb">
-        <div class="path-item" @click="navigateTo('')" :class="{ active: currentPath === '' }">
+      <nav class="breadcrumb" aria-label="目录导航">
+        <div class="path-item" role="button" tabindex="0" @click="navigateTo('')" @keydown.enter="navigateTo('')" :class="{ active: currentPath === '' }">
           <LucideCloud :size="16" />
           <span>根目录</span>
         </div>
         <template v-for="(segment, idx) in breadcrumbs" :key="idx">
-          <LucideChevronRight :size="16" class="separator" />
-          <div class="path-item" @click="navigateTo(segment.path)" :class="{ active: idx === breadcrumbs.length - 1 }">
+          <LucideChevronRight :size="16" class="separator" aria-hidden="true" />
+          <div class="path-item" role="button" tabindex="0" @click="navigateTo(segment.path)" @keydown.enter="navigateTo(segment.path)" :class="{ active: idx === breadcrumbs.length - 1 }">
             <span>{{ segment.name }}</span>
           </div>
         </template>
-      </div>
+      </nav>
 
       <div class="file-table">
         <div class="table-header">
-          <div class="col-checkbox">
-            <input type="checkbox" class="cb-input" v-model="isAllSelected" />
-          </div>
-          <div class="col-name">名称</div>
+          <div class="col-name" style="padding-left: 16px;">名称</div>
           <div class="col-size">大小</div>
           <div class="col-date">修改日期</div>
-          <div class="col-actions">操作</div>
+          <div class="col-actions"></div>
         </div>
 
         <div class="table-body">
@@ -55,10 +48,7 @@
           
           <template v-else>
             <div class="table-row folder" v-for="folder in folders" :key="folder.Name" @click="navigateToFolder(folder.Name)">
-              <div class="col-checkbox" @click.stop>
-                <input type="checkbox" class="cb-input" />
-              </div>
-              <div class="col-name">
+              <div class="col-name" style="padding-left: 16px;">
                 <LucideFolder :size="20" class="icon text-blue" />
                 <span>{{ folder.Name }}</span>
               </div>
@@ -70,10 +60,7 @@
             </div>
 
             <div class="table-row file" v-for="file in files" :key="file.Name">
-              <div class="col-checkbox">
-                <input type="checkbox" class="cb-input" v-model="selectedFiles" :value="file.Name" />
-              </div>
-              <div class="col-name">
+              <div class="col-name" style="padding-left: 16px;">
                 <LucideImage :size="20" class="icon text-gray" v-if="isImage(file.Name)" />
                 <LucideFileJson :size="20" class="icon text-yellow" v-else-if="isJson(file.Name)" />
                 <LucideFile :size="20" class="icon text-gray" v-else />
@@ -81,9 +68,7 @@
               </div>
               <div class="col-size">{{ formatSize(file.Size ?? 0) }}</div>
               <div class="col-date">{{ formatDate(file.ModTime ?? '') }}</div>
-              <div class="col-actions">
-                <button class="action-btn" @click.stop="downloadFile(file)"><LucideDownload :size="18" /></button>
-              </div>
+              <div class="col-actions"></div>
             </div>
           </template>
         </div>
@@ -96,30 +81,21 @@
 import { ref, computed, onMounted } from 'vue'
 import { 
   LucideRefreshCw, 
-  LucideDownloadCloud, 
   LucideCloud, 
   LucideChevronRight, 
   LucideFolder, 
   LucideFolderOpen,
   LucideImage, 
   LucideFile,
-  LucideFileJson,
-  LucideDownload
+  LucideFileJson
 } from 'lucide-vue-next'
 import { api, getErrorMessage, handleAuthFailure, type DirEntry } from '../api'
 import { showToast } from '../composables/toast'
 
-const selectedFiles = ref<string[]>([])
 const currentPath = ref('')
 const isLoading = ref(false)
 const items = ref<DirEntry[]>([])
 
-const isAllSelected = computed({
-  get: () => files.value.length > 0 && selectedFiles.value.length === files.value.length,
-  set: (val: boolean) => {
-    selectedFiles.value = val ? files.value.map(f => f.Name) : []
-  }
-})
 
 const breadcrumbs = computed(() => {
   if (!currentPath.value) return []
@@ -137,7 +113,6 @@ const files = computed(() => items.value.filter(i => !i.IsDir).sort((a, b) => a.
 
 const fetchList = async () => {
   isLoading.value = true
-  selectedFiles.value = []
   try {
     const data = await api.listRemote('/' + currentPath.value)
     items.value = Array.isArray(data) ? data : []
@@ -163,13 +138,6 @@ const navigateToFolder = (folderName: string) => {
   }
 }
 
-const downloadFile = (file: any) => {
-  showToast('info', '暂不支持单文件下载', `后端尚未提供单独文件的直接下载接口，文件：${file.Name}`)
-}
-
-const batchRestore = () => {
-  showToast('info', '恢复接口暂未开放', `当前选中了 ${selectedFiles.value.length} 个文件，但后端还没有批量恢复接口。`)
-}
 
 const formatDate = (dateStr: string) => {
   if (!dateStr) return '--'

@@ -1,9 +1,9 @@
 <template>
-  <div v-if="toastState.visible" class="toast-wrap">
+  <div v-if="toastState.visible" class="toast-wrap" role="alert" aria-live="assertive">
     <div :class="['toast-card', toastState.tone]">
       <div class="toast-title-row">
         <strong>{{ toastState.title }}</strong>
-        <button class="toast-close" @click="hideToast">×</button>
+        <button class="toast-close" @click="hideToast" aria-label="关闭通知">×</button>
       </div>
       <p>{{ toastState.message }}</p>
     </div>

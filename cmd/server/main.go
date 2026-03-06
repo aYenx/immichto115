@@ -10,22 +10,31 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/gin-gonic/gin"
 	"github.com/aYenx/immichto115/internal/api"
 	"github.com/aYenx/immichto115/internal/config"
+	"github.com/gin-gonic/gin"
 )
 
 //go:embed all:dist
 var staticFS embed.FS
 
+// version 由构建时 -ldflags "-X main.version=vX.Y.Z" 注入
+var version = "dev"
+
 func main() {
 	// 命令行参数
 	configPath := flag.String("config", "", "config file path (default: ./config/config.yaml)")
 	port := flag.Int("port", 0, "server listen port (overrides config)")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
+	if *showVersion {
+		fmt.Println(version)
+		os.Exit(0)
+	}
+
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	log.Println("[immichto115] starting...")
+	log.Printf("[immichto115] starting (version: %s)...", version)
 
 	// 确定配置文件路径
 	cfgPath := *configPath
