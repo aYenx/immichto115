@@ -7,7 +7,7 @@ FROM node:20-alpine AS frontend-builder
 WORKDIR /build/web
 COPY web/package.json web/package-lock.json* ./
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci
+    npm ci --include=dev
 
 COPY web/ ./
 RUN npm run build
