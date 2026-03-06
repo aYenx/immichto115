@@ -333,6 +333,7 @@ import { ref, computed, onMounted, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { LucideCheck, LucideFolder, LucideFolderOpen, LucideX, LucideHardDrive, LucidePencil, LucideLoader2, LucideCornerLeftUp } from 'lucide-vue-next'
 import { api, getErrorMessage, handleAuthFailure, type AppConfig, type DirEntry } from '../api'
+import { showToast } from '../composables/toast'
 import { markSetupComplete } from '../router'
 import CronScheduler from '../components/CronScheduler.vue'
 
@@ -582,10 +583,12 @@ const testConnection = async () => {
     })
     testSuccess.value = true
     testResult.value = '连接成功!'
+    showToast('success', '连接成功', 'WebDAV 已通过测试，可以继续下一步配置。')
   } catch (err: any) {
     if (handleAuthFailure(err)) return
     testSuccess.value = false
     testResult.value = '连接失败: ' + getErrorMessage(err)
+    showToast('error', '连接失败', getErrorMessage(err))
   } finally {
     isTesting.value = false
   }
@@ -597,12 +600,12 @@ const finishSetup = async () => {
     await api.saveConfig(config)
     markSetupComplete()
     if (isSettingsMode.value) {
-      alert('配置已保存')
+      showToast('success', '保存成功', '配置已保存并立即生效。')
     }
     router.replace('/dashboard')
   } catch (err: any) {
     if (handleAuthFailure(err)) return
-    alert('保存失败: ' + getErrorMessage(err))
+    showToast('error', '保存失败', getErrorMessage(err))
   } finally {
     isSaving.value = false
   }

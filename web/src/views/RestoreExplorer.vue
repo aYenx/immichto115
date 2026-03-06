@@ -103,6 +103,7 @@ import {
   LucideDownload
 } from 'lucide-vue-next'
 import { api, getErrorMessage, handleAuthFailure, type DirEntry } from '../api'
+import { showToast } from '../composables/toast'
 
 const selectedFiles = ref<string[]>([])
 const currentPath = ref('')
@@ -138,7 +139,7 @@ const fetchList = async () => {
     items.value = Array.isArray(data) ? data : []
   } catch (err: any) {
     if (handleAuthFailure(err)) return
-    alert('请求文件列表失败: ' + getErrorMessage(err))
+    showToast('error', '请求文件列表失败', getErrorMessage(err))
     items.value = []
   } finally {
     isLoading.value = false
@@ -159,11 +160,11 @@ const navigateToFolder = (folderName: string) => {
 }
 
 const downloadFile = (file: any) => {
-  alert(`后端尚未提供单独文件的直接下载接口，文件: ${file.Name}`)
+  showToast('info', '暂不支持单文件下载', `后端尚未提供单独文件的直接下载接口，文件：${file.Name}`)
 }
 
 const batchRestore = () => {
-  alert(`尝试恢复选中的 ${selectedFiles.value.length} 个文件。后端暂无处理该请求的接口。`)
+  showToast('info', '恢复接口暂未开放', `当前选中了 ${selectedFiles.value.length} 个文件，但后端还没有批量恢复接口。`)
 }
 
 const formatDate = (dateStr: string) => {

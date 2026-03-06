@@ -105,6 +105,7 @@ import {
   LucideTrash2
 } from 'lucide-vue-next'
 import { api, getErrorMessage, handleAuthFailure, type SystemStatus } from '../api'
+import { showToast } from '../composables/toast'
 
 const MAX_LOGS = 200
 let logIdCounter = 0
@@ -177,7 +178,7 @@ const startBackup = async () => {
     await fetchStatus()
   } catch (err: any) {
     if (handleAuthFailure(err)) return
-    alert(getErrorMessage(err))
+    showToast('error', '启动备份失败', getErrorMessage(err))
   }
 }
 
@@ -187,7 +188,7 @@ const stopBackup = async () => {
     await fetchStatus()
   } catch (err: any) {
     if (handleAuthFailure(err)) return
-    alert(getErrorMessage(err))
+    showToast('error', '停止备份失败', getErrorMessage(err))
   }
 }
 

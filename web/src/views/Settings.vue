@@ -1,0 +1,1189 @@
+<template>
+  <div class="settings-page">
+    <div class="settings-hero">
+      <div>
+        <p class="settings-eyebrow">Settings</p>
+        <h1 class="settings-title">配置中心</h1>
+        <p class="settings-subtitle">把常用配置拆成四个模块，按需打开弹窗编辑，避免沿用首次引导流程。</p>
+        <div class="settings-status-strip">
+          <span :class="['status-chip', systemStatus?.rclone_installed ? 'healthy' : 'warning']">
+            {{ systemStatus?.rclone_installed ? 'Rclone 已就绪' : 'Rclone 未安装' }}
+          </span>
+          <span :class="['status-chip', systemStatus?.backup_status === 'running' ? 'info' : 'neutral']">
+            {{ systemStatus?.backup_status === 'running' ? '备份进行中' : '当前空闲' }}
+          </span>
+          <span :class="['status-chip', systemStatus?.cron_enabled ? 'healthy' : 'warning']">
+            {{ systemStatus?.cron_enabled ? '自动备份已开启' : '自动备份未开启' }}
+          </span>
+        </div>
+      </div>
+      <button class="btn secondary" @click="refreshConfig" :disabled="isRefreshing">
+        {{ isRefreshing ? '刷新中...' : '刷新配置' }}
+      </button>
+    </div>
+
+    <div class="settings-grid">
+      <button class="settings-card" @click="openSection('webdav')">
+        <div class="settings-card-icon">🌐</div>
+        <div class="settings-card-body">
+          <div class="settings-card-head">
+            <div>
+              <h2>WebDAV 与远端目录</h2>
+              <span>连接配置</span>
+            </div>
+            <span :class="['card-badge', webdavCardState.tone]">{{ webdavCardState.label }}</span>
+          </div>
+          <p>{{ webdavSummary }}</p>
+          <ul class="settings-card-signals">
+            <li v-for="signal in webdavSignals" :key="signal">{{ signal }}</li>
+          </ul>
+        </div>
+      </button>
+
+      <button class="settings-card" @click="openSection('backup')">
+        <div class="settings-card-icon">📁</div>
+        <div class="settings-card-body">
+          <div class="settings-card-head">
+            <div>
+              <h2>备份路径</h2>
+              <span>本地数据源</span>
+            </div>
+            <span :class="['card-badge', backupCardState.tone]">{{ backupCardState.label }}</span>
+          </div>
+          <p>{{ backupSummary }}</p>
+          <ul class="settings-card-signals">
+            <li v-for="signal in backupSignals" :key="signal">{{ signal }}</li>
+          </ul>
+        </div>
+      </button>
+
+      <button class="settings-card" @click="openSection('encrypt')">
+        <div class="settings-card-icon">🔐</div>
+        <div class="settings-card-body">
+          <div class="settings-card-head">
+            <div>
+              <h2>加密配置</h2>
+              <span>传输保护</span>
+            </div>
+            <span :class="['card-badge', encryptCardState.tone]">{{ encryptCardState.label }}</span>
+          </div>
+          <p>{{ encryptSummary }}</p>
+          <ul class="settings-card-signals">
+            <li v-for="signal in encryptSignals" :key="signal">{{ signal }}</li>
+          </ul>
+        </div>
+      </button>
+
+      <button class="settings-card" @click="openSection('automation')">
+        <div class="settings-card-icon">⏰</div>
+        <div class="settings-card-body">
+          <div class="settings-card-head">
+            <div>
+              <h2>定时任务与访问保护</h2>
+              <span>自动化与安全</span>
+            </div>
+            <span :class="['card-badge', automationCardState.tone]">{{ automationCardState.label }}</span>
+          </div>
+          <p>{{ automationSummary }}</p>
+          <ul class="settings-card-signals">
+            <li v-for="signal in automationSignals" :key="signal">{{ signal }}</li>
+          </ul>
+        </div>
+      </button>
+    </div>
+
+    <div v-if="activeSection" class="settings-modal-overlay" @click.self="closeSection">
+      <div class="settings-modal-card">
+        <div class="settings-modal-header">
+          <div>
+            <p class="settings-modal-kicker">{{ sectionMeta[activeSection].kicker }}</p>
+            <h3>{{ sectionMeta[activeSection].title }}</h3>
+            <p>{{ sectionMeta[activeSection].description }}</p>
+          </div>
+          <button class="settings-close" @click="closeSection">×</button>
+        </div>
+
+        <div class="settings-modal-body">
+          <template v-if="activeSection === 'webdav'">
+            <div class="input-field">
+              <span class="input-label">服务器地址</span>
+              <input class="input-control" v-model="draftConfig.webdav.url" type="text" placeholder="https://dav.example.com" />
+            </div>
+
+            <div class="input-field">
+              <span class="input-label">用户名</span>
+              <input class="input-control" v-model="draftConfig.webdav.user" type="text" placeholder="admin" />
+            </div>
+
+            <div class="input-field">
+              <span class="input-label">密码或授权码</span>
+              <input class="input-control" v-model="draftConfig.webdav.password" type="password" placeholder="••••••••••••" autocomplete="off" />
+            </div>
+
+            <div class="input-field">
+              <span class="input-label">Remote Dir</span>
+              <div class="path-input-row">
+                <input class="input-control" v-model="draftConfig.backup.remote_dir" type="text" placeholder="/immich-backup" style="flex: 1" />
+                <button class="btn secondary browse-btn" @click="openRemoteFolderPicker">
+                  选择目录
+                </button>
+              </div>
+              <span class="input-hint">备份会写入这里指定的 WebDAV 目录。</span>
+            </div>
+
+            <div class="settings-inline-actions">
+              <button class="btn secondary" @click="testConnection" :disabled="isTesting">
+                {{ isTesting ? '测试中...' : '测试连接' }}
+              </button>
+              <span v-if="testResult" :class="['settings-inline-message', testSuccess ? 'success' : 'error']">
+                {{ testResult }}
+              </span>
+            </div>
+          </template>
+
+          <template v-else-if="activeSection === 'backup'">
+            <div class="input-field">
+              <span class="input-label">照片库路径</span>
+              <div class="path-input-row">
+                <input class="input-control" v-model="draftConfig.backup.library_dir" type="text" placeholder="/path/to/library" style="flex: 1" />
+                <button class="btn secondary browse-btn" @click="openFolderPicker('library_dir')">浏览</button>
+              </div>
+            </div>
+
+            <div class="input-field">
+              <span class="input-label">数据库备份路径</span>
+              <div class="path-input-row">
+                <input class="input-control" v-model="draftConfig.backup.backups_dir" type="text" placeholder="/path/to/db_dumps" style="flex: 1" />
+                <button class="btn secondary browse-btn" @click="openFolderPicker('backups_dir')">浏览</button>
+              </div>
+            </div>
+          </template>
+
+          <template v-else-if="activeSection === 'encrypt'">
+            <div class="toggle-field" @click="draftConfig.encrypt.enabled = !draftConfig.encrypt.enabled">
+              <div class="toggle-info">
+                <span class="toggle-title">启用加密 (Rclone Crypt)</span>
+                <span class="toggle-desc">开启后，上传前会在本地对文件内容和文件名进行加密。</span>
+              </div>
+              <div :class="['switch', draftConfig.encrypt.enabled ? 'active' : '']">
+                <div class="thumb"></div>
+              </div>
+            </div>
+
+            <div v-if="draftConfig.encrypt.enabled" class="input-field">
+              <span class="input-label">加密密码</span>
+              <input class="input-control" v-model="draftConfig.encrypt.password" type="password" placeholder="用于文件内容的加密" autocomplete="new-password" />
+            </div>
+
+            <div v-if="draftConfig.encrypt.enabled" class="input-field">
+              <span class="input-label">加密混淆盐</span>
+              <input class="input-control" v-model="draftConfig.encrypt.salt" type="password" placeholder="用于文件名的加密" autocomplete="new-password" />
+            </div>
+          </template>
+
+          <template v-else-if="activeSection === 'automation'">
+            <div class="toggle-field" @click="draftConfig.server.auth_enabled = !draftConfig.server.auth_enabled">
+              <div class="toggle-info">
+                <span class="toggle-title">启用访问保护</span>
+                <span class="toggle-desc">开启后，访问管理界面和 API 需要管理员账号密码。</span>
+              </div>
+              <div :class="['switch', draftConfig.server.auth_enabled ? 'active' : '']">
+                <div class="thumb"></div>
+              </div>
+            </div>
+
+            <div v-if="draftConfig.server.auth_enabled" class="input-field">
+              <span class="input-label">管理员用户名</span>
+              <input class="input-control" v-model="draftConfig.server.auth_user" type="text" placeholder="admin" />
+            </div>
+
+            <div v-if="draftConfig.server.auth_enabled" class="input-field">
+              <span class="input-label">管理员密码</span>
+              <input class="input-control" v-model="draftConfig.server.auth_password" type="password" placeholder="留空则保持当前密码不变" autocomplete="new-password" />
+            </div>
+
+            <div class="toggle-field" @click="draftConfig.cron.enabled = !draftConfig.cron.enabled">
+              <div class="toggle-info">
+                <span class="toggle-title">开启自动备份</span>
+                <span class="toggle-desc">启用后将按设定的时间表自动执行备份。</span>
+              </div>
+              <div :class="['switch', draftConfig.cron.enabled ? 'active' : '']">
+                <div class="thumb"></div>
+              </div>
+            </div>
+
+            <CronScheduler v-if="draftConfig.cron.enabled" v-model="draftConfig.cron.expression" />
+          </template>
+
+          <p v-if="validationError" class="validation-error">{{ validationError }}</p>
+        </div>
+
+        <div class="settings-modal-footer">
+          <button class="btn secondary" @click="closeSection">取消</button>
+          <button class="btn primary" @click="saveSection" :disabled="isSaving">
+            {{ isSaving ? '保存中...' : '保存设置' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showFolderPicker" class="picker-overlay" @click.self="showFolderPicker = false">
+      <div class="picker-modal">
+        <div class="picker-header">
+          <h3>选择本地文件夹</h3>
+          <button class="settings-close" @click="showFolderPicker = false">×</button>
+        </div>
+        <div class="picker-body">
+          <div class="breadcrumb-bar">
+            <div class="breadcrumb-inner">
+              <button class="breadcrumb-item" @click="loadLocalDir(isWindowsPath ? 'C:\\' : '/')">根目录</button>
+              <template v-for="(seg, idx) in pathSegments" :key="idx">
+                <span class="breadcrumb-sep">/</span>
+                <button class="breadcrumb-item" @click="navigateToSegment(idx)">{{ seg }}</button>
+              </template>
+            </div>
+            <button class="breadcrumb-edit-btn" @click="showPathInput = !showPathInput">手动输入</button>
+          </div>
+
+          <input
+            v-if="showPathInput"
+            v-model="currentLocalPath"
+            type="text"
+            class="input-control path-manual-input"
+            placeholder="输入路径后按 Enter"
+            @keydown.enter="loadLocalDir(currentLocalPath); showPathInput = false"
+          />
+
+          <div class="folder-list">
+            <div v-if="isLoadingLocal" class="folder-empty">加载中...</div>
+            <div v-else-if="localDirs.length === 0" class="folder-empty">该目录下没有子文件夹</div>
+            <div v-else class="folder-scroll">
+              <div v-if="canGoUp" class="folder-item go-up" @click="goUpLocalDir">返回上级目录</div>
+              <div v-for="item in localDirs" :key="item.Path" class="folder-item" @click="enterLocalDir(item)">
+                {{ item.Name }}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="picker-footer">
+          <div class="selected-path-preview" v-if="currentLocalPath">{{ currentLocalPath }}</div>
+          <div class="picker-footer-actions">
+            <button class="btn secondary" @click="showFolderPicker = false">取消</button>
+            <button class="btn primary" @click="confirmFolder">选择此目录</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showRemoteFolderPicker" class="picker-overlay" @click.self="showRemoteFolderPicker = false">
+      <div class="picker-modal">
+        <div class="picker-header">
+          <h3>选择 WebDAV 备份目录</h3>
+          <button class="settings-close" @click="showRemoteFolderPicker = false">×</button>
+        </div>
+        <div class="picker-body">
+          <div class="breadcrumb-bar">
+            <div class="breadcrumb-inner">
+              <button class="breadcrumb-item" @click="loadRemoteDir('/')">根目录</button>
+              <template v-for="(seg, idx) in remotePathSegments" :key="idx">
+                <span class="breadcrumb-sep">/</span>
+                <button class="breadcrumb-item" @click="navigateToRemoteSegment(idx)">{{ seg }}</button>
+              </template>
+            </div>
+          </div>
+
+          <div class="folder-list">
+            <div v-if="isLoadingRemote" class="folder-empty">加载中...</div>
+            <div v-else-if="remoteDirs.length === 0" class="folder-empty">该目录下没有子文件夹</div>
+            <div v-else class="folder-scroll">
+              <div v-if="remoteCanGoUp" class="folder-item go-up" @click="goUpRemoteDir">返回上级目录</div>
+              <div v-for="item in remoteDirs" :key="item.Path || item.Name" class="folder-item" @click="enterRemoteDir(item)">
+                {{ item.Name }}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="picker-footer">
+          <div class="selected-path-preview">{{ currentRemotePath }}</div>
+          <div class="picker-footer-actions">
+            <button class="btn secondary" @click="showRemoteFolderPicker = false">取消</button>
+            <button class="btn primary" @click="confirmRemoteFolder">选择此目录</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from 'vue'
+import { api, getErrorMessage, handleAuthFailure, type AppConfig, type DirEntry, type SystemStatus } from '../api'
+import CronScheduler from '../components/CronScheduler.vue'
+import { showToast } from '../composables/toast'
+
+type SectionKey = 'webdav' | 'backup' | 'encrypt' | 'automation'
+type LocalField = 'library_dir' | 'backups_dir'
+
+const createDefaultConfig = (): AppConfig => ({
+  server: {
+    port: 8096,
+    auth_enabled: false,
+    auth_user: 'admin',
+    auth_password: '',
+  },
+  webdav: {
+    url: '',
+    user: '',
+    password: '',
+  },
+  backup: {
+    library_dir: '',
+    backups_dir: '',
+    remote_dir: '/immich-backup',
+  },
+  encrypt: {
+    enabled: false,
+    password: '',
+    salt: '',
+  },
+  cron: {
+    enabled: true,
+    expression: '0 3 * * *',
+  },
+})
+
+const cloneConfig = (value: AppConfig): AppConfig => JSON.parse(JSON.stringify(value)) as AppConfig
+
+const config = reactive<AppConfig>(createDefaultConfig())
+const draftConfig = ref<AppConfig>(createDefaultConfig())
+const systemStatus = ref<SystemStatus | null>(null)
+
+const activeSection = ref<SectionKey | null>(null)
+const isRefreshing = ref(false)
+const isSaving = ref(false)
+const isTesting = ref(false)
+const testResult = ref('')
+const testSuccess = ref(false)
+const validationError = ref('')
+
+const sectionMeta: Record<SectionKey, { title: string; kicker: string; description: string }> = {
+  webdav: {
+    title: 'WebDAV 与远端目录',
+    kicker: '连接配置',
+    description: '管理 WebDAV 连接信息和云端备份目录。',
+  },
+  backup: {
+    title: '备份路径',
+    kicker: '本地数据源',
+    description: '指定需要同步的照片库目录和数据库备份目录。',
+  },
+  encrypt: {
+    title: '加密配置',
+    kicker: '传输保护',
+    description: '控制是否启用 Rclone Crypt 以及对应密钥。',
+  },
+  automation: {
+    title: '定时任务与访问保护',
+    kicker: '自动化与安全',
+    description: '管理自动备份计划，以及后台的访问鉴权。',
+  },
+}
+
+const refreshConfig = async () => {
+  isRefreshing.value = true
+  try {
+    const [data, status] = await Promise.all([api.getConfig(), api.getSystemStatus()])
+    Object.assign(config, data)
+    systemStatus.value = status
+  } catch (error) {
+    if (handleAuthFailure(error)) return
+    showToast('error', '刷新失败', getErrorMessage(error))
+  } finally {
+    isRefreshing.value = false
+  }
+}
+
+onMounted(async () => {
+  await refreshConfig()
+})
+
+const openSection = (section: SectionKey) => {
+  activeSection.value = section
+  draftConfig.value = cloneConfig(config)
+  validationError.value = ''
+  testResult.value = ''
+  testSuccess.value = false
+}
+
+const closeSection = () => {
+  activeSection.value = null
+  validationError.value = ''
+  testResult.value = ''
+}
+
+const webdavSummary = computed(() => {
+  const url = config.webdav.url.trim() || '未配置服务器地址'
+  const remoteDir = config.backup.remote_dir.trim() || '/'
+  return `${url} · 远端目录 ${remoteDir}`
+})
+
+const backupSummary = computed(() => {
+  const parts: string[] = []
+  if (config.backup.library_dir.trim()) parts.push('照片库已配置')
+  if (config.backup.backups_dir.trim()) parts.push('数据库备份已配置')
+  return parts.length > 0 ? parts.join(' · ') : '尚未设置任何本地备份目录'
+})
+
+const encryptSummary = computed(() => {
+  return config.encrypt.enabled ? '已启用加密传输与文件名混淆' : '当前未启用 Rclone Crypt 加密'
+})
+
+const automationSummary = computed(() => {
+  const auth = config.server.auth_enabled ? '访问保护已开启' : '访问保护未开启'
+  const cron = config.cron.enabled ? `自动备份: ${config.cron.expression}` : '自动备份未开启'
+  return `${auth} · ${cron}`
+})
+
+const createCardState = (label: string, tone: 'healthy' | 'warning' | 'info' | 'neutral') => ({ label, tone })
+
+const webdavCardState = computed(() => {
+  if (!config.webdav.url.trim() || !config.webdav.user.trim()) return createCardState('待配置', 'warning')
+  if (systemStatus.value && !systemStatus.value.rclone_installed) return createCardState('需修复', 'warning')
+  return createCardState('已连接', 'healthy')
+})
+
+const backupCardState = computed(() => {
+  if (!config.backup.library_dir.trim() || !config.backup.backups_dir.trim()) return createCardState('待完善', 'warning')
+  return createCardState('已配置', 'healthy')
+})
+
+const encryptCardState = computed(() => {
+  if (!config.encrypt.enabled) return createCardState('未启用', 'neutral')
+  if (!config.encrypt.password.trim() || !config.encrypt.salt.trim()) return createCardState('需补全', 'warning')
+  return createCardState('已保护', 'healthy')
+})
+
+const automationCardState = computed(() => {
+  if (systemStatus.value?.backup_status === 'running') return createCardState('运行中', 'info')
+  if (!config.cron.enabled && !config.server.auth_enabled) return createCardState('基础模式', 'neutral')
+  if (config.cron.enabled && systemStatus.value?.cron_enabled) return createCardState('已自动化', 'healthy')
+  return createCardState('待检查', 'warning')
+})
+
+const webdavSignals = computed(() => {
+  const signals: string[] = []
+  signals.push(config.webdav.url.trim() ? `地址: ${config.webdav.url.trim()}` : '尚未填写 WebDAV 地址')
+  signals.push(config.backup.remote_dir.trim() ? `写入目录: ${config.backup.remote_dir.trim()}` : '尚未选择远端目录')
+  signals.push(systemStatus.value?.rclone_installed ? 'Rclone 可用，可直接执行同步' : 'Rclone 未就绪，备份无法启动')
+  return signals
+})
+
+const backupSignals = computed(() => {
+  const signals: string[] = []
+  signals.push(config.backup.library_dir.trim() ? `照片库: ${config.backup.library_dir.trim()}` : '照片库路径未设置')
+  signals.push(config.backup.backups_dir.trim() ? `数据库备份: ${config.backup.backups_dir.trim()}` : '数据库备份路径未设置')
+  signals.push(config.backup.library_dir.trim() && config.backup.backups_dir.trim() ? '两类数据都会进入备份任务' : '建议同时配置两类路径，避免备份不完整')
+  return signals
+})
+
+const encryptSignals = computed(() => {
+  if (!config.encrypt.enabled) {
+    return ['当前上传为明文目录结构', '适合可信存储环境', '如需保护文件内容，建议开启加密']
+  }
+
+  return [
+    config.encrypt.password.trim() ? '已填写内容加密密码' : '内容加密密码缺失',
+    config.encrypt.salt.trim() ? '已填写文件名混淆盐' : '文件名混淆盐缺失',
+    '请妥善保管密钥，丢失后无法恢复已加密数据',
+  ]
+})
+
+const automationSignals = computed(() => {
+  const signals: string[] = []
+  signals.push(config.cron.enabled ? `自动备份: ${config.cron.expression}` : '自动备份当前关闭')
+  signals.push(config.server.auth_enabled ? `访问保护: ${config.server.auth_user || 'admin'}` : '访问保护未开启')
+  if (systemStatus.value?.backup_status === 'running') {
+    signals.push('当前有备份任务在运行，修改配置后建议下次任务生效')
+  } else if (systemStatus.value?.next_run) {
+    signals.push(`下次执行: ${systemStatus.value.next_run}`)
+  } else {
+    signals.push('暂无计划中的自动备份任务')
+  }
+  return signals
+})
+
+const validateSection = (section: SectionKey): string | null => {
+  if (section === 'webdav') {
+    if (!draftConfig.value.webdav.url.trim()) return '请输入 WebDAV 服务器地址'
+    if (!draftConfig.value.webdav.user.trim()) return '请输入 WebDAV 用户名'
+    if (!draftConfig.value.webdav.password.trim()) return '请输入 WebDAV 密码或授权码'
+    if (!draftConfig.value.backup.remote_dir.trim()) return '请选择远端备份目录'
+  }
+
+  if (section === 'backup') {
+    if (!draftConfig.value.backup.library_dir.trim()) return '请输入照片库路径'
+    if (!draftConfig.value.backup.backups_dir.trim()) return '请输入数据库备份路径'
+  }
+
+  if (section === 'encrypt' && draftConfig.value.encrypt.enabled) {
+    if (!draftConfig.value.encrypt.password.trim()) return '请输入加密密码'
+    if (!draftConfig.value.encrypt.salt.trim()) return '请输入加密混淆盐'
+  }
+
+  if (section === 'automation' && draftConfig.value.server.auth_enabled) {
+    if (!draftConfig.value.server.auth_user.trim()) return '请输入管理员用户名'
+  }
+
+  return null
+}
+
+const saveSection = async () => {
+  if (!activeSection.value) return
+
+  const error = validateSection(activeSection.value)
+  if (error) {
+    validationError.value = error
+    return
+  }
+
+  validationError.value = ''
+  isSaving.value = true
+  try {
+    await api.saveConfig(draftConfig.value)
+    Object.assign(config, cloneConfig(draftConfig.value))
+    await refreshConfig()
+    closeSection()
+    showToast('success', '保存成功', '配置已更新，新的状态摘要已经同步刷新。')
+  } catch (error) {
+    if (handleAuthFailure(error)) return
+    showToast('error', '保存失败', getErrorMessage(error))
+  } finally {
+    isSaving.value = false
+  }
+}
+
+const testConnection = async () => {
+  isTesting.value = true
+  testResult.value = '测试中...'
+  testSuccess.value = false
+  try {
+    await api.testWebDAV({
+      url: draftConfig.value.webdav.url,
+      user: draftConfig.value.webdav.user,
+      password: draftConfig.value.webdav.password,
+    })
+    testSuccess.value = true
+    testResult.value = '连接成功!'
+    showToast('success', '连接成功', 'WebDAV 可用，可以正常浏览并写入远端目录。')
+  } catch (error) {
+    if (handleAuthFailure(error)) return
+    testSuccess.value = false
+    testResult.value = '连接失败: ' + getErrorMessage(error)
+    showToast('error', '连接失败', getErrorMessage(error))
+  } finally {
+    isTesting.value = false
+  }
+}
+
+const showFolderPicker = ref(false)
+const showPathInput = ref(false)
+const targetLocalField = ref<LocalField>('library_dir')
+const currentLocalPath = ref('')
+const localDirs = ref<DirEntry[]>([])
+const isLoadingLocal = ref(false)
+
+const showRemoteFolderPicker = ref(false)
+const currentRemotePath = ref('/')
+const remoteDirs = ref<DirEntry[]>([])
+const isLoadingRemote = ref(false)
+
+const isWindowsPath = computed(() => currentLocalPath.value.includes('\\'))
+const pathSegments = computed(() => {
+  const path = currentLocalPath.value
+  if (!path) return []
+  const separator = path.includes('\\') ? '\\' : '/'
+  return path.split(separator).filter((segment) => segment !== '')
+})
+const canGoUp = computed(() => {
+  const path = currentLocalPath.value
+  return path !== '/' && path !== 'C:\\' && path !== ''
+})
+const remotePathSegments = computed(() => currentRemotePath.value.split('/').filter((segment) => segment !== ''))
+const remoteCanGoUp = computed(() => currentRemotePath.value !== '/')
+
+const normalizeRemotePath = (path: string) => {
+  if (!path || path.trim() === '') return '/'
+  const normalized = path.replace(/\\/g, '/').trim()
+  if (normalized === '/') return '/'
+  return normalized.startsWith('/') ? normalized : `/${normalized}`
+}
+
+const openFolderPicker = (field: LocalField) => {
+  targetLocalField.value = field
+  showFolderPicker.value = true
+  showPathInput.value = false
+  currentLocalPath.value = draftConfig.value.backup[field] || ''
+  void loadLocalDir(currentLocalPath.value)
+}
+
+const openRemoteFolderPicker = () => {
+  if (!draftConfig.value.webdav.url.trim() || !draftConfig.value.webdav.user.trim() || !draftConfig.value.webdav.password.trim()) {
+    showToast('warning', '请先完善连接信息', '需要先填写 WebDAV 地址、用户名和密码，才能浏览远端目录。')
+    return
+  }
+  showRemoteFolderPicker.value = true
+  currentRemotePath.value = normalizeRemotePath(draftConfig.value.backup.remote_dir)
+  void loadRemoteDir(currentRemotePath.value)
+}
+
+const loadLocalDir = async (path: string) => {
+  isLoadingLocal.value = true
+  try {
+    const items = await api.listLocal(path)
+    localDirs.value = items.filter((item) => item.IsDir).sort((left, right) => left.Name.localeCompare(right.Name))
+    if (path === '') {
+      currentLocalPath.value = items.length > 0 && items[0]?.Path.includes('\\') ? 'C:\\' : '/'
+    }
+  } catch (error) {
+    if (handleAuthFailure(error)) return
+    showToast('error', '加载目录失败', getErrorMessage(error))
+  } finally {
+    isLoadingLocal.value = false
+  }
+}
+
+const loadRemoteDir = async (path: string) => {
+  isLoadingRemote.value = true
+  try {
+    const normalizedPath = normalizeRemotePath(path)
+    const items = await api.listWebDAV({
+      url: draftConfig.value.webdav.url,
+      user: draftConfig.value.webdav.user,
+      password: draftConfig.value.webdav.password,
+      path: normalizedPath,
+    })
+    currentRemotePath.value = normalizedPath
+    remoteDirs.value = items.filter((item) => item.IsDir).sort((left, right) => left.Name.localeCompare(right.Name))
+  } catch (error) {
+    if (handleAuthFailure(error)) return
+    showToast('error', '加载远端目录失败', getErrorMessage(error))
+  } finally {
+    isLoadingRemote.value = false
+  }
+}
+
+const enterLocalDir = (item: DirEntry) => {
+  const separator = currentLocalPath.value.includes('\\') ? '\\' : '/'
+  let nextPath = currentLocalPath.value
+  if (nextPath === '' || nextPath.endsWith(separator)) {
+    nextPath += item.Name
+  } else {
+    nextPath += separator + item.Name
+  }
+  currentLocalPath.value = nextPath
+  void loadLocalDir(nextPath)
+}
+
+const enterRemoteDir = (item: DirEntry) => {
+  const nextPath = currentRemotePath.value === '/' ? `/${item.Name}` : `${currentRemotePath.value}/${item.Name}`
+  void loadRemoteDir(nextPath)
+}
+
+const goUpLocalDir = () => {
+  const separator = currentLocalPath.value.includes('\\') ? '\\' : '/'
+  const parts = currentLocalPath.value.split(separator)
+  if (parts.length > 0 && parts[parts.length - 1] === '') parts.pop()
+  parts.pop()
+  let nextPath = parts.join(separator)
+  if (nextPath === '' || (separator === '\\' && !nextPath.includes('\\'))) nextPath += separator
+  currentLocalPath.value = nextPath
+  void loadLocalDir(nextPath)
+}
+
+const goUpRemoteDir = () => {
+  if (currentRemotePath.value === '/') return
+  const parts = currentRemotePath.value.split('/').filter(Boolean)
+  parts.pop()
+  const nextPath = parts.length === 0 ? '/' : `/${parts.join('/')}`
+  void loadRemoteDir(nextPath)
+}
+
+const navigateToSegment = (index: number) => {
+  const separator = isWindowsPath.value ? '\\' : '/'
+  const segments = pathSegments.value.slice(0, index + 1)
+  let nextPath = segments.join(separator)
+  if (isWindowsPath.value) {
+    if (!nextPath.endsWith('\\')) nextPath += '\\'
+  } else {
+    nextPath = '/' + nextPath
+  }
+  currentLocalPath.value = nextPath
+  void loadLocalDir(nextPath)
+}
+
+const navigateToRemoteSegment = (index: number) => {
+  const segments = remotePathSegments.value.slice(0, index + 1)
+  const nextPath = segments.length === 0 ? '/' : `/${segments.join('/')}`
+  void loadRemoteDir(nextPath)
+}
+
+const confirmFolder = () => {
+  draftConfig.value.backup[targetLocalField.value] = currentLocalPath.value
+  showFolderPicker.value = false
+}
+
+const confirmRemoteFolder = () => {
+  draftConfig.value.backup.remote_dir = normalizeRemotePath(currentRemotePath.value)
+  showRemoteFolderPicker.value = false
+}
+</script>
+
+<style scoped>
+.settings-page {
+  min-height: 100%;
+  padding: 40px;
+  background: var(--bg-primary);
+}
+
+.settings-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.settings-eyebrow,
+.settings-modal-kicker {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.settings-title {
+  font-size: 40px;
+  margin-bottom: 10px;
+}
+
+.settings-subtitle,
+.settings-modal-header p {
+  color: var(--text-secondary);
+  font-size: 16px;
+  max-width: 720px;
+}
+
+.settings-status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.status-chip,
+.card-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-chip.healthy,
+.card-badge.healthy {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+}
+
+.status-chip.warning,
+.card-badge.warning {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+
+.status-chip.info,
+.card-badge.info {
+  background: rgba(37, 99, 235, 0.14);
+  color: #1d4ed8;
+}
+
+.status-chip.neutral,
+.card-badge.neutral {
+  background: var(--bg-card);
+  color: var(--text-secondary);
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.settings-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  width: 100%;
+  padding: 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: 24px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-card) 92%, transparent), var(--bg-card));
+  text-align: left;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.settings-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--text-secondary);
+  box-shadow: 0 14px 32px rgba(24, 24, 27, 0.08);
+}
+
+.settings-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  background: var(--bg-primary);
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.settings-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+}
+
+.settings-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-card-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-card-head h2 {
+  font-size: 22px;
+}
+
+.settings-card-head span {
+  color: var(--text-tertiary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-card p {
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.settings-card-signals {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+}
+
+.settings-card-signals li {
+  position: relative;
+  padding-left: 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.settings-card-signals li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+}
+
+.settings-modal-overlay,
+.picker-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(9, 9, 11, 0.55);
+  padding: 24px;
+  z-index: 50;
+}
+
+.settings-modal-card,
+.picker-modal {
+  width: min(760px, 100%);
+  max-height: min(88vh, 920px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 28px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  overflow: hidden;
+}
+
+.picker-modal {
+  width: min(680px, 100%);
+}
+
+.settings-modal-header,
+.picker-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 28px 28px 20px;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.settings-modal-header h3,
+.picker-header h3 {
+  font-size: 28px;
+  margin-bottom: 8px;
+}
+
+.settings-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 18px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.settings-modal-body,
+.picker-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px 28px;
+  overflow: auto;
+}
+
+.settings-modal-footer,
+.picker-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 28px 28px;
+  border-top: 1px solid var(--border-strong);
+}
+
+.picker-footer-actions,
+.settings-inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.input-field,
+.toggle-field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  border-radius: 20px;
+  background: var(--bg-card);
+}
+
+.input-label,
+.toggle-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.toggle-field {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.toggle-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.toggle-desc,
+.input-hint,
+.selected-path-preview,
+.settings-inline-message {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.settings-inline-message.success {
+  color: #16a34a;
+}
+
+.settings-inline-message.error,
+.validation-error {
+  color: #dc2626;
+}
+
+.input-control {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.path-input-row {
+  display: flex;
+  gap: 10px;
+}
+
+.browse-btn {
+  flex-shrink: 0;
+}
+
+.switch {
+  width: 52px;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  padding: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.switch.active {
+  background: var(--text-primary);
+}
+
+.thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--text-inverted);
+  transition: transform 0.2s ease;
+}
+
+.switch.active .thumb {
+  transform: translateX(22px);
+}
+
+.breadcrumb-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--bg-card);
+}
+
+.breadcrumb-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.breadcrumb-item,
+.breadcrumb-edit-btn {
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.breadcrumb-item:hover,
+.breadcrumb-edit-btn:hover,
+.folder-item:hover {
+  background: var(--border-subtle);
+}
+
+.breadcrumb-sep {
+  color: var(--text-tertiary);
+}
+
+.folder-list {
+  min-height: 280px;
+  max-height: 48vh;
+  border: 1px solid var(--border-strong);
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+.folder-scroll {
+  overflow: auto;
+}
+
+.folder-item,
+.folder-empty {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 16px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.folder-item {
+  cursor: pointer;
+}
+
+.folder-item.go-up {
+  color: var(--text-secondary);
+}
+
+.folder-empty {
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
+.path-manual-input {
+  margin-top: 6px;
+}
+
+@media (max-width: 960px) {
+  .settings-page {
+    padding: 24px;
+  }
+
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-hero,
+  .settings-modal-footer,
+  .picker-footer,
+  .path-input-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-card-head {
+    flex-direction: column;
+  }
+}
+</style>
