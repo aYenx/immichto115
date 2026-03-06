@@ -187,5 +187,5 @@ func VerifyPassword(hash string, plaintext string) bool {
 func (m *Manager) IsSetupComplete() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.cfg.WebDAV.URL != "" && m.cfg.WebDAV.User != ""
+	return m.cfg.WebDAV.URL != "" && m.cfg.WebDAV.User != "" && m.cfg.WebDAV.Password != ""
 }
