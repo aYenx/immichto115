@@ -118,6 +118,70 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate Changelog
+        id: changelog
+        run: |
+          # Get the previous tag
+          CURRENT_TAG="${GITHUB_REF#refs/tags/}"
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | head -1)
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous tag found, listing all commits"
+            RANGE="HEAD"
+          else
+            echo "Generating changelog: ${PREV_TAG}..${CURRENT_TAG}"
+            RANGE="${PREV_TAG}..${CURRENT_TAG}"
+          fi
+
+          {
+            echo 'body<<CHANGELOG_EOF'
+
+            # Collect commits by category
+            FEATS=$(git log "$RANGE" --pretty=format:"- %s" --grep="^feat" 2>/dev/null || true)
+            FIXES=$(git log "$RANGE" --pretty=format:"- %s" --grep="^fix" 2>/dev/null || true)
+            DOCS=$(git log "$RANGE" --pretty=format:"- %s" --grep="^docs" 2>/dev/null || true)
+            REFACTORS=$(git log "$RANGE" --pretty=format:"- %s" --grep="^refactor" 2>/dev/null || true)
+            # All other commits
+            OTHERS=$(git log "$RANGE" --pretty=format:"- %s" --invert-grep --grep="^feat" --grep="^fix" --grep="^docs" --grep="^refactor" 2>/dev/null || true)
+
+            if [ -n "$FEATS" ]; then
+              echo "### ✨ 新功能"
+              echo "$FEATS"
+              echo ""
+            fi
+
+            if [ -n "$FIXES" ]; then
+              echo "### 🐛 修复"
+              echo "$FIXES"
+              echo ""
+            fi
+
+            if [ -n "$DOCS" ]; then
+              echo "### 📝 文档"
+              echo "$DOCS"
+              echo ""
+            fi
+
+            if [ -n "$REFACTORS" ]; then
+              echo "### ♻️ 重构"
+              echo "$REFACTORS"
+              echo ""
+            fi
+
+            if [ -n "$OTHERS" ]; then
+              echo "### 🔧 其他"
+              echo "$OTHERS"
+              echo ""
+            fi
+
+            echo "---"
+            echo "**Docker**: \`docker pull ghcr.io/ayenx/immichto115:${CURRENT_TAG#v}\`"
+
+            echo 'CHANGELOG_EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Download All Artifacts
         uses: actions/download-artifact@v4
@@ -128,7 +192,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body: ${{ steps.changelog.outputs.body }}
           files: |
             dist/immichto115-*
             deploy/install.sh
