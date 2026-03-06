@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/aYenx/immichto115/internal/config"
 	appCron "github.com/aYenx/immichto115/internal/cron"
 	"github.com/aYenx/immichto115/internal/rclone"
+	"github.com/gin-gonic/gin"
 )
 
 const maskedSecret = "********"
@@ -52,11 +52,14 @@ func (s *Server) triggerBackup() {
 	jobCtx, ok := s.beginBackupJob()
 	if !ok {
 		log.Println("[backup] skipped: already running")
+		s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 已有备份任务正在运行，本次请求已跳过"})
 		return
 	}
 	defer s.finishBackupJob()
 
 	cfg := s.Config.Get()
+	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 备份任务已启动，正在检查配置与目标路径..."})
+	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 正在生成临时 rclone 配置..."})
 
 	// 生成临时 rclone.conf
 	confPath, err := config.GenerateRcloneConf(cfg)
@@ -65,60 +68,85 @@ func (s *Server) triggerBackup() {
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] failed to generate rclone config: " + err.Error()})
 		return
 	}
+	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] rclone 配置生成完成，开始执行同步任务"})
+	defer func() {
+		config.CleanupRcloneConf(confPath)
+		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 临时 rclone 配置已清理"})
+	}()
 
 	remote := config.GetRemoteName(cfg)
+	if cfg.Encrypt.Enabled {
+		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 已启用加密远端，数据将同步到加密目录"})
+	} else {
+		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 未启用加密，将分别同步照片库与数据库备份目录"})
+	}
+
+	hasSyncTarget := false
 
 	// 备份 Library 目录
 	if cfg.Backup.LibraryDir != "" {
+		hasSyncTarget = true
 		if jobCtx.Err() != nil {
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] backup stopped before library sync started"})
-			config.CleanupRcloneConf(confPath)
 			return
 		}
 		dest := remote
 		if !cfg.Encrypt.Enabled {
 			dest = remote + "/library"
 		}
+		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 开始备份照片库目录: " + cfg.Backup.LibraryDir})
+		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 目标位置: " + dest})
 		logCh, err := s.Runner.RunSync(cfg.Backup.LibraryDir, dest, nil, confPath)
 		if err != nil {
 			log.Printf("[backup] failed to start library backup: %v", err)
-			config.CleanupRcloneConf(confPath)
+			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 无法启动照片库备份: " + err.Error()})
 			return
 		}
 		s.Hub.BroadcastFromChannel(logCh) // 阻塞直到完成
+		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 照片库目录备份阶段已结束"})
 		if jobCtx.Err() != nil {
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] backup stopped after library sync"})
-			config.CleanupRcloneConf(confPath)
 			return
 		}
+	} else {
+		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 未配置照片库目录，跳过该阶段"})
 	}
 
 	// 备份 Database Dumps 目录
 	if cfg.Backup.BackupsDir != "" {
+		hasSyncTarget = true
 		if jobCtx.Err() != nil {
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] backup stopped before backups sync started"})
-			config.CleanupRcloneConf(confPath)
 			return
 		}
 		dest := remote
 		if !cfg.Encrypt.Enabled {
 			dest = remote + "/backups"
 		}
+		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 开始备份数据库备份目录: " + cfg.Backup.BackupsDir})
+		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 目标位置: " + dest})
 		logCh, err := s.Runner.RunSync(cfg.Backup.BackupsDir, dest, nil, confPath)
 		if err != nil {
 			log.Printf("[backup] failed to start backups backup: %v", err)
-			config.CleanupRcloneConf(confPath)
+			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 无法启动数据库备份目录同步: " + err.Error()})
 			return
 		}
 		s.Hub.BroadcastFromChannel(logCh) // 阻塞直到完成
+		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 数据库备份目录同步阶段已结束"})
 		if jobCtx.Err() != nil {
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] backup stopped after backups sync"})
-			config.CleanupRcloneConf(confPath)
 			return
 		}
+	} else {
+		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 未配置数据库备份目录，跳过该阶段"})
 	}
 
-	config.CleanupRcloneConf(confPath)
+	if !hasSyncTarget {
+		s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 未配置任何可备份目录，请先在设置中填写照片库或数据库备份目录"})
+		return
+	}
+
+	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 所有备份阶段执行完毕"})
 }
 
 func (s *Server) beginBackupJob() (context.Context, bool) {
@@ -471,7 +499,6 @@ func (s *Server) handleWebDAVList(c *gin.Context) {
 
 	c.Data(http.StatusOK, "application/json", out)
 }
-
 
 func (s *Server) handleBackupStart(c *gin.Context) {
 	if s.IsBackupActive() {

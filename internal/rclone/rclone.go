@@ -98,6 +98,9 @@ func (r *Runner) RunSync(source, dest string, flags []string, configPath string)
 	r.running = true
 
 	logCh := make(chan LogLine, 128)
+	logCh <- LogLine{Stream: "stdout", Text: "[immichto115] 已启动 rclone sync，正在建立连接并扫描文件差异..."}
+	logCh <- LogLine{Stream: "stdout", Text: fmt.Sprintf("[immichto115] 源目录: %s", source)}
+	logCh <- LogLine{Stream: "stdout", Text: fmt.Sprintf("[immichto115] 目标目录: %s", dest)}
 
 	// 将 stdout 和 stderr 合并输出到同一个 channel
 	var wg sync.WaitGroup
@@ -141,10 +144,11 @@ func (r *Runner) RunSync(source, dest string, flags []string, configPath string)
 			if ctx.Err() == nil {
 				logCh <- LogLine{Stream: "stderr", Text: fmt.Sprintf("[immichto115] rclone exited with error: %v", exitErr)}
 			} else {
-				logCh <- LogLine{Stream: "stderr", Text: "[immichto115] rclone process was stopped by user"}
+				logCh <- LogLine{Stream: "stderr", Text: "[immichto115] rclone 进程已收到停止信号，正在安全退出"}
 			}
 		} else {
 			logCh <- LogLine{Stream: "stdout", Text: "[immichto115] rclone sync completed successfully"}
+			logCh <- LogLine{Stream: "stdout", Text: "[immichto115] 当前同步阶段已成功完成"}
 		}
 		close(logCh)
 	}()
