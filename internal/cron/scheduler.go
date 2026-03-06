@@ -29,30 +29,33 @@ func NewScheduler(fn BackupFunc) *Scheduler {
 }
 
 // Start 使用给定的 Cron 表达式启动调度器。
-// 如果已有调度在运行，会先停止旧的再启动新的。
+// 如果已有调度在运行，会无缝替换为新表达式。
 func (s *Scheduler) Start(expression string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// 停止现有调度
-	if s.running {
-		s.c.Remove(s.entryID)
-	}
+	oldEntryID := s.entryID
 
 	entryID, err := s.c.AddFunc(expression, func() {
 		log.Printf("[cron] triggered backup job: %s", expression)
 		if s.backupFn != nil {
-			go s.backupFn()
+			s.backupFn()
 		}
 	})
 	if err != nil {
 		return err
 	}
 
+	if oldEntryID != 0 {
+		s.c.Remove(oldEntryID)
+	}
+
 	s.entryID = entryID
 	s.expr = expression
-	s.running = true
-	s.c.Start()
+	if !s.running {
+		s.c.Start()
+		s.running = true
+	}
 
 	log.Printf("[cron] scheduler started with expression: %s", expression)
 	return nil
@@ -66,6 +69,7 @@ func (s *Scheduler) Stop() {
 	if s.running {
 		s.c.Stop()
 		s.running = false
+		s.entryID = 0
 		log.Println("[cron] scheduler stopped")
 	}
 }
