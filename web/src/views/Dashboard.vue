@@ -66,15 +66,19 @@
     <div class="logs-section">
       <div class="logs-header">
         <h2>实时日志监控</h2>
-        <div class="logs-actions">
-          <button class="icon-btn" @click="logs = []">
-            <LucideRefreshCcw :size="16" />
+        <div class="logs-meta">
+          <span class="log-count">{{ logs.length }} / {{ MAX_LOGS }} 条</span>
+          <button class="icon-btn" :class="{ active: autoScroll }" @click="autoScroll = !autoScroll" :title="autoScroll ? '自动滚动已开启' : '自动滚动已关闭'">
+            <LucideArrowDownToLine :size="16" />
+          </button>
+          <button class="icon-btn" @click="clearLogs" title="清空日志">
+            <LucideTrash2 :size="16" />
           </button>
         </div>
       </div>
       
-      <div class="logs-terminal" ref="terminalRef">
-        <div v-for="(log, idx) in logs" :key="idx" :class="['log-line', getLogLevelClass(log.text)]">
+      <div class="logs-terminal" ref="terminalRef" @scroll="onTerminalScroll">
+        <div v-for="log in logs" :key="log.id" :class="['log-line', getLogLevelClass(log.text)]">
           <span class="timestamp">[{{ log.time }}]</span>
           <span class="message">{{ log.text }}</span>
         </div>
@@ -88,7 +92,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { 
   LucidePlay, 
@@ -97,13 +101,19 @@ import {
   LucideImage, 
   LucideDatabase, 
   LucideCloud,
-  LucideRefreshCcw
+  LucideArrowDownToLine,
+  LucideTrash2
 } from 'lucide-vue-next'
 import { api, getErrorMessage, handleAuthFailure, type SystemStatus } from '../api'
 
+const MAX_LOGS = 200
+let logIdCounter = 0
+
 const systemStatus = ref<SystemStatus | null>(null)
-const logs = ref<Array<{ time: string, text: string }>>([])
+const logs = ref<Array<{ id: number, time: string, text: string }>>([])
 const terminalRef = ref<HTMLElement | null>(null)
+const autoScroll = ref(true)
+let scrollRAF: number | null = null
 const router = useRouter()
 
 const greeting = computed(() => {
@@ -189,6 +199,28 @@ const getLogLevelClass = (text: string) => {
   return 'info'
 }
 
+const clearLogs = () => {
+  logs.value = []
+}
+
+const scrollToBottom = () => {
+  if (scrollRAF) return
+  scrollRAF = requestAnimationFrame(() => {
+    scrollRAF = null
+    if (autoScroll.value && terminalRef.value) {
+      terminalRef.value.scrollTop = terminalRef.value.scrollHeight
+    }
+  })
+}
+
+const onTerminalScroll = () => {
+  if (!terminalRef.value) return
+  const el = terminalRef.value
+  // If user scrolled up more than 50px from bottom, pause auto-scroll
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50
+  autoScroll.value = atBottom
+}
+
 const connectWebSocket = () => {
   if (!shouldReconnect) return
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
@@ -204,17 +236,15 @@ const connectWebSocket = () => {
       const data = JSON.parse(ev.data)
       const now = new Date()
       logs.value.push({
+        id: ++logIdCounter,
         time: now.toLocaleTimeString(),
         text: data.Text || data.text || ''
       })
-      if (logs.value.length > 500) {
-        logs.value.shift()
+      // Batch trim: remove 50 oldest when exceeding limit
+      if (logs.value.length > MAX_LOGS) {
+        logs.value.splice(0, logs.value.length - MAX_LOGS)
       }
-      nextTick(() => {
-        if (terminalRef.value) {
-          terminalRef.value.scrollTop = terminalRef.value.scrollHeight
-        }
-      })
+      scrollToBottom()
     } catch {
       // Ignore parse errors
     }
@@ -390,10 +420,29 @@ onUnmounted(() => {
   color: var(--text-primary);
 }
 
+.logs-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.log-count {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  opacity: 0.7;
+}
+
+.icon-btn.active {
+  color: #3B82F6;
+  background-color: rgba(59, 130, 246, 0.1);
+}
+
 .logs-terminal {
   flex: 1;
-  min-height: 400px;
-  background-color: #0F172A; /* Dark theme for terminal */
+  min-height: 300px;
+  max-height: 500px;
+  background-color: #0F172A;
   border-radius: 12px;
   padding: 24px;
   font-family: 'Consolas', 'Monaco', monospace;
@@ -401,8 +450,9 @@ onUnmounted(() => {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   border: 1px solid var(--border-strong);
+  scroll-behavior: smooth;
 }
 
 .log-line {
