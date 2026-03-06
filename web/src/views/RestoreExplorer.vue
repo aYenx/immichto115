@@ -44,10 +44,13 @@
 
         <div class="table-body">
           <div v-if="isLoading" class="table-empty">
-            加载中...
+            <LucideRefreshCw :size="32" class="empty-icon spin" />
+            <span class="empty-title">加载中...</span>
           </div>
           <div v-else-if="items.length === 0" class="table-empty">
-            无文件/文件夹
+            <LucideFolderOpen :size="40" class="empty-icon" />
+            <span class="empty-title">暂无文件</span>
+            <span class="empty-desc">当前目录下没有文件或文件夹</span>
           </div>
           
           <template v-else>
@@ -97,6 +100,7 @@ import {
   LucideCloud, 
   LucideChevronRight, 
   LucideFolder, 
+  LucideFolderOpen,
   LucideImage, 
   LucideFile,
   LucideFileJson,
@@ -386,5 +390,39 @@ onMounted(() => {
 
 .text-gray {
   color: #94A3B8;
+}
+
+.table-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 24px;
+  gap: 12px;
+}
+
+.empty-icon {
+  color: var(--text-tertiary);
+  opacity: 0.5;
+}
+
+.empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.empty-desc {
+  font-size: 14px;
+  color: var(--text-tertiary);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

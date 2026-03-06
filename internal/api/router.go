@@ -58,6 +58,10 @@ func (s *Server) triggerBackup() {
 	defer s.finishBackupJob()
 
 	cfg := s.Config.Get()
+	backupMode := cfg.Backup.Mode
+	if backupMode != "sync" {
+		backupMode = "copy" // 默认增量备份
+	}
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 备份任务已启动，正在检查配置与目标路径..."})
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 正在生成临时 rclone 配置..."})
 
@@ -96,7 +100,7 @@ func (s *Server) triggerBackup() {
 		}
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 开始备份照片库目录: " + cfg.Backup.LibraryDir})
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 目标位置: " + dest})
-		logCh, err := s.Runner.RunSync(cfg.Backup.LibraryDir, dest, nil, confPath)
+		logCh, err := s.Runner.Run(backupMode, cfg.Backup.LibraryDir, dest, nil, confPath)
 		if err != nil {
 			log.Printf("[backup] failed to start library backup: %v", err)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 无法启动照片库备份: " + err.Error()})
@@ -125,7 +129,7 @@ func (s *Server) triggerBackup() {
 		}
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 开始备份数据库备份目录: " + cfg.Backup.BackupsDir})
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 目标位置: " + dest})
-		logCh, err := s.Runner.RunSync(cfg.Backup.BackupsDir, dest, nil, confPath)
+		logCh, err := s.Runner.Run(backupMode, cfg.Backup.BackupsDir, dest, nil, confPath)
 		if err != nil {
 			log.Printf("[backup] failed to start backups backup: %v", err)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 无法启动数据库备份目录同步: " + err.Error()})

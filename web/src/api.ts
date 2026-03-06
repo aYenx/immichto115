@@ -30,6 +30,7 @@ export interface BackupConfig {
   library_dir: string
   backups_dir: string
   remote_dir: string
+  mode: 'copy' | 'sync'
 }
 
 export interface EncryptConfig {
