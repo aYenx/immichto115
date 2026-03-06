@@ -23,8 +23,8 @@
 
       <div class="sidebar-footer">
         <div class="status-indicator">
-          <div class="status-dot"></div>
-          <span>服务运行中</span>
+          <div :class="['status-dot', serviceHealthy ? 'healthy' : 'offline']"></div>
+          <span>{{ serviceHealthy ? '服务运行中' : '服务连接异常' }}</span>
         </div>
       </div>
     </div>
@@ -37,7 +37,36 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted, onUnmounted, ref } from 'vue'
 import { LucideLayout, LucideHardDrive, LucideSettings } from 'lucide-vue-next'
+import { api, handleAuthFailure } from '../api'
+
+const serviceHealthy = ref(true)
+let statusTimer: ReturnType<typeof setInterval> | null = null
+
+const checkServiceHealth = async () => {
+  try {
+    await api.getSystemStatus()
+    serviceHealthy.value = true
+  } catch (error) {
+    if (handleAuthFailure(error)) {
+      return
+    }
+    serviceHealthy.value = false
+  }
+}
+
+onMounted(() => {
+  checkServiceHealth()
+  statusTimer = setInterval(checkServiceHealth, 5000)
+})
+
+onUnmounted(() => {
+  if (statusTimer) {
+    clearInterval(statusTimer)
+    statusTimer = null
+  }
+})
 </script>
 
 <style scoped>
@@ -118,8 +147,16 @@ import { LucideLayout, LucideHardDrive, LucideSettings } from 'lucide-vue-next'
   width: 10px;
   height: 10px;
   border-radius: 5px;
+}
+
+.status-dot.healthy {
   background-color: #10B981;
   box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+}
+
+.status-dot.offline {
+  background-color: #EF4444;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.35);
 }
 
 .main-content {
