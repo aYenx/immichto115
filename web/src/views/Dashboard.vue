@@ -5,6 +5,11 @@
         <h1>{{ greeting }}，Administrator</h1>
         <p>系统环境良好。当前状态：{{ systemStatus?.backup_status === 'running' ? '备份中...' : '空闲' }}</p>
       </div>
+      <div v-if="!wsConnected || !apiReachable" class="connection-banner">
+        <LucideWifiOff :size="16" />
+        <span v-if="!apiReachable">后端连接失败，请检查服务是否运行</span>
+        <span v-else>日志连接已断开，正在重连...</span>
+      </div>
       <div class="actions">
         <button class="btn secondary" @click="openSettings">
           编辑配置
@@ -102,7 +107,8 @@ import {
   LucideDatabase, 
   LucideCloud,
   LucideArrowDownToLine,
-  LucideTrash2
+  LucideTrash2,
+  LucideWifiOff
 } from 'lucide-vue-next'
 import { api, getErrorMessage, handleAuthFailure, type SystemStatus } from '../api'
 import { showToast } from '../composables/toast'
@@ -114,6 +120,8 @@ const systemStatus = ref<SystemStatus | null>(null)
 const logs = ref<Array<{ id: number, time: string, text: string }>>([])
 const terminalRef = ref<HTMLElement | null>(null)
 const autoScroll = ref(true)
+const wsConnected = ref(false)
+const apiReachable = ref(true)
 let scrollRAF: number | null = null
 const router = useRouter()
 
@@ -153,11 +161,13 @@ const disconnectRealtime = () => {
 const fetchStatus = async () => {
   try {
     systemStatus.value = await api.getSystemStatus()
+    apiReachable.value = true
   } catch (err) {
     if (handleAuthFailure(err)) {
       disconnectRealtime()
       return
     }
+    apiReachable.value = false
     console.error('Failed to get status', err)
   }
 }
@@ -232,6 +242,9 @@ const connectWebSocket = () => {
   const wsUrl = `${protocol}//${window.location.host}/ws/logs`
   
   ws = new WebSocket(wsUrl)
+  ws.onopen = () => {
+    wsConnected.value = true
+  }
   ws.onmessage = (ev) => {
     try {
       const data = JSON.parse(ev.data)
@@ -255,6 +268,7 @@ const connectWebSocket = () => {
   }
   ws.onclose = () => {
     ws = null
+    wsConnected.value = false
     if (!shouldReconnect) {
       return
     }
@@ -293,6 +307,27 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.connection-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background-color: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 10px;
+  color: #F59E0B;
+  font-size: 13px;
+  font-weight: 500;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .greeting h1 {

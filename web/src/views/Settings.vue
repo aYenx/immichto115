@@ -446,38 +446,7 @@ import {
 type SectionKey = 'webdav' | 'backup' | 'encrypt' | 'automation' | 'notify'
 type LocalField = 'library_dir' | 'backups_dir'
 
-const createDefaultConfig = (): AppConfig => ({
-  server: {
-    port: 8096,
-    auth_enabled: false,
-    auth_user: 'admin',
-    auth_password: '',
-  },
-  webdav: {
-    url: '',
-    user: '',
-    password: '',
-  },
-  backup: {
-    library_dir: '',
-    backups_dir: '',
-    remote_dir: '/immich-backup',
-    mode: 'copy' as 'copy' | 'sync',
-  },
-  encrypt: {
-    enabled: false,
-    password: '',
-    salt: '',
-  },
-  cron: {
-    enabled: true,
-    expression: '0 3 * * *',
-  },
-  notify: {
-    enabled: false,
-    bark_url: '',
-  },
-})
+import { createDefaultConfig } from '../configDefaults'
 
 const cloneConfig = (value: AppConfig): AppConfig => JSON.parse(JSON.stringify(value)) as AppConfig
 

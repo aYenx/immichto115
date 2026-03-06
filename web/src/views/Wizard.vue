@@ -347,38 +347,9 @@ const isTesting = ref(false)
 const isSaving = ref(false)
 const isSettingsMode = computed(() => route.name === 'settings')
 
-const config = reactive<AppConfig>({
-  server: {
-    port: 8096,
-    auth_enabled: false,
-    auth_user: 'admin',
-    auth_password: '',
-  },
-  webdav: {
-    url: '',
-    user: '',
-    password: '',
-  },
-  backup: {
-    library_dir: '',
-    backups_dir: '',
-    remote_dir: '/immich-backup',
-    mode: 'copy' as 'copy' | 'sync',
-  },
-  encrypt: {
-    enabled: false,
-    password: '',
-    salt: '',
-  },
-  cron: {
-    enabled: true,
-    expression: '0 3 * * *',
-  },
-  notify: {
-    enabled: false,
-    bark_url: '',
-  },
-})
+import { createDefaultConfig } from '../configDefaults'
+const config = reactive<AppConfig>(createDefaultConfig())
+
 
 onMounted(async () => {
   try {

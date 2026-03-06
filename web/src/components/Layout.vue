@@ -13,7 +13,7 @@
         </router-link>
         <router-link to="/explore" class="nav-item" active-class="active">
           <LucideHardDrive :size="20" />
-          <span>恢复照片</span>
+          <span>云端浏览</span>
         </router-link>
         <router-link to="/settings" class="nav-item" active-class="active">
           <LucideSettings :size="20" />
