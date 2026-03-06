@@ -34,11 +34,13 @@ Go 后端 + Vue 3 前端，编译为**单个二进制文件**，开箱即用。
 
 ### 一键安装（Linux / systemd）
 
-| 操作 | 命令                                                                                       |
-| ---- | ------------------------------------------------------------------------------------------ | ---------- |
-| 安装 | `curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/install.sh   | sudo bash` |
-| 更新 | `curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/install.sh   | sudo bash` |
-| 卸载 | `curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uninstall.sh | sudo bash` |
+```bash
+# 安装 / 更新
+curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/install.sh | sudo bash
+
+# 卸载
+curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uninstall.sh | sudo bash
+```
 
 > 一键安装的“更新”会重新下载最新发布版二进制并覆盖安装，保留现有 `config.yaml` 配置。
 
@@ -121,8 +123,9 @@ cd web && npm ci && npm run build && cd ..
 # 将前端产物复制到 Go 内嵌目录
 rm -rf cmd/server/dist && cp -r web/dist cmd/server/dist
 
-# 编译后端（内嵌前端资源）
-CGO_ENABLED=0 go build -ldflags="-s -w" -o immichto115 ./cmd/server/
+# 编译后端（内嵌前端资源，注入版本号）
+VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
+CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${VERSION}" -o immichto115 ./cmd/server/
 
 # 运行
 ./immichto115 --config /path/to/config.yaml --port 8096
@@ -149,6 +152,8 @@ docker compose up -d --build
 ## ⚙️ 配置说明
 
 > 配置文件路径优先级：`--config` 参数 > `IMMICHTO115_CONFIG` 环境变量 > `{可执行文件目录}/config/config.yaml`
+>
+> 可通过 `--port` 参数覆盖配置中的监听端口。运行 `immichto115 --version` 可查看当前版本号。
 
 首次访问 Web UI 会进入 **Setup Wizard**，配置完成后自动生成 `config.yaml`。
 
@@ -206,11 +211,12 @@ curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uni
 | `GET`  | `/api/v1/config`        | 获取配置（敏感信息已脱敏）              |  ✅  |
 | `POST` | `/api/v1/config`        | 保存配置                                |  ✅  |
 | `POST` | `/api/v1/webdav/test`   | 测试 WebDAV 连接                        |  ✅  |
-| `GET`  | `/api/v1/webdav/ls`     | 浏览 WebDAV 目录                        |  ✅  |
+| `POST` | `/api/v1/webdav/ls`     | 浏览 WebDAV 目录                        |  ✅  |
 | `POST` | `/api/v1/backup/start`  | 手动触发备份                            |  ✅  |
 | `POST` | `/api/v1/backup/stop`   | 停止备份                                |  ✅  |
 | `GET`  | `/api/v1/remote/ls`     | 浏览云端文件                            |  ✅  |
 | `GET`  | `/api/v1/local/ls`      | 浏览本地目录                            |  ✅  |
+| `POST` | `/api/v1/notify/test`   | 测试 Bark 推送通知                      |  ✅  |
 |  `WS`  | `/ws/logs`              | 实时备份日志流                          |  ✅  |
 
 > 开启访问保护后，除 `/api/health` 外均需管理员账号密码（HTTP Basic Auth）。
@@ -228,12 +234,14 @@ immichto115/
 │   ├── api/                 # Gin 路由 + WebSocket Hub
 │   ├── config/              # Viper 配置管理 + rclone.conf 生成
 │   ├── cron/                # 定时任务调度 (robfig/cron)
+│   ├── notify/              # Bark 推送通知
 │   └── rclone/              # Rclone CLI 封装 (os/exec)
 ├── web/                     # Vue 3 前端
 │   └── src/
-│       ├── views/           # Dashboard / Wizard / RestoreExplorer
-│       ├── components/      # Layout · CronScheduler
+│       ├── views/           # Dashboard / Wizard / Settings / RestoreExplorer
+│       ├── components/      # Layout · CronScheduler · GlobalToast
 │       ├── api.ts           # 类型化 API 客户端
+│       ├── configDefaults.ts # 共享配置默认值
 │       └── style.css        # 全局样式 (CSS Variables + Dark Mode)
 ├── deploy/
 │   ├── Dockerfile           # 多阶段构建 (amd64 / arm64)
@@ -257,8 +265,8 @@ immichto115/
 ## 🏷️ 发布
 
 ```bash
-git tag v0.4.0
-git push origin v0.4.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 GitHub Actions 自动完成：
