@@ -41,7 +41,7 @@ const router = createRouter({
           path: "settings",
           name: "settings",
           component: defineAsyncComponent(
-            () => import("./views/Wizard.vue"),
+            () => import("./views/Settings.vue"),
           ),
         },
       ],

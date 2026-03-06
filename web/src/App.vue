@@ -1,7 +1,8 @@
 <template>
+  <GlobalToast />
   <router-view></router-view>
 </template>
 
 <script setup lang="ts">
-// Main Entry
+import GlobalToast from './components/GlobalToast.vue'
 </script>

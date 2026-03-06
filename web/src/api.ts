@@ -1,3 +1,5 @@
+import { showToast } from './composables/toast'
+
 const BASE_URL = '/api/v1'
 const AUTH_ERROR_MESSAGE = '认证已失效，请刷新页面并重新输入管理员账号密码'
 
@@ -123,11 +125,11 @@ export function handleAuthFailure(error: unknown): boolean {
 
   if (!authRecoveryTriggered && typeof window !== 'undefined') {
     authRecoveryTriggered = true
-    window.alert(AUTH_ERROR_MESSAGE)
+    showToast('warning', '认证已失效', AUTH_ERROR_MESSAGE, 2200)
     window.setTimeout(() => {
       authRecoveryTriggered = false // Reset flag so future 401s can be handled
       window.location.reload()
-    }, 0)
+    }, 250)
   }
 
   return true
