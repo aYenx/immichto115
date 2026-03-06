@@ -436,7 +436,7 @@ const loadLocalDir = async (path: string) => {
     }
   } catch (err: any) {
     if (handleAuthFailure(err)) return
-    alert('加载目录失败: ' + getErrorMessage(err))
+    showToast('error', '加载目录失败', getErrorMessage(err))
   } finally {
     isLoadingLocal.value = false
   }
@@ -456,7 +456,7 @@ const loadRemoteDir = async (path: string) => {
     remoteDirs.value = items.filter(i => i.IsDir).sort((a, b) => a.Name.localeCompare(b.Name))
   } catch (err: any) {
     if (handleAuthFailure(err)) return
-    alert('加载 WebDAV 目录失败: ' + getErrorMessage(err))
+    showToast('error', '加载 WebDAV 目录失败', getErrorMessage(err))
   } finally {
     isLoadingRemote.value = false
   }
