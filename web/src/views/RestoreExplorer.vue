@@ -34,7 +34,7 @@
       <div class="file-table">
         <div class="table-header">
           <div class="col-checkbox">
-            <input type="checkbox" class="cb-input" />
+            <input type="checkbox" class="cb-input" v-model="isAllSelected" />
           </div>
           <div class="col-name">名称</div>
           <div class="col-size">大小</div>
@@ -60,7 +60,7 @@
                 <span>{{ folder.Name }}</span>
               </div>
               <div class="col-size">--</div>
-              <div class="col-date">{{ formatDate(folder.ModTime) }}</div>
+              <div class="col-date">{{ formatDate(folder.ModTime ?? '') }}</div>
               <div class="col-actions">
                 <button class="action-btn"><LucideChevronRight :size="18" /></button>
               </div>
@@ -76,8 +76,8 @@
                 <LucideFile :size="20" class="icon text-gray" v-else />
                 <span>{{ file.Name }}</span>
               </div>
-              <div class="col-size">{{ formatSize(file.Size) }}</div>
-              <div class="col-date">{{ formatDate(file.ModTime) }}</div>
+              <div class="col-size">{{ formatSize(file.Size ?? 0) }}</div>
+              <div class="col-date">{{ formatDate(file.ModTime ?? '') }}</div>
               <div class="col-actions">
                 <button class="action-btn" @click.stop="downloadFile(file)"><LucideDownload :size="18" /></button>
               </div>
@@ -102,12 +102,19 @@ import {
   LucideFileJson,
   LucideDownload
 } from 'lucide-vue-next'
-import { api } from '../api'
+import { api, getErrorMessage, handleAuthFailure, type DirEntry } from '../api'
 
 const selectedFiles = ref<string[]>([])
 const currentPath = ref('')
 const isLoading = ref(false)
-const items = ref<any[]>([])
+const items = ref<DirEntry[]>([])
+
+const isAllSelected = computed({
+  get: () => files.value.length > 0 && selectedFiles.value.length === files.value.length,
+  set: (val: boolean) => {
+    selectedFiles.value = val ? files.value.map(f => f.Name) : []
+  }
+})
 
 const breadcrumbs = computed(() => {
   if (!currentPath.value) return []
@@ -120,8 +127,8 @@ const breadcrumbs = computed(() => {
   })
 })
 
-const folders = computed(() => items.value.filter(i => i.IsDir).sort((a,b)=>a.Name.localeCompare(b.Name)))
-const files = computed(() => items.value.filter(i => !i.IsDir).sort((a,b)=>a.Name.localeCompare(b.Name)))
+const folders = computed(() => items.value.filter(i => i.IsDir).sort((a, b) => a.Name.localeCompare(b.Name)))
+const files = computed(() => items.value.filter(i => !i.IsDir).sort((a, b) => a.Name.localeCompare(b.Name)))
 
 const fetchList = async () => {
   isLoading.value = true
@@ -130,7 +137,8 @@ const fetchList = async () => {
     const data = await api.listRemote('/' + currentPath.value)
     items.value = Array.isArray(data) ? data : []
   } catch (err: any) {
-    alert('请求文件列表失败: ' + err.message)
+    if (handleAuthFailure(err)) return
+    alert('请求文件列表失败: ' + getErrorMessage(err))
     items.value = []
   } finally {
     isLoading.value = false
@@ -216,42 +224,7 @@ onMounted(() => {
   gap: 16px;
 }
 
-.btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 20px;
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn.primary {
-  background-color: var(--text-primary);
-  color: var(--text-inverted);
-}
-
-.btn.primary:not(:disabled):hover {
-  opacity: 0.9;
-}
-
-.btn.secondary {
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-strong);
-  color: var(--text-primary);
-}
-
-.btn.secondary:not(:disabled):hover {
-  background-color: var(--border-subtle);
-}
+/* .btn styles inherited from global style.css */
 
 .explorer-card {
   display: flex;
@@ -268,7 +241,25 @@ onMounted(() => {
   gap: 8px;
   padding: 20px 24px;
   border-bottom: 1px solid var(--border-subtle);
-  background-color: var(--bg-dark);
+  background-color: #0F172A;
+  color: #E2E8F0;
+}
+
+.breadcrumb .path-item {
+  color: #94A3B8;
+}
+
+.breadcrumb .path-item:hover {
+  color: #E2E8F0;
+}
+
+.breadcrumb .path-item.active {
+  color: #F8FAFC;
+  font-weight: 600;
+}
+
+.breadcrumb .separator {
+  color: #475569;
 }
 
 .path-item {

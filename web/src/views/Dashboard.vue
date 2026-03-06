@@ -2,10 +2,13 @@
   <div class="dashboard-container">
     <div class="header">
       <div class="greeting">
-        <h1>早上好，Administrator</h1>
+        <h1>{{ greeting }}，Administrator</h1>
         <p>系统环境良好。当前状态：{{ systemStatus?.backup_status === 'running' ? '备份中...' : '空闲' }}</p>
       </div>
       <div class="actions">
+        <button class="btn secondary" @click="openSettings">
+          编辑配置
+        </button>
         <button class="btn secondary" @click="stopBackup" :disabled="systemStatus?.backup_status !== 'running'">
           <LucidePause :size="16" />
           停止备份
@@ -85,7 +88,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { 
   LucidePlay, 
   LucidePause, 
@@ -95,18 +99,54 @@ import {
   LucideCloud,
   LucideRefreshCcw
 } from 'lucide-vue-next'
-import { api, type SystemStatus } from '../api'
+import { api, getErrorMessage, handleAuthFailure, type SystemStatus } from '../api'
 
 const systemStatus = ref<SystemStatus | null>(null)
 const logs = ref<Array<{ time: string, text: string }>>([])
 const terminalRef = ref<HTMLElement | null>(null)
+const router = useRouter()
+
+const greeting = computed(() => {
+  const hour = new Date().getHours()
+  if (hour < 6) return '夜深了'
+  if (hour < 12) return '早上好'
+  if (hour < 14) return '中午好'
+  if (hour < 18) return '下午好'
+  return '晚上好'
+})
+
 let ws: WebSocket | null = null
 let statusInterval: ReturnType<typeof setInterval> | null = null
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+let shouldReconnect = true
+
+const disconnectRealtime = () => {
+  shouldReconnect = false
+
+  if (statusInterval) {
+    clearInterval(statusInterval)
+    statusInterval = null
+  }
+
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+
+  if (ws) {
+    ws.close()
+    ws = null
+  }
+}
 
 const fetchStatus = async () => {
   try {
     systemStatus.value = await api.getSystemStatus()
   } catch (err) {
+    if (handleAuthFailure(err)) {
+      disconnectRealtime()
+      return
+    }
     console.error('Failed to get status', err)
   }
 }
@@ -117,12 +157,17 @@ const formatNextRun = (dateStr: string | null | undefined) => {
   return d.toLocaleString()
 }
 
+const openSettings = () => {
+  router.push('/settings')
+}
+
 const startBackup = async () => {
   try {
     await api.startBackup()
     await fetchStatus()
   } catch (err: any) {
-    alert(err.message)
+    if (handleAuthFailure(err)) return
+    alert(getErrorMessage(err))
   }
 }
 
@@ -131,7 +176,8 @@ const stopBackup = async () => {
     await api.stopBackup()
     await fetchStatus()
   } catch (err: any) {
-    alert(err.message)
+    if (handleAuthFailure(err)) return
+    alert(getErrorMessage(err))
   }
 }
 
@@ -144,6 +190,11 @@ const getLogLevelClass = (text: string) => {
 }
 
 const connectWebSocket = () => {
+  if (!shouldReconnect) return
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    return
+  }
+
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const wsUrl = `${protocol}//${window.location.host}/ws/logs`
   
@@ -172,20 +223,28 @@ const connectWebSocket = () => {
     console.error('WebSocket error', e)
   }
   ws.onclose = () => {
+    ws = null
+    if (!shouldReconnect) {
+      return
+    }
+
     console.log('WebSocket closed, reconnecting in 5s...')
-    setTimeout(connectWebSocket, 5000)
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      connectWebSocket()
+    }, 5000)
   }
 }
 
 onMounted(() => {
+  shouldReconnect = true
   fetchStatus()
   statusInterval = setInterval(fetchStatus, 3000)
   connectWebSocket()
 })
 
 onUnmounted(() => {
-  if (statusInterval) clearInterval(statusInterval)
-  if (ws) ws.close()
+  disconnectRealtime()
 })
 </script>
 
@@ -224,37 +283,7 @@ onUnmounted(() => {
   gap: 16px;
 }
 
-.btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 20px;
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.btn.primary {
-  background-color: var(--text-primary);
-  color: var(--text-inverted);
-}
-
-.btn.primary:hover {
-  opacity: 0.9;
-}
-
-.btn.secondary {
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-strong);
-  color: var(--text-primary);
-}
-
-.btn.secondary:hover {
-  background-color: var(--border-subtle);
-}
+/* .btn styles inherited from global style.css */
 
 .stats-grid {
   display: grid;

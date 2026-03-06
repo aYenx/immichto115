@@ -20,16 +20,40 @@
       <span class="field-label">执行时间</span>
       <div class="time-picker">
         <div class="time-select-wrapper">
-          <select class="time-select" v-model="hour">
-            <option v-for="h in hours" :key="h" :value="h">{{ padZero(h) }}</option>
-          </select>
+          <div class="custom-select" :class="{ open: hourOpen }" ref="hourRef">
+            <button class="custom-select-trigger" @click.stop="toggleDropdown('hour')">
+              {{ padZero(hour) }}
+            </button>
+            <div v-if="hourOpen" class="custom-select-dropdown">
+              <div
+                v-for="h in hours"
+                :key="h"
+                :class="['custom-select-option', h === hour ? 'selected' : '']"
+                @click.stop="selectHour(h)"
+              >
+                {{ padZero(h) }}
+              </div>
+            </div>
+          </div>
           <span class="time-unit">时</span>
         </div>
         <span class="time-colon">:</span>
         <div class="time-select-wrapper">
-          <select class="time-select" v-model="minute">
-            <option v-for="m in minutes" :key="m" :value="m">{{ padZero(m) }}</option>
-          </select>
+          <div class="custom-select" :class="{ open: minuteOpen }" ref="minuteRef">
+            <button class="custom-select-trigger" @click.stop="toggleDropdown('minute')">
+              {{ padZero(minute) }}
+            </button>
+            <div v-if="minuteOpen" class="custom-select-dropdown">
+              <div
+                v-for="m in minutes"
+                :key="m"
+                :class="['custom-select-option', m === minute ? 'selected' : '']"
+                @click.stop="selectMinute(m)"
+              >
+                {{ padZero(m) }}
+              </div>
+            </div>
+          </div>
           <span class="time-unit">分</span>
         </div>
       </div>
@@ -55,9 +79,21 @@
       <span class="field-label">间隔时间</span>
       <div class="interval-picker">
         <span class="interval-prefix">每</span>
-        <select class="time-select" v-model="intervalHours">
-          <option v-for="i in intervalOptions" :key="i" :value="i">{{ i }}</option>
-        </select>
+        <div class="custom-select" :class="{ open: intervalOpen }" ref="intervalRef">
+          <button class="custom-select-trigger" @click.stop="toggleDropdown('interval')">
+            {{ intervalHours }}
+          </button>
+          <div v-if="intervalOpen" class="custom-select-dropdown">
+            <div
+              v-for="i in intervalOptions"
+              :key="i"
+              :class="['custom-select-option', i === intervalHours ? 'selected' : '']"
+              @click.stop="selectInterval(i)"
+            >
+              {{ i }}
+            </div>
+          </div>
+        </div>
         <span class="interval-suffix">小时执行一次</span>
       </div>
     </div>
@@ -91,7 +127,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { LucideClock, LucideCalendarClock } from 'lucide-vue-next'
 
 const props = defineProps<{
@@ -136,6 +172,70 @@ const minute = ref(0)
 const dayOfWeek = ref(0) // Sunday
 const intervalHours = ref(6)
 const customExpression = ref('0 3 * * *')
+let isInitializing = true
+
+// Custom dropdown state
+const hourOpen = ref(false)
+const minuteOpen = ref(false)
+const intervalOpen = ref(false)
+const hourRef = ref<HTMLElement | null>(null)
+const minuteRef = ref<HTMLElement | null>(null)
+const intervalRef = ref<HTMLElement | null>(null)
+
+const closeAllDropdowns = () => {
+  hourOpen.value = false
+  minuteOpen.value = false
+  intervalOpen.value = false
+}
+
+const toggleDropdown = (which: 'hour' | 'minute' | 'interval') => {
+  if (which === 'hour') {
+    const wasOpen = hourOpen.value
+    closeAllDropdowns()
+    hourOpen.value = !wasOpen
+  } else if (which === 'minute') {
+    const wasOpen = minuteOpen.value
+    closeAllDropdowns()
+    minuteOpen.value = !wasOpen
+  } else {
+    const wasOpen = intervalOpen.value
+    closeAllDropdowns()
+    intervalOpen.value = !wasOpen
+  }
+}
+
+const selectHour = (h: number) => {
+  hour.value = h
+  hourOpen.value = false
+}
+
+const selectMinute = (m: number) => {
+  minute.value = m
+  minuteOpen.value = false
+}
+
+const selectInterval = (i: number) => {
+  intervalHours.value = i
+  intervalOpen.value = false
+}
+
+const handleClickOutside = (e: MouseEvent) => {
+  const target = e.target as HTMLElement
+  if (hourRef.value && !hourRef.value.contains(target)) hourOpen.value = false
+  if (minuteRef.value && !minuteRef.value.contains(target)) minuteOpen.value = false
+  if (intervalRef.value && !intervalRef.value.contains(target)) intervalOpen.value = false
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside)
+  parseCronExpression(props.modelValue)
+  // Allow emitting after initial parse is complete
+  nextTick(() => { isInitializing = false })
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleClickOutside)
+})
 
 const padZero = (n: number) => String(n).padStart(2, '0')
 
@@ -230,12 +330,9 @@ const humanDescription = computed(() => {
 
 // Emit changes
 watch(generatedExpression, (val) => {
-  emit('update:modelValue', val)
-})
-
-// Parse initial value
-onMounted(() => {
-  parseCronExpression(props.modelValue)
+  if (!isInitializing) {
+    emit('update:modelValue', val)
+  }
 })
 
 // Watch for external changes
@@ -316,7 +413,13 @@ watch(() => props.modelValue, (val) => {
   gap: 6px;
 }
 
-.time-select {
+/* Custom Select Dropdown */
+.custom-select {
+  position: relative;
+  display: inline-block;
+}
+
+.custom-select-trigger {
   height: 44px;
   width: 80px;
   border-radius: 10px;
@@ -327,15 +430,73 @@ watch(() => props.modelValue, (val) => {
   font-size: 18px;
   font-weight: 600;
   font-family: var(--font-primary);
-  appearance: none;
-  -webkit-appearance: none;
   cursor: pointer;
   text-align: center;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.time-select:focus {
+.custom-select-trigger:hover {
+  border-color: var(--text-secondary);
+}
+
+.custom-select.open .custom-select-trigger {
   outline: 2px solid var(--text-primary);
   outline-offset: -1px;
+}
+
+.custom-select-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80px;
+  max-height: 200px;
+  overflow-y: auto;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 4px;
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.custom-select-dropdown::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-select-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-select-dropdown::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 2px;
+}
+
+.custom-select-option {
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.1s ease;
+  font-family: var(--font-primary);
+}
+
+.custom-select-option:hover {
+  background-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.custom-select-option.selected {
+  background-color: var(--text-primary);
+  color: var(--text-inverted);
+  font-weight: 600;
 }
 
 .time-unit {

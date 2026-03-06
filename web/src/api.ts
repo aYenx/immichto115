@@ -1,4 +1,53 @@
 const BASE_URL = '/api/v1'
+const AUTH_ERROR_MESSAGE = '认证已失效，请刷新页面并重新输入管理员账号密码'
+
+let authRecoveryTriggered = false
+
+export interface ServerConfig {
+  port: number
+  auth_enabled: boolean
+  auth_user: string
+  auth_password?: string
+}
+
+export interface WebDAVConfig {
+  url: string
+  user: string
+  password: string
+  vendor?: string
+}
+
+export interface WebDAVListRequest {
+  url: string
+  user: string
+  password: string
+  path: string
+}
+
+export interface BackupConfig {
+  library_dir: string
+  backups_dir: string
+  remote_dir: string
+}
+
+export interface EncryptConfig {
+  enabled: boolean
+  password: string
+  salt: string
+}
+
+export interface CronConfig {
+  enabled: boolean
+  expression: string
+}
+
+export interface AppConfig {
+  server: ServerConfig
+  webdav: WebDAVConfig
+  backup: BackupConfig
+  encrypt: EncryptConfig
+  cron: CronConfig
+}
 
 export interface SystemStatus {
   rclone_installed: boolean
@@ -9,78 +58,131 @@ export interface SystemStatus {
   setup_complete: boolean
 }
 
+/** Represents a file or directory entry from backend listing APIs */
+export interface DirEntry {
+  Name: string
+  Path: string
+  IsDir: boolean
+  Size?: number
+  ModTime?: string
+}
+
+export class ApiError extends Error {
+  status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+async function readErrorMessage(res: Response): Promise<string> {
+  if (res.status === 401) {
+    return AUTH_ERROR_MESSAGE
+  }
+
+  // Read body as text first, then attempt JSON parse to avoid double-consumption
+  const text = (await res.text().catch(() => '')).trim()
+
+  if (text) {
+    try {
+      const payload = JSON.parse(text) as Record<string, unknown>
+      const message = payload?.error || payload?.message
+      if (typeof message === 'string' && message.trim()) {
+        return message
+      }
+    } catch {
+      // Not JSON, use as plain text
+    }
+    return text
+  }
+
+  return `Request failed (${res.status})`
+}
+
+async function requestJSON<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init)
+  if (!res.ok) {
+    throw new ApiError(res.status, await readErrorMessage(res))
+  }
+  return await res.json() as T
+}
+
+export function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+  return '请求失败，请稍后重试'
+}
+
+export function handleAuthFailure(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 401) {
+    return false
+  }
+
+  if (!authRecoveryTriggered && typeof window !== 'undefined') {
+    authRecoveryTriggered = true
+    window.alert(AUTH_ERROR_MESSAGE)
+    window.setTimeout(() => {
+      authRecoveryTriggered = false // Reset flag so future 401s can be handled
+      window.location.reload()
+    }, 0)
+  }
+
+  return true
+}
+
 export const api = {
   getSystemStatus: async (): Promise<SystemStatus> => {
-    const res = await fetch(`${BASE_URL}/system/status`)
-    if (!res.ok) throw new Error(await res.text())
-    return (await res.json()) as SystemStatus
+    return await requestJSON<SystemStatus>(`${BASE_URL}/system/status`)
   },
 
-  getConfig: async (): Promise<any> => {
-    const res = await fetch(`${BASE_URL}/config`)
-    if (!res.ok) throw new Error(await res.text())
-    return await res.json()
+  getConfig: async (): Promise<AppConfig> => {
+    return await requestJSON<AppConfig>(`${BASE_URL}/config`)
   },
 
-  saveConfig: async (config: any): Promise<any> => {
-    const res = await fetch(`${BASE_URL}/config`, {
+  saveConfig: async (config: AppConfig): Promise<{ message: string }> => {
+    return await requestJSON<{ message: string }>(`${BASE_URL}/config`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(config)
     })
-    if (!res.ok) throw new Error(await res.text())
-    return await res.json()
   },
 
   testWebDAV: async (data: { url: string; user: string; password: string }): Promise<{ success: boolean; message: string }> => {
-    const res = await fetch(`${BASE_URL}/webdav/test`, {
+    return await requestJSON<{ success: boolean; message: string }>(`${BASE_URL}/webdav/test`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     })
-    if (!res.ok) {
-      const resp = await res.json()
-      throw new Error(resp.error || 'Request failed')
-    }
-    return await res.json()
   },
 
-  startBackup: async (): Promise<any> => {
-    const res = await fetch(`${BASE_URL}/backup/start`, { method: 'POST' })
-    if (!res.ok) {
-      const resp = await res.json()
-      throw new Error(resp.error || 'Failed to start backup')
-    }
-    return await res.json()
+  listWebDAV: async (data: WebDAVListRequest): Promise<DirEntry[]> => {
+    return await requestJSON<DirEntry[]>(`${BASE_URL}/webdav/ls`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
   },
 
-  stopBackup: async (): Promise<any> => {
-    const res = await fetch(`${BASE_URL}/backup/stop`, { method: 'POST' })
-    if (!res.ok) {
-      const resp = await res.json()
-      throw new Error(resp.error || 'Failed to stop backup')
-    }
-    return await res.json()
+  startBackup: async (): Promise<{ message: string }> => {
+    return await requestJSON<{ message: string }>(`${BASE_URL}/backup/start`, { method: 'POST' })
   },
 
-  listRemote: async (path: string): Promise<any> => {
-    const res = await fetch(`${BASE_URL}/remote/ls?path=${encodeURIComponent(path)}`)
-    if (!res.ok) {
-      throw new Error('Failed to fetch remote directory')
-    }
-    return await res.json()
+  stopBackup: async (): Promise<{ message: string }> => {
+    return await requestJSON<{ message: string }>(`${BASE_URL}/backup/stop`, { method: 'POST' })
   },
 
-  listLocal: async (path: string = ''): Promise<any> => {
+  listRemote: async (path: string): Promise<DirEntry[]> => {
+    return await requestJSON<DirEntry[]>(`${BASE_URL}/remote/ls?path=${encodeURIComponent(path)}`)
+  },
+
+  listLocal: async (path: string = ''): Promise<DirEntry[]> => {
     const params = new URLSearchParams()
     if (path) {
       params.append('path', path)
     }
-    const res = await fetch(`${BASE_URL}/local/ls?${params.toString()}`)
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.error || 'Failed to list local directory')
-    }
-    return await res.json()
+    return await requestJSON<DirEntry[]>(`${BASE_URL}/local/ls?${params.toString()}`)
   }
 }

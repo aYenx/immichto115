@@ -1,9 +1,9 @@
 <template>
-  <div class="wizard-container">
+  <div :class="['wizard-container', isSettingsMode ? 'settings-mode' : '']">
     <div class="left-col">
       <div class="title-box">
         <h1 class="main-title">ImmichTo115</h1>
-        <h2 class="sub-title">Setup Wizard</h2>
+        <h2 class="sub-title">{{ isSettingsMode ? '配置设置' : 'Setup Wizard' }}</h2>
       </div>
 
       <div class="step-list">
@@ -36,10 +36,11 @@
 
         <!-- Step 4 Navigation -->
         <div class="step-item">
-          <div :class="['step-icon', step === 4 ? 'active' : 'pending']">
-            <span>4</span>
+          <div :class="['step-icon', step > 4 ? 'completed' : step === 4 ? 'active' : 'pending']">
+            <LucideCheck v-if="step > 4" :size="16" />
+            <span v-else>4</span>
           </div>
-          <span :class="['step-text', step === 4 ? 'active-text' : 'pending-text']">定时任务</span>
+          <span :class="['step-text', step >= 4 ? 'active-text' : 'pending-text']">定时任务</span>
         </div>
       </div>
     </div>
@@ -66,12 +67,25 @@
 
           <div class="input-field">
             <span class="input-label">密码或授权码</span>
-            <input class="input-control" type="password" v-model="config.webdav.password" placeholder="••••••••••••" />
+            <input class="input-control" type="password" v-model="config.webdav.password" placeholder="••••••••••••" autocomplete="off" />
+          </div>
+
+          <div class="input-field">
+            <span class="input-label">Remote Dir</span>
+            <div class="path-input-row">
+              <input class="input-control" type="text" v-model="config.backup.remote_dir" placeholder="/immich-backup" style="flex: 1;" />
+              <button class="btn secondary browse-btn" @click="openRemoteFolderPicker">
+                <LucideFolderOpen :size="16" />
+                WebDAV
+              </button>
+            </div>
+            <span class="input-hint">WebDAV 用户的根目录只是登录后的起点，真正备份会写入这里选择的云端目录。</span>
           </div>
         </div>
 
         <div class="buttons">
           <span v-if="testResult" :style="{ color: testSuccess ? 'var(--text-primary)' : 'red', alignSelf: 'center', marginRight: '16px' }">{{ testResult }}</span>
+          <span v-if="validationError && step === 1" class="validation-error">{{ validationError }}</span>
           <button class="btn secondary" @click="testConnection" :disabled="isTesting">测试连接</button>
           <button class="btn primary" @click="nextStep">下一步</button>
         </div>
@@ -110,6 +124,7 @@
 
         <div class="buttons space-between">
           <button class="btn secondary" @click="prevStep">上一步</button>
+          <span v-if="validationError && step === 2" class="validation-error">{{ validationError }}</span>
           <button class="btn primary" @click="nextStep">下一步</button>
         </div>
       </div>
@@ -122,29 +137,30 @@
         </div>
 
         <div class="form-group">
-          <div class="toggle-field" @click="config.webdav.crypt_enabled = !config.webdav.crypt_enabled">
+          <div class="toggle-field" @click="config.encrypt.enabled = !config.encrypt.enabled">
             <div class="toggle-info">
               <span class="toggle-title">启用加密 (Rclone Crypt)</span>
               <span class="toggle-desc">如果启用，所有的文件上传之前都会被本地加密</span>
             </div>
-            <div :class="['switch', config.webdav.crypt_enabled ? 'active' : '']">
+            <div :class="['switch', config.encrypt.enabled ? 'active' : '']">
               <div class="thumb"></div>
             </div>
           </div>
 
-          <div class="input-field" v-if="config.webdav.crypt_enabled">
+          <div class="input-field" v-if="config.encrypt.enabled">
             <span class="input-label">加密密码 (Password)</span>
-            <input class="input-control" type="password" v-model="config.webdav.crypt_password" placeholder="用于文件内容的加密" />
+            <input class="input-control" type="password" v-model="config.encrypt.password" placeholder="用于文件内容的加密" autocomplete="new-password" />
           </div>
 
-          <div class="input-field" v-if="config.webdav.crypt_enabled">
+          <div class="input-field" v-if="config.encrypt.enabled">
             <span class="input-label">加密混淆盐 (Salt)</span>
-            <input class="input-control" type="password" v-model="config.webdav.crypt_salt" placeholder="用于文件名的加密" />
+            <input class="input-control" type="password" v-model="config.encrypt.salt" placeholder="用于文件名的加密" autocomplete="new-password" />
           </div>
         </div>
 
         <div class="buttons space-between">
           <button class="btn secondary" @click="prevStep">上一步</button>
+          <span v-if="validationError && step === 3" class="validation-error">{{ validationError }}</span>
           <button class="btn primary" @click="nextStep">下一步</button>
         </div>
       </div>
@@ -157,6 +173,26 @@
         </div>
 
         <div class="form-group">
+          <div class="toggle-field" @click="config.server.auth_enabled = !config.server.auth_enabled">
+            <div class="toggle-info">
+              <span class="toggle-title">启用访问保护</span>
+              <span class="toggle-desc">启用后，访问管理界面和 API 需要输入管理员账号密码</span>
+            </div>
+            <div :class="['switch', config.server.auth_enabled ? 'active' : '']">
+              <div class="thumb"></div>
+            </div>
+          </div>
+
+          <div v-if="config.server.auth_enabled" class="input-field">
+            <span class="input-label">管理员用户名</span>
+            <input class="input-control" type="text" v-model="config.server.auth_user" placeholder="admin" />
+          </div>
+
+          <div v-if="config.server.auth_enabled" class="input-field">
+            <span class="input-label">管理员密码</span>
+            <input class="input-control" type="password" v-model="config.server.auth_password" placeholder="留空则保持当前密码不变" autocomplete="new-password" />
+          </div>
+
           <div class="toggle-field" @click="config.cron.enabled = !config.cron.enabled">
             <div class="toggle-info">
               <span class="toggle-title">开启自动备份</span>
@@ -236,37 +272,101 @@
         </div>
       </div>
     </div>
+    <div v-if="showRemoteFolderPicker" class="modal-overlay" @click.self="showRemoteFolderPicker = false">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 style="margin: 0; font-size: 16px;">选择 WebDAV 备份目录</h3>
+          <button class="btn-icon" @click="showRemoteFolderPicker = false" style="background:none; border:none; cursor:pointer; color: var(--text-primary);"><LucideX :size="20" /></button>
+        </div>
+        <div class="modal-body">
+          <div class="breadcrumb-bar">
+            <div class="breadcrumb-inner">
+              <button class="breadcrumb-item" @click="loadRemoteDir('/')">
+                <LucideFolder :size="14" />
+              </button>
+              <template v-for="(seg, idx) in remotePathSegments" :key="idx">
+                <span class="breadcrumb-sep">/</span>
+                <button class="breadcrumb-item" @click="navigateToRemoteSegment(idx)" :class="{ last: idx === remotePathSegments.length - 1 }">
+                  {{ seg }}
+                </button>
+              </template>
+            </div>
+          </div>
+          <div class="folder-list">
+            <div v-if="isLoadingRemote" class="folder-empty">
+              <LucideLoader2 :size="20" class="spin-icon" />
+              <span>加载中...</span>
+            </div>
+            <div v-else-if="remoteDirs.length === 0" class="folder-empty">
+              <LucideFolderOpen :size="20" />
+              <span>该目录下没有子文件夹</span>
+            </div>
+            <div v-else class="folder-scroll">
+              <div v-if="remoteCanGoUp" class="folder-item go-up" @click="goUpRemoteDir">
+                <LucideCornerLeftUp :size="16" />
+                <span>返回上级目录</span>
+              </div>
+              <div v-for="item in remoteDirs" :key="item.Path || item.Name" class="folder-item" @click="enterRemoteDir(item)">
+                <LucideFolder :size="16" />
+                <span>{{ item.Name }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <div class="selected-path-preview">
+            <LucideCheck :size="14" />
+            <span>{{ currentRemotePath }}</span>
+          </div>
+          <div class="modal-footer-btns">
+            <button class="btn secondary" style="height: 36px; padding: 0 16px;" @click="showRemoteFolderPicker = false">取消</button>
+            <button class="btn primary" style="height: 36px; padding: 0 16px;" @click="confirmRemoteFolder">选择此目录</button>
+          </div>
+        </div>
+      </div>
+    </div>
     </div>
   </div>
 </template>
 <script setup lang="ts">
 import { ref, computed, onMounted, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { LucideCheck, LucideFolder, LucideFolderOpen, LucideX, LucideHardDrive, LucidePencil, LucideLoader2, LucideCornerLeftUp } from 'lucide-vue-next'
-import { api } from '../api'
+import { api, getErrorMessage, handleAuthFailure, type AppConfig, type DirEntry } from '../api'
+import { markSetupComplete } from '../router'
 import CronScheduler from '../components/CronScheduler.vue'
 
 const router = useRouter()
+const route = useRoute()
 const step = ref(1)
 
 const testResult = ref('')
 const testSuccess = ref(false)
 const isTesting = ref(false)
 const isSaving = ref(false)
+const isSettingsMode = computed(() => route.name === 'settings')
 
-const config = reactive({
+const config = reactive<AppConfig>({
+  server: {
+    port: 8096,
+    auth_enabled: false,
+    auth_user: 'admin',
+    auth_password: '',
+  },
   webdav: {
     url: '',
     user: '',
     password: '',
-    crypt_enabled: false,
-    crypt_password: '',
-    crypt_salt: '',
   },
   backup: {
     library_dir: '',
     backups_dir: '',
     remote_dir: '/immich-backup',
+  },
+  encrypt: {
+    enabled: false,
+    password: '',
+    salt: '',
   },
   cron: {
     enabled: true,
@@ -288,8 +388,13 @@ const showFolderPicker = ref(false)
 const showPathInput = ref(false)
 const targetLocalField = ref<'library_dir' | 'backups_dir'>('library_dir')
 const currentLocalPath = ref('')
-const localDirs = ref<any[]>([])
+const localDirs = ref<DirEntry[]>([])
 const isLoadingLocal = ref(false)
+const showRemoteFolderPicker = ref(false)
+const currentRemotePath = ref('/')
+const remoteDirs = ref<DirEntry[]>([])
+const isLoadingRemote = ref(false)
+const validationError = ref('')
 
 const isWindowsPath = computed(() => currentLocalPath.value.includes('\\'))
 
@@ -304,6 +409,10 @@ const canGoUp = computed(() => {
   const p = currentLocalPath.value
   return p !== '/' && p !== 'C:\\' && p !== ''
 })
+
+const remotePathSegments = computed(() => currentRemotePath.value.split('/').filter(s => s !== ''))
+
+const remoteCanGoUp = computed(() => currentRemotePath.value !== '/')
 
 const navigateToSegment = (idx: number) => {
   const sep = isWindowsPath.value ? '\\' : '/'
@@ -327,18 +436,52 @@ const openFolderPicker = (field: 'library_dir' | 'backups_dir') => {
   loadLocalDir(currentLocalPath.value)
 }
 
+const normalizeRemotePath = (path: string) => {
+  if (!path || path.trim() === '') return '/'
+  const normalized = path.replace(/\\/g, '/').trim()
+  if (normalized === '/') return '/'
+  return normalized.startsWith('/') ? normalized : `/${normalized}`
+}
+
+const openRemoteFolderPicker = () => {
+  showRemoteFolderPicker.value = true
+  currentRemotePath.value = normalizeRemotePath(config.backup.remote_dir)
+  loadRemoteDir(currentRemotePath.value)
+}
+
 const loadLocalDir = async (path: string) => {
   isLoadingLocal.value = true
   try {
     const items = await api.listLocal(path)
-    localDirs.value = items.filter((i: any) => i.IsDir).sort((a: any, b: any) => a.Name.localeCompare(b.Name))
+    localDirs.value = items.filter(i => i.IsDir).sort((a, b) => a.Name.localeCompare(b.Name))
     if (path === '') {
-      currentLocalPath.value = items.length > 0 && items[0].Path.includes('\\') ? 'C:\\' : '/'
+      currentLocalPath.value = items.length > 0 && items[0]!.Path.includes('\\') ? 'C:\\' : '/'
     }
   } catch (err: any) {
-    alert('加载目录失败: ' + err.message)
+    if (handleAuthFailure(err)) return
+    alert('加载目录失败: ' + getErrorMessage(err))
   } finally {
     isLoadingLocal.value = false
+  }
+}
+
+const loadRemoteDir = async (path: string) => {
+  isLoadingRemote.value = true
+  try {
+    const normalizedPath = normalizeRemotePath(path)
+    const items = await api.listWebDAV({
+      url: config.webdav.url,
+      user: config.webdav.user,
+      password: config.webdav.password,
+      path: normalizedPath,
+    })
+    currentRemotePath.value = normalizedPath
+    remoteDirs.value = items.filter(i => i.IsDir).sort((a, b) => a.Name.localeCompare(b.Name))
+  } catch (err: any) {
+    if (handleAuthFailure(err)) return
+    alert('加载 WebDAV 目录失败: ' + getErrorMessage(err))
+  } finally {
+    isLoadingRemote.value = false
   }
 }
 
@@ -354,6 +497,11 @@ const enterLocalDir = (item: any) => {
   loadLocalDir(newPath)
 }
 
+const enterRemoteDir = (item: any) => {
+  const newPath = currentRemotePath.value === '/' ? `/${item.Name}` : `${currentRemotePath.value}/${item.Name}`
+  loadRemoteDir(newPath)
+}
+
 const goUpLocalDir = () => {
   const sep = currentLocalPath.value.includes('\\') ? '\\' : '/'
   let parts = currentLocalPath.value.split(sep)
@@ -365,16 +513,60 @@ const goUpLocalDir = () => {
   loadLocalDir(newPath)
 }
 
+const goUpRemoteDir = () => {
+  if (currentRemotePath.value === '/') return
+  const parts = currentRemotePath.value.split('/').filter(Boolean)
+  parts.pop()
+  const newPath = parts.length === 0 ? '/' : `/${parts.join('/')}`
+  loadRemoteDir(newPath)
+}
+
+const navigateToRemoteSegment = (idx: number) => {
+  const segs = remotePathSegments.value.slice(0, idx + 1)
+  const newPath = segs.length === 0 ? '/' : `/${segs.join('/')}`
+  loadRemoteDir(newPath)
+}
+
 const confirmFolder = () => {
   config.backup[targetLocalField.value] = currentLocalPath.value
   showFolderPicker.value = false
 }
 
+const confirmRemoteFolder = () => {
+  config.backup.remote_dir = normalizeRemotePath(currentRemotePath.value)
+  showRemoteFolderPicker.value = false
+}
+
+const validateCurrentStep = (): string | null => {
+  if (step.value === 1) {
+    if (!config.webdav.url.trim()) return '请输入 WebDAV 服务器地址'
+    if (!config.webdav.user.trim()) return '请输入用户名'
+    if (!config.webdav.password.trim()) return '请输入密码'
+    if (!config.backup.remote_dir.trim()) return '请选择远端备份目录'
+  } else if (step.value === 2) {
+    if (!config.backup.library_dir.trim()) return '请输入照片库路径'
+    if (!config.backup.backups_dir.trim()) return '请输入数据库备份路径'
+  } else if (step.value === 3) {
+    if (config.encrypt.enabled) {
+      if (!config.encrypt.password.trim()) return '请输入加密密码'
+      if (!config.encrypt.salt.trim()) return '请输入加密混淆盐'
+    }
+  }
+  return null
+}
+
 const nextStep = () => {
+  const error = validateCurrentStep()
+  if (error) {
+    validationError.value = error
+    return
+  }
+  validationError.value = ''
   if (step.value < 4) step.value++
 }
 
 const prevStep = () => {
+  validationError.value = ''
   if (step.value > 1) step.value--
 }
 
@@ -391,8 +583,9 @@ const testConnection = async () => {
     testSuccess.value = true
     testResult.value = '连接成功!'
   } catch (err: any) {
+    if (handleAuthFailure(err)) return
     testSuccess.value = false
-    testResult.value = '连接失败: ' + err.message
+    testResult.value = '连接失败: ' + getErrorMessage(err)
   } finally {
     isTesting.value = false
   }
@@ -402,9 +595,14 @@ const finishSetup = async () => {
   isSaving.value = true
   try {
     await api.saveConfig(config)
+    markSetupComplete()
+    if (isSettingsMode.value) {
+      alert('配置已保存')
+    }
     router.replace('/dashboard')
   } catch (err: any) {
-    alert('保存失败: ' + err.message)
+    if (handleAuthFailure(err)) return
+    alert('保存失败: ' + getErrorMessage(err))
   } finally {
     isSaving.value = false
   }
@@ -421,6 +619,11 @@ const finishSetup = async () => {
   background-color: var(--bg-primary);
   padding: 64px;
   gap: 120px;
+}
+
+.wizard-container.settings-mode {
+  width: 100%;
+  height: 100%;
 }
 
 .left-col {
@@ -557,6 +760,12 @@ const finishSetup = async () => {
   color: var(--text-primary);
   font-size: 14px;
   font-weight: 600;
+}
+
+.input-hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .input-control {
@@ -702,35 +911,27 @@ const finishSetup = async () => {
   justify-content: space-between;
 }
 
-.btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* .btn base styles inherited from global style.css */
+.btn.primary {
   height: 48px;
   border-radius: 12px;
   font-size: 16px;
-  font-weight: 600;
-  transition: all 0.2s ease;
-}
-
-.btn.primary {
-  background-color: var(--text-primary);
-  color: var(--text-inverted);
   padding: 0 32px;
 }
 
-.btn.primary:hover {
-  opacity: 0.9;
-}
-
 .btn.secondary {
-  border: 1px solid var(--border-strong);
-  color: var(--text-primary);
+  height: 48px;
+  border-radius: 12px;
+  font-size: 16px;
   padding: 0 24px;
 }
 
-.btn.secondary:hover {
-  background-color: var(--border-subtle);
+.validation-error {
+  color: #EF4444;
+  font-size: 13px;
+  font-weight: 500;
+  align-self: center;
+  margin-right: auto;
 }
 
 .modal-overlay {
