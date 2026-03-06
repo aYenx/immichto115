@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -124,6 +125,9 @@ func (s *Server) SetupRouter() *gin.Engine {
 
 		// 云端文件浏览 (Restore Explorer)
 		v1.GET("/remote/ls", s.handleRemoteList)
+
+		// 本地文件浏览 (向导路径选择)
+		v1.GET("/local/ls", s.handleLocalList)
 	}
 
 	// --- WebSocket ---
@@ -338,5 +342,39 @@ func (s *Server) handleRemoteList(c *gin.Context) {
 	}
 
 	// lsjson 返回的就是 JSON 数组，直接透传
+	c.Data(http.StatusOK, "application/json", out)
+}
+
+// LocalListRequest 本地文件浏览请求。
+type LocalListRequest struct {
+	Path string `form:"path"`
+}
+
+func (s *Server) handleLocalList(c *gin.Context) {
+	var req LocalListRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	localPath := req.Path
+	if localPath == "" {
+		if runtime.GOOS == "windows" {
+			localPath = "C:\\"
+		} else {
+			localPath = "/"
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "rclone", "lsjson", localPath)
+	out, err := cmd.Output()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list local directory: " + string(out) + " " + err.Error()})
+		return
+	}
+
 	c.Data(http.StatusOK, "application/json", out)
 }

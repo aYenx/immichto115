@@ -1,24 +1,19 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import tailwindcss from '@tailwindcss/vite'
 
+// https://vite.dev/config/
 export default defineConfig({
-  plugins: [vue(), tailwindcss()],
+  plugins: [vue()],
   server: {
-    port: 5173,
     proxy: {
       '/api': {
         target: 'http://localhost:8096',
-        changeOrigin: true,
+        changeOrigin: true
       },
       '/ws': {
         target: 'ws://localhost:8096',
-        ws: true,
-      },
-    },
-  },
-  build: {
-    outDir: '../cmd/server/dist',
-    emptyOutDir: true,
-  },
+        ws: true
+      }
+    }
+  }
 })
