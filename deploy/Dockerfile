@@ -37,9 +37,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /immichto115 ./cmd/ser
 FROM alpine:3.20
 
 # 锁定 Rclone 版本 — 升级时只需修改此变量
-ARG RCLONE_VERSION=1.68.2
+ARG RCLONE_VERSION=1.73.1
 # 自动适配构建平台架构 (amd64 / arm64)
-ARG TARGETARCH
+ARG TARGETARCH=amd64
 
 RUN apk add --no-cache \
     ca-certificates \
@@ -47,11 +47,12 @@ RUN apk add --no-cache \
     curl \
     unzip \
     fuse3 \
-    && curl -fsSL -O "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-${TARGETARCH}.zip" \
-    && unzip "rclone-v${RCLONE_VERSION}-linux-${TARGETARCH}.zip" \
+    && echo "Downloading rclone v${RCLONE_VERSION} for linux/${TARGETARCH}..." \
+    && curl -fsSL -o rclone.zip "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-${TARGETARCH}.zip" \
+    && unzip rclone.zip \
     && cp "rclone-v${RCLONE_VERSION}-linux-${TARGETARCH}/rclone" /usr/local/bin/ \
     && chmod +x /usr/local/bin/rclone \
-    && rm -rf rclone-* \
+    && rm -rf rclone-* rclone.zip \
     && rclone version
 
 # 创建应用目录和数据挂载点
