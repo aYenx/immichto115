@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/spf13/viper"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // AppConfig 应用全局配置结构。
@@ -21,7 +22,11 @@ type AppConfig struct {
 
 // ServerConfig 服务器配置。
 type ServerConfig struct {
-	Port int `mapstructure:"port" json:"port" yaml:"port"`
+	Port             int    `mapstructure:"port" json:"port" yaml:"port"`
+	AuthEnabled      bool   `mapstructure:"auth_enabled" json:"auth_enabled" yaml:"auth_enabled"`
+	AuthUser         string `mapstructure:"auth_user" json:"auth_user" yaml:"auth_user"`
+	AuthPasswordHash string `mapstructure:"auth_password_hash" json:"-" yaml:"auth_password_hash"`
+	AuthPassword     string `mapstructure:"-" json:"auth_password,omitempty" yaml:"-"`
 }
 
 // WebDAVConfig WebDAV 连接配置。
@@ -76,6 +81,7 @@ func NewManager(configPath string) (*Manager, error) {
 
 	// 设置默认值
 	viper.SetDefault("server.port", 8096)
+	viper.SetDefault("server.auth_enabled", false)
 	viper.SetDefault("webdav.vendor", "other")
 	viper.SetDefault("backup.remote_dir", "/immich-backup")
 	viper.SetDefault("cron.expression", "0 2 * * *")
@@ -119,11 +125,26 @@ func (m *Manager) Update(cfg AppConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	viper.Set("server", cfg.Server)
-	viper.Set("webdav", cfg.WebDAV)
-	viper.Set("backup", cfg.Backup)
-	viper.Set("encrypt", cfg.Encrypt)
-	viper.Set("cron", cfg.Cron)
+	viper.Set("server.port", cfg.Server.Port)
+	viper.Set("server.auth_enabled", cfg.Server.AuthEnabled)
+	viper.Set("server.auth_user", cfg.Server.AuthUser)
+	viper.Set("server.auth_password_hash", cfg.Server.AuthPasswordHash)
+
+	viper.Set("webdav.url", cfg.WebDAV.URL)
+	viper.Set("webdav.user", cfg.WebDAV.User)
+	viper.Set("webdav.password", cfg.WebDAV.Password)
+	viper.Set("webdav.vendor", cfg.WebDAV.Vendor)
+
+	viper.Set("backup.library_dir", cfg.Backup.LibraryDir)
+	viper.Set("backup.backups_dir", cfg.Backup.BackupsDir)
+	viper.Set("backup.remote_dir", cfg.Backup.RemoteDir)
+
+	viper.Set("encrypt.enabled", cfg.Encrypt.Enabled)
+	viper.Set("encrypt.password", cfg.Encrypt.Password)
+	viper.Set("encrypt.salt", cfg.Encrypt.Salt)
+
+	viper.Set("cron.enabled", cfg.Cron.Enabled)
+	viper.Set("cron.expression", cfg.Cron.Expression)
 
 	if err := viper.WriteConfig(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
@@ -131,6 +152,21 @@ func (m *Manager) Update(cfg AppConfig) error {
 
 	m.cfg = &cfg
 	return nil
+}
+
+func HashPassword(plaintext string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(plaintext), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("failed to hash password: %w", err)
+	}
+	return string(hash), nil
+}
+
+func VerifyPassword(hash string, plaintext string) bool {
+	if hash == "" || plaintext == "" {
+		return false
+	}
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plaintext)) == nil
 }
 
 // IsSetupComplete 检查是否已完成初始配置。

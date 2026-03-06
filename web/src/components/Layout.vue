@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="layout-container">
     <!-- Sidebar -->
     <div class="sidebar">
@@ -14,6 +14,10 @@
         <router-link to="/explore" class="nav-item" active-class="active">
           <LucideHardDrive :size="20" />
           <span>恢复照片</span>
+        </router-link>
+        <router-link to="/settings" class="nav-item" active-class="active">
+          <LucideSettings :size="20" />
+          <span>设置</span>
         </router-link>
       </div>
 
@@ -33,7 +37,7 @@
 </template>
 
 <script setup lang="ts">
-import { LucideLayout, LucideHardDrive } from 'lucide-vue-next'
+import { LucideLayout, LucideHardDrive, LucideSettings } from 'lucide-vue-next'
 </script>
 
 <style scoped>
@@ -114,7 +118,7 @@ import { LucideLayout, LucideHardDrive } from 'lucide-vue-next'
   width: 10px;
   height: 10px;
   border-radius: 5px;
-  background-color: #10B981; /* Green color for running status */
+  background-color: #10B981;
   box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
 }
 

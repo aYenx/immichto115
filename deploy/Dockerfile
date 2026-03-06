@@ -6,7 +6,7 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /build/web
 COPY web/package.json web/package-lock.json* ./
-RUN npm install --frozen-lockfile || npm install
+RUN npm ci || npm install
 
 COPY web/ ./
 RUN npm run build
@@ -26,7 +26,7 @@ RUN go mod download || true
 COPY . .
 
 # 将前端编译产物放到 Go embed 目录
-COPY --from=frontend-builder /build/cmd/server/dist ./cmd/server/dist
+COPY --from=frontend-builder /build/web/dist ./cmd/server/dist
 
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /immichto115 ./cmd/server/
 
@@ -38,6 +38,8 @@ FROM alpine:3.20
 
 # 锁定 Rclone 版本 — 升级时只需修改此变量
 ARG RCLONE_VERSION=1.68.2
+# 自动适配构建平台架构 (amd64 / arm64)
+ARG TARGETARCH
 
 RUN apk add --no-cache \
     ca-certificates \
@@ -45,9 +47,9 @@ RUN apk add --no-cache \
     curl \
     unzip \
     fuse3 \
-    && curl -fsSL -O "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip" \
-    && unzip "rclone-v${RCLONE_VERSION}-linux-amd64.zip" \
-    && cp "rclone-v${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/ \
+    && curl -fsSL -O "https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-${TARGETARCH}.zip" \
+    && unzip "rclone-v${RCLONE_VERSION}-linux-${TARGETARCH}.zip" \
+    && cp "rclone-v${RCLONE_VERSION}-linux-${TARGETARCH}/rclone" /usr/local/bin/ \
     && chmod +x /usr/local/bin/rclone \
     && rm -rf rclone-* \
     && rclone version

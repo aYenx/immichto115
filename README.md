@@ -10,6 +10,7 @@ Go 后端 + Vue 3 前端，编译为单个二进制文件，开箱即用。
 - **实时日志** — 通过 WebSocket 实时查看 Rclone 备份输出
 - **定时备份** — 支持 Cron 表达式，自动执行定期备份
 - **加密传输** — 可选 Rclone Crypt 加密，数据在云端加密存储
+- **访问保护** — 可选启用管理员账号密码，保护 Web UI、API 与日志流
 - **Restore Explorer** — 浏览云端已备份文件，支持透明解密查看
 - **单文件部署** — 前端资源内嵌到 Go 二进制，无需额外依赖
 
@@ -68,6 +69,9 @@ RELEASE_URL=https://your-mirror.com/releases/latest/download sudo bash install.s
 # 前端
 cd web && npm install && npm run build && cd ..
 
+# 将前端产物复制到 Go 内嵌目录
+rm -rf cmd/server/dist && cp -r web/dist cmd/server/dist
+
 # 后端（内嵌前端资源）
 CGO_ENABLED=0 go build -ldflags="-s -w" -o immichto115 ./cmd/server/
 
@@ -84,11 +88,14 @@ CGO_ENABLED=0 go build -ldflags="-s -w" -o immichto115 ./cmd/server/
 | 配置项 | 说明 |
 |--------|------|
 | WebDAV URL | 115 网盘 WebDAV 地址 |
-| WebDAV 用户名/密码 | 登录凭据（密码通过 rclone obscure 加密存储） |
+| WebDAV 用户名/密码 | 登录凭据（会写入本地配置文件，并在运行时生成临时 `rclone.conf`） |
 | 照片库路径 | Immich 照片存储目录 |
 | 数据库备份路径 | Immich DB dump 目录 |
 | Cron 表达式 | 定时备份周期（5 段标准格式，如 `0 3 * * *`） |
 | 加密 | 可选，启用后使用 Rclone Crypt 加密 |
+| 管理员账号密码 | 可选，启用后通过 HTTP Basic Auth 保护界面与 API |
+
+> 建议限制 `config/` 目录访问权限，避免敏感配置被其他用户读取。
 
 ## 🔧 运维
 
@@ -136,6 +143,8 @@ curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uni
 | POST | `/api/v1/backup/stop` | 停止备份 |
 | GET | `/api/v1/remote/ls` | 浏览云端文件 |
 | WS | `/ws/logs` | 实时备份日志流 |
+
+> 开启访问保护后，除 `/api/health` 外，其余 Web UI、API 和 WebSocket 都需要管理员账号密码。
 
 ## 🏗️ 项目结构
 

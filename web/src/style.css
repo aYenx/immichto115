@@ -67,3 +67,42 @@ input {
   font-family: inherit;
   outline: none;
 }
+
+/* ===== Shared Button Styles ===== */
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 20px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  background-color: var(--text-primary);
+  color: var(--text-inverted);
+}
+
+.btn.primary:not(:disabled):hover {
+  opacity: 0.9;
+}
+
+.btn.secondary {
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  background-color: transparent;
+}
+
+.btn.secondary:not(:disabled):hover {
+  background-color: var(--border-subtle);
+}
