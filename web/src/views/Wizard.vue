@@ -373,7 +373,11 @@ const config = reactive<AppConfig>({
   cron: {
     enabled: true,
     expression: '0 3 * * *',
-  }
+  },
+  notify: {
+    enabled: false,
+    bark_url: '',
+  },
 })
 
 onMounted(async () => {
