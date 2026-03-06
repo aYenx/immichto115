@@ -60,6 +60,20 @@ check_rclone() {
     fi
 }
 
+# 检测是否为更新（服务已存在且正在运行）
+is_upgrade() {
+    [[ -f "${SERVICE_FILE}" ]] && systemctl is-active --quiet "${APP_NAME}" 2>/dev/null
+}
+
+# 停止正在运行的服务（更新前调用）
+stop_service_if_running() {
+    if systemctl is-active --quiet "${APP_NAME}" 2>/dev/null; then
+        info "检测到正在运行的服务，正在停止..."
+        systemctl stop "${APP_NAME}"
+        info "服务已停止"
+    fi
+}
+
 # 下载 ImmichTo115 二进制
 download_binary() {
     local arch
@@ -122,7 +136,7 @@ EOF
 main() {
     echo ""
     echo "========================================"
-    echo "   ImmichTo115 一键安装脚本"
+    echo "   ImmichTo115 一键安装 / 更新脚本"
     echo "========================================"
     echo ""
 
@@ -131,13 +145,35 @@ main() {
         error "请使用 root 权限运行: sudo bash install.sh"
     fi
 
+    local upgrade=false
+    if is_upgrade; then
+        upgrade=true
+        info "🔄 检测到已安装的服务，将执行更新..."
+        # 显示当前版本
+        if [[ -x "${INSTALL_DIR}/${APP_NAME}" ]]; then
+            local current_ver
+            current_ver=$("${INSTALL_DIR}/${APP_NAME}" --version 2>/dev/null || echo "未知")
+            info "当前版本: ${current_ver}"
+        fi
+    fi
+
     check_rclone
+
+    # 更新时先停止服务，再替换二进制
+    if $upgrade; then
+        stop_service_if_running
+    fi
+
     download_binary
     setup_config
     setup_systemd
 
     echo ""
-    info "✅ 安装完成！"
+    if $upgrade; then
+        info "✅ 更新完成！服务已重启。"
+    else
+        info "✅ 安装完成！"
+    fi
     echo ""
     local host_ip
     host_ip=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")

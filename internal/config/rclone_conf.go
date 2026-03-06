@@ -1,11 +1,14 @@
 package config
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"text/template"
 )
 
@@ -114,15 +117,36 @@ func CleanupRcloneConf(confPath string) {
 	os.RemoveAll(filepath.Dir(confPath))
 }
 
-// ObscurePassword 使用 rclone obscure 命令将明文密码转为 Rclone 内部格式。
+// rcloneObscureKey is the fixed key used by rclone to obscure passwords.
+// See: https://github.com/rclone/rclone/blob/master/fs/config/obscure/obscure.go
+var rcloneObscureKey = []byte{
+	0x9c, 0x93, 0x5b, 0x48, 0x73, 0x0a, 0x55, 0x4d,
+	0x6b, 0xfd, 0x7c, 0x63, 0xc8, 0x86, 0xa9, 0x2b,
+	0xd3, 0x90, 0x19, 0x8e, 0xb8, 0x12, 0x8a, 0xfb,
+	0xf4, 0xde, 0x16, 0x2b, 0x8b, 0x95, 0xf6, 0x38,
+}
+
+// ObscurePassword 使用与 rclone obscure 相同的 AES-CTR 算法将明文密码转为 Rclone 内部格式。
+// 不再需要外部 rclone 可执行文件。
 func ObscurePassword(plaintext string) (string, error) {
 	if plaintext == "" {
 		return "", nil
 	}
-	cmd := exec.Command("rclone", "obscure", plaintext)
-	out, err := cmd.Output()
+
+	block, err := aes.NewCipher(rcloneObscureKey)
 	if err != nil {
-		return "", fmt.Errorf("rclone obscure failed: %w", err)
+		return "", fmt.Errorf("failed to create AES cipher: %w", err)
 	}
-	return strings.TrimSpace(string(out)), nil
+
+	// rclone uses AES block size (16 bytes) as iv
+	ciphertext := make([]byte, aes.BlockSize+len(plaintext))
+	iv := ciphertext[:aes.BlockSize]
+	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		return "", fmt.Errorf("failed to generate IV: %w", err)
+	}
+
+	stream := cipher.NewCTR(block, iv)
+	stream.XORKeyStream(ciphertext[aes.BlockSize:], []byte(plaintext))
+
+	return base64.RawURLEncoding.EncodeToString(ciphertext), nil
 }

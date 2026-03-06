@@ -6,7 +6,8 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /build/web
 COPY web/package.json web/package-lock.json* ./
-RUN npm ci || npm install
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
 
 COPY web/ ./
 RUN npm run build
@@ -21,14 +22,17 @@ RUN apk add --no-cache git
 
 WORKDIR /build
 COPY go.mod go.sum* ./
-RUN go mod download || true
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download || true
 
 COPY . .
 
 # 将前端编译产物放到 Go embed 目录
 COPY --from=frontend-builder /build/web/dist ./cmd/server/dist
 
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /immichto115 ./cmd/server/
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /immichto115 ./cmd/server/
 
 # ============================================================
 # Stage 3: 最终运行镜像 (Alpine + Rclone)
