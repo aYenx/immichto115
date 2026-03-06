@@ -42,7 +42,7 @@ func (s *Scheduler) Start(expression string) error {
 	entryID, err := s.c.AddFunc(expression, func() {
 		log.Printf("[cron] triggered backup job: %s", expression)
 		if s.backupFn != nil {
-			s.backupFn()
+			go s.backupFn()
 		}
 	})
 	if err != nil {
