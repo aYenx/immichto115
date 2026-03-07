@@ -90,6 +90,36 @@ func formatBackupTitle(info BackupNotification) string {
 	return fmt.Sprintf("❌ %s%s失败", trigger, stage)
 }
 
+func classifyFailureReason(detail string) string {
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		return "请打开 ImmichTo115 实时日志查看详细报错"
+	}
+
+	lower := strings.ToLower(detail)
+
+	switch {
+	case strings.Contains(detail, "任务已被手动停止"):
+		return "这是一次手动停止，不是系统异常"
+	case strings.Contains(lower, "already running") || strings.Contains(detail, "已有备份任务正在运行"):
+		return "已有备份任务在运行，本次请求被跳过，请等待当前任务完成"
+	case strings.Contains(lower, "permission denied") || strings.Contains(detail, "权限"):
+		return "权限不足：请检查本地目录、WebDAV 目录或容器挂载权限"
+	case strings.Contains(lower, "authentication") || strings.Contains(lower, "unauthorized") || strings.Contains(lower, "forbidden"):
+		return "认证失败：请检查 WebDAV 用户名、密码或授权信息"
+	case strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline exceeded"):
+		return "连接超时：请检查 WebDAV 服务是否可访问，或网络是否稳定"
+	case strings.Contains(lower, "connection refused") || strings.Contains(lower, "no such host") || strings.Contains(lower, "dial tcp"):
+		return "连接失败：请检查 WebDAV 地址、端口、域名解析或服务是否在线"
+	case strings.Contains(lower, "directory not found") || strings.Contains(lower, "file does not exist") || strings.Contains(lower, "not found"):
+		return "目录不存在：请检查本地备份路径或远端目录是否填写正确"
+	case strings.Contains(lower, "config") || strings.Contains(detail, "未配置") || strings.Contains(detail, "生成 rclone 配置失败"):
+		return "配置有误：请检查 WebDAV、远端目录、加密参数和备份路径是否填写完整"
+	default:
+		return detail
+	}
+}
+
 func formatBackupBody(info BackupNotification) string {
 	parts := []string{
 		"应用：ImmichTo115",
@@ -109,10 +139,9 @@ func formatBackupBody(info BackupNotification) string {
 		}
 	} else {
 		parts = append(parts, "结果：本次任务未完成")
-		if detail := strings.TrimSpace(info.Detail); detail != "" {
-			parts = append(parts, "失败原因："+detail)
-		} else {
-			parts = append(parts, "失败原因：请打开 ImmichTo115 实时日志查看详细报错")
+		parts = append(parts, "失败原因："+classifyFailureReason(info.Detail))
+		if detail := strings.TrimSpace(info.Detail); detail != "" && classifyFailureReason(info.Detail) != detail {
+			parts = append(parts, "原始信息："+detail)
 		}
 	}
 
