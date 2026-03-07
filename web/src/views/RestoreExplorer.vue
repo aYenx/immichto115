@@ -40,12 +40,7 @@
             <LucideRefreshCw :size="32" class="empty-icon spin" />
             <span class="empty-title">加载中...</span>
           </div>
-          <div v-else-if="items.length === 0" class="table-empty">
-            <LucideFolderOpen :size="40" class="empty-icon" />
-            <span class="empty-title">暂无文件</span>
-            <span class="empty-desc">当前目录下没有文件或文件夹</span>
-          </div>
-          
+
           <template v-else>
             <div v-if="canGoUp" class="table-row folder go-up" @click="goUp()">
               <div class="col-name" style="padding-left: 16px;">
@@ -81,6 +76,12 @@
               <div class="col-size">{{ formatSize(file.Size ?? 0) }}</div>
               <div class="col-date">{{ formatDate(file.ModTime ?? '') }}</div>
               <div class="col-actions"></div>
+            </div>
+
+            <div v-if="items.length === 0" class="table-empty">
+              <LucideFolderOpen :size="40" class="empty-icon" />
+              <span class="empty-title">暂无文件</span>
+              <span class="empty-desc">当前目录下没有文件或文件夹</span>
             </div>
           </template>
         </div>
