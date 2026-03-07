@@ -109,7 +109,7 @@ func HandleWebSocket(hub *Hub) gin.HandlerFunc {
 		// 发送欢迎消息
 		_ = conn.WriteJSON(rclone.LogLine{
 			Stream: "stdout",
-			Text:   "[immichto115] connected to log stream",
+			Text:   "[immichto115] 已连接到日志流",
 		})
 
 		// 持续读取客户端消息（主要用于检测断开连接）
