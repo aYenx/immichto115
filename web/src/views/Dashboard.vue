@@ -265,7 +265,7 @@ const fetchStatus = async () => {
       return
     }
     apiReachable.value = false
-    console.error('Failed to get status', err)
+    console.error('获取系统状态失败', err)
   }
 }
 
@@ -400,7 +400,7 @@ const connectWebSocket = () => {
     }
   }
   ws.onerror = (e) => {
-    console.error('WebSocket error', e)
+    console.error('WebSocket 连接异常', e)
   }
   ws.onclose = () => {
     ws = null
