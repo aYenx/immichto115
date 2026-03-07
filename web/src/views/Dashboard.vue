@@ -123,6 +123,7 @@ let logIdCounter = 0
 const systemStatus = ref<SystemStatus | null>(null)
 const logs = ref<Array<{ id: number, time: string, text: string }>>([])
 const lastStatusSnapshot = ref('')
+const suppressStatusDetail = ref(false)
 const terminalRef = ref<HTMLElement | null>(null)
 const autoScroll = ref(true)
 const wsConnected = ref(false)
@@ -221,6 +222,10 @@ const backupStatusText = computed(() => {
 })
 
 const backupStatusDetail = computed(() => {
+  if (suppressStatusDetail.value) {
+    return ''
+  }
+
   const sourceText = latestStatusLogText.value || latestLogText.value
   const text = sourceText.replace(/^\[immichto115\]\s*/, '').trim()
   if (text) {
@@ -347,6 +352,7 @@ const getLogLevelClass = (text: string) => {
 
 const clearLogs = () => {
   lastStatusSnapshot.value = latestStatusLogText.value || lastStatusSnapshot.value
+  suppressStatusDetail.value = true
   logs.value = []
 }
 
@@ -386,6 +392,7 @@ const connectWebSocket = () => {
       const data = JSON.parse(ev.data)
       const now = new Date()
       const text = data.Text || data.text || ''
+      suppressStatusDetail.value = false
       logs.value.push({
         id: ++logIdCounter,
         time: now.toLocaleTimeString(),
