@@ -555,6 +555,7 @@ const webdavCardState = computed(() => {
 })
 
 const backupCardState = computed(() => {
+  if (!config.backup.library_dir.trim() && !config.backup.backups_dir.trim()) return createCardState('待配置', 'warning')
   if (!config.backup.library_dir.trim() || !config.backup.backups_dir.trim()) return createCardState('待完善', 'warning')
   return createCardState('已配置', 'healthy')
 })
@@ -623,8 +624,9 @@ const validateSection = (section: SectionKey): string | null => {
   }
 
   if (section === 'backup') {
-    if (!draftConfig.value.backup.library_dir.trim()) return '请输入照片库路径'
-    if (!draftConfig.value.backup.backups_dir.trim()) return '请输入数据库备份路径'
+    if (!draftConfig.value.backup.library_dir.trim() && !draftConfig.value.backup.backups_dir.trim()) {
+      return '请至少填写一个备份路径（照片库或数据库备份路径）'
+    }
   }
 
   if (section === 'encrypt' && draftConfig.value.encrypt.enabled) {

@@ -525,8 +525,9 @@ const validateCurrentStep = (): string | null => {
     if (!config.webdav.password.trim()) return '请输入密码'
     if (!config.backup.remote_dir.trim()) return '请选择远端备份目录'
   } else if (step.value === 2) {
-    if (!config.backup.library_dir.trim()) return '请输入照片库路径'
-    if (!config.backup.backups_dir.trim()) return '请输入数据库备份路径'
+    if (!config.backup.library_dir.trim() && !config.backup.backups_dir.trim()) {
+      return '请至少填写一个备份路径（照片库或数据库备份路径）'
+    }
   } else if (step.value === 3) {
     if (config.encrypt.enabled) {
       if (!config.encrypt.password.trim()) return '请输入加密密码'
