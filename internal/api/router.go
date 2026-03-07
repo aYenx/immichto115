@@ -390,7 +390,7 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 		}
 
 		c.Header("WWW-Authenticate", `Basic realm="immichto115"`)
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "需要管理员账号密码"})
 	}
 }
 
@@ -564,11 +564,11 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 
 	if newCfg.Server.AuthEnabled {
 		if newCfg.Server.AuthUser == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_user is required when authentication is enabled"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "启用访问保护时必须填写管理员用户名"})
 			return
 		}
 		if newCfg.Server.AuthPasswordHash == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "auth_password is required when authentication is enabled"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "启用访问保护时必须填写管理员密码"})
 			return
 		}
 	}
@@ -584,14 +584,14 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 	if newCfg.Cron.Enabled && newCfg.Cron.Expression != "" {
 		expr := normalizeCronExpression(newCfg.Cron.Expression)
 		if err := s.Scheduler.Start(expr); err != nil {
-			c.JSON(http.StatusOK, gin.H{"message": "config saved, but cron failed: " + err.Error()})
+			c.JSON(http.StatusOK, gin.H{"message": "配置已保存，但定时任务启动失败：" + err.Error()})
 			return
 		}
 	} else {
 		s.Scheduler.Stop()
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "config saved"})
+	c.JSON(http.StatusOK, gin.H{"message": "配置已保存"})
 }
 
 // WebDAVTestRequest 测试 WebDAV 连接的请求体。
@@ -708,7 +708,7 @@ func (s *Server) handleWebDAVList(c *gin.Context) {
 
 func (s *Server) handleBackupStart(c *gin.Context) {
 	if s.IsBackupActive() {
-		c.JSON(http.StatusConflict, gin.H{"error": "backup is already running"})
+		c.JSON(http.StatusConflict, gin.H{"error": "已有备份任务正在运行"})
 		return
 	}
 
@@ -721,7 +721,11 @@ func (s *Server) handleBackupStop(c *gin.Context) {
 	jobStopped := s.stopBackupJob()
 	runnerErr := s.Runner.Stop()
 	if runnerErr != nil && !jobStopped {
-		c.JSON(http.StatusBadRequest, gin.H{"error": runnerErr.Error()})
+		errMsg := runnerErr.Error()
+		if errMsg == "no rclone process is running" {
+			errMsg = "当前没有正在运行的备份任务"
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": errMsg})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "已发送停止指令，当前任务会在安全收尾后退出"})
