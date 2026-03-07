@@ -78,7 +78,7 @@ router.beforeEach(async (to, _from, next) => {
       return;
     }
 
-    console.error("Failed to get system status", error);
+    console.error("获取系统状态失败", error);
     // API 不可达时引导到 setup 页，避免进入半失效的管理页面
     if (to.name === "wizard") {
       next(); // 已经在 wizard 则放行

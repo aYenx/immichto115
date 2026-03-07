@@ -356,7 +356,7 @@ onMounted(async () => {
     const data = await api.getConfig()
     Object.assign(config, data)
   } catch (error) {
-    console.warn('Could not fetch existing config, using defaults.', error)
+    console.warn('无法读取现有配置，已回退到默认值。', error)
   }
 })
 
