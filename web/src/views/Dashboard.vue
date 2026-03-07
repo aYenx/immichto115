@@ -139,10 +139,14 @@ const greeting = computed(() => {
   return '晚上好'
 })
 
+const isWelcomeLog = (text: string) =>
+  text.startsWith('[immichto115] connected to log stream') ||
+  text.startsWith('[immichto115] 已连接到日志流')
+
 const latestLogText = computed(() => {
   for (let i = logs.value.length - 1; i >= 0; i -= 1) {
     const text = logs.value[i]!.text
-    if (!text.includes('connected to log stream') && !text.includes('连接到日志流')) {
+    if (!isWelcomeLog(text)) {
       return text
     }
   }
