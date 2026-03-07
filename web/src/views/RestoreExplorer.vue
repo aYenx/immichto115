@@ -162,6 +162,10 @@ const navigateToFolder = (folder: DirEntry) => {
   }
 
   const folderName = normalizePath(folder.Name || '')
+  if (!folderName) {
+    return
+  }
+
   if (currentPath.value) {
     navigateTo(`${normalizePath(currentPath.value)}/${folderName}`)
   } else {
