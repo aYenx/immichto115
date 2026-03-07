@@ -291,9 +291,28 @@ const stopBackup = async () => {
 
 const getLogLevelClass = (text: string) => {
   const upper = text.toUpperCase()
-  if (upper.includes('ERROR') || upper.includes('FAILED')) return 'error'
-  if (upper.includes('WARN')) return 'warning'
-  if (upper.includes('SUCCESS')) return 'success'
+  if (
+    upper.includes('ERROR') ||
+    upper.includes('FAILED') ||
+    text.includes('失败') ||
+    text.includes('异常退出') ||
+    text.includes('无法启动')
+  ) return 'error'
+
+  if (
+    upper.includes('WARN') ||
+    text.includes('停止') ||
+    text.includes('跳过') ||
+    text.includes('请先')
+  ) return 'warning'
+
+  if (
+    upper.includes('SUCCESS') ||
+    text.includes('成功') ||
+    text.includes('已完成') ||
+    text.includes('执行完毕')
+  ) return 'success'
+
   return 'info'
 }
 
