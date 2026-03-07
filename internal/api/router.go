@@ -739,7 +739,7 @@ func (s *Server) handleRemoteList(c *gin.Context) {
 
 	confPath, err := config.GenerateRcloneConf(cfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate rclone config: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成 rclone 配置失败：" + err.Error()})
 		return
 	}
 	defer config.CleanupRcloneConf(confPath)
@@ -751,9 +751,9 @@ func (s *Server) handleRemoteList(c *gin.Context) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "rclone", "lsjson", remotePath, "--config", confPath)
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list remote: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取远端目录失败：" + strings.TrimSpace(string(out))})
 		return
 	}
 
@@ -786,9 +786,9 @@ func (s *Server) handleLocalList(c *gin.Context) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "rclone", "lsjson", localPath)
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list local directory: " + string(out) + " " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取本地目录失败：" + strings.TrimSpace(string(out))})
 		return
 	}
 
