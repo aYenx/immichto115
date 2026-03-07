@@ -153,14 +153,14 @@ func (r *Runner) Run(mode, source, dest string, flags []string, configPath strin
 		if exitErr != nil {
 			// context 取消不算错误（手动停止）
 			if ctx.Err() != nil {
-				logCh <- LogLine{Stream: "stderr", Text: "[immichto115] rclone 进程已收到停止信号，正在安全退出"}
+				logCh <- LogLine{Stream: "stderr", Text: "[immichto115] 已收到停止信号，正在安全结束当前同步阶段"}
 				errCh <- ErrCancelled
 			} else {
-				logCh <- LogLine{Stream: "stderr", Text: fmt.Sprintf("[immichto115] rclone exited with error: %v", exitErr)}
+				logCh <- LogLine{Stream: "stderr", Text: fmt.Sprintf("[immichto115] 同步进程异常退出：%v", exitErr)}
 				errCh <- exitErr
 			}
 		} else {
-			logCh <- LogLine{Stream: "stdout", Text: "[immichto115] rclone sync completed successfully"}
+			logCh <- LogLine{Stream: "stdout", Text: "[immichto115] 当前同步阶段执行成功"}
 			logCh <- LogLine{Stream: "stdout", Text: "[immichto115] 当前同步阶段已成功完成"}
 			errCh <- nil
 		}
