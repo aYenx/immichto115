@@ -244,10 +244,6 @@
               <LucideLoader2 :size="20" class="spin-icon" />
               <span>加载中...</span>
             </div>
-            <div v-else-if="localDirs.length === 0" class="folder-empty">
-              <LucideFolderOpen :size="20" />
-              <span>该目录下没有子文件夹</span>
-            </div>
             <div v-else class="folder-scroll">
               <div v-if="canGoUp" class="folder-item go-up" @click="goUpLocalDir">
                 <LucideCornerLeftUp :size="16" />
@@ -256,6 +252,10 @@
               <div v-for="item in localDirs" :key="item.Path" class="folder-item" @click="enterLocalDir(item)">
                 <LucideFolder :size="16" />
                 <span>{{ item.Name }}</span>
+              </div>
+              <div v-if="localDirs.length === 0" class="folder-empty">
+                <LucideFolderOpen :size="20" />
+                <span>该目录下没有子文件夹</span>
               </div>
             </div>
           </div>
@@ -297,10 +297,6 @@
               <LucideLoader2 :size="20" class="spin-icon" />
               <span>加载中...</span>
             </div>
-            <div v-else-if="remoteDirs.length === 0" class="folder-empty">
-              <LucideFolderOpen :size="20" />
-              <span>该目录下没有子文件夹</span>
-            </div>
             <div v-else class="folder-scroll">
               <div v-if="remoteCanGoUp" class="folder-item go-up" @click="goUpRemoteDir">
                 <LucideCornerLeftUp :size="16" />
@@ -309,6 +305,10 @@
               <div v-for="item in remoteDirs" :key="item.Path || item.Name" class="folder-item" @click="enterRemoteDir(item)">
                 <LucideFolder :size="16" />
                 <span>{{ item.Name }}</span>
+              </div>
+              <div v-if="remoteDirs.length === 0" class="folder-empty">
+                <LucideFolderOpen :size="20" />
+                <span>该目录下没有子文件夹</span>
               </div>
             </div>
           </div>
