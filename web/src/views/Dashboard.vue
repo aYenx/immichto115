@@ -266,6 +266,7 @@ const openSettings = () => {
 
 const startBackup = async () => {
   try {
+    lastStatusSnapshot.value = '[immichto115] 备份任务已启动，正在检查配置与目标路径...'
     const result = await api.startBackup()
     await fetchStatus()
     showToast('info', '备份已启动', result.message || '正在检查配置并准备同步任务，请留意实时日志。')
