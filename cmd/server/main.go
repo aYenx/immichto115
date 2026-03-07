@@ -1,7 +1,6 @@
 package main
 
 import (
-	"embed"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -10,13 +9,11 @@ import (
 	"os"
 	"path/filepath"
 
+	appfs "github.com/aYenx/immichto115"
 	"github.com/aYenx/immichto115/internal/api"
 	"github.com/aYenx/immichto115/internal/config"
 	"github.com/gin-gonic/gin"
 )
-
-//go:embed all:dist
-var staticFS embed.FS
 
 // version 由构建时 -ldflags "-X main.version=vX.Y.Z" 注入
 var version = "dev"
@@ -91,7 +88,7 @@ func main() {
 
 // serveFrontend 将内嵌的前端静态文件挂载到路由上。
 func serveFrontend(r *gin.Engine) {
-	distFS, err := fs.Sub(staticFS, "dist")
+	distFS, err := fs.Sub(appfs.WebDistFS, "web/dist")
 	if err != nil {
 		log.Printf("[immichto115] warning: no embedded frontend found: %v", err)
 		return
