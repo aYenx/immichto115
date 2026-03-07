@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"text/template"
 )
 
@@ -106,7 +108,11 @@ func GetRemoteName(cfg AppConfig) string {
 	if cfg.Encrypt.Enabled {
 		return "crypt115:"
 	}
-	return "webdav115:" + cfg.Backup.RemoteDir
+	cleanRemoteDir := path.Clean("/" + strings.TrimSpace(cfg.Backup.RemoteDir))
+	if cleanRemoteDir == "." || cleanRemoteDir == "" {
+		cleanRemoteDir = "/"
+	}
+	return "webdav115:" + cleanRemoteDir
 }
 
 // CleanupRcloneConf 删除临时 rclone.conf 及其父目录。
