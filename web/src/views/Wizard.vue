@@ -488,8 +488,17 @@ const enterLocalDir = (item: DirEntry) => {
   loadLocalDir(newPath)
 }
 
+const resolveRemoteEntryPath = (item: DirEntry) => {
+  const candidate = normalizeRemotePath((item.Path || '').trim())
+  if (candidate !== '/' || (item.Path || '').trim().startsWith('/')) {
+    return candidate
+  }
+
+  return currentRemotePath.value === '/' ? `/${item.Name}` : `${currentRemotePath.value}/${item.Name}`
+}
+
 const enterRemoteDir = (item: DirEntry) => {
-  const newPath = normalizeRemotePath(item.Path || item.Name)
+  const newPath = resolveRemoteEntryPath(item)
   loadRemoteDir(newPath)
 }
 
