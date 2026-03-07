@@ -112,7 +112,7 @@ async function readErrorMessage(res: Response): Promise<string> {
     return text
   }
 
-  return `Request failed (${res.status})`
+  return `请求失败（${res.status}）`
 }
 
 async function requestJSON<T>(url: string, init?: RequestInit): Promise<T> {

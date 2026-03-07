@@ -270,7 +270,7 @@ const fetchStatus = async () => {
 }
 
 const formatNextRun = (dateStr: string | null | undefined) => {
-  if (!dateStr || dateStr === '0001-01-01T00:00:00Z') return 'N/A'
+  if (!dateStr || dateStr === '0001-01-01T00:00:00Z') return '未设置'
   const d = new Date(dateStr)
   return d.toLocaleString()
 }
