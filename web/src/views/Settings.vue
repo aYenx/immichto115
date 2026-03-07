@@ -817,8 +817,24 @@ const loadRemoteDir = async (path: string) => {
   }
 }
 
+const resolveLocalEntryPath = (item: DirEntry) => {
+  const candidate = (item.Path || '').trim()
+  if (candidate.startsWith('/') || /^[A-Za-z]:[\\/]/.test(candidate)) {
+    return candidate
+  }
+
+  const separator = currentLocalPath.value.includes('\\') ? '\\' : '/'
+  let nextPath = currentLocalPath.value
+  if (nextPath === '' || nextPath.endsWith(separator)) {
+    nextPath += item.Name
+  } else {
+    nextPath += separator + item.Name
+  }
+  return nextPath
+}
+
 const enterLocalDir = (item: DirEntry) => {
-  const nextPath = item.Path || item.Name
+  const nextPath = resolveLocalEntryPath(item)
   currentLocalPath.value = nextPath
   void loadLocalDir(nextPath)
 }
