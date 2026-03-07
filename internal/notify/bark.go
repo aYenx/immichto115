@@ -96,14 +96,19 @@ func classifyFailureReason(detail string) string {
 		return "请打开 ImmichTo115 实时日志查看详细报错"
 	}
 
-	lower := strings.ToLower(detail)
+	segments := strings.Split(detail, "；")
+	core := detail
+	if len(segments) > 0 {
+		core = strings.TrimSpace(segments[len(segments)-1])
+	}
+	lower := strings.ToLower(core)
 
 	switch {
-	case strings.Contains(detail, "任务已被手动停止"):
+	case strings.Contains(core, "任务已被手动停止"):
 		return "这是一次手动停止，不是系统异常"
-	case strings.Contains(lower, "already running") || strings.Contains(detail, "已有备份任务正在运行"):
+	case strings.Contains(lower, "already running") || strings.Contains(core, "已有备份任务正在运行"):
 		return "已有备份任务在运行，本次请求被跳过，请等待当前任务完成"
-	case strings.Contains(lower, "permission denied") || strings.Contains(detail, "权限"):
+	case strings.Contains(lower, "permission denied") || strings.Contains(core, "权限"):
 		return "权限不足：请检查本地目录、WebDAV 目录或容器挂载权限"
 	case strings.Contains(lower, "authentication") || strings.Contains(lower, "unauthorized") || strings.Contains(lower, "forbidden"):
 		return "认证失败：请检查 WebDAV 用户名、密码或授权信息"
@@ -113,7 +118,7 @@ func classifyFailureReason(detail string) string {
 		return "连接失败：请检查 WebDAV 地址、端口、域名解析或服务是否在线"
 	case strings.Contains(lower, "directory not found") || strings.Contains(lower, "file does not exist") || strings.Contains(lower, "not found"):
 		return "目录不存在：请检查本地备份路径或远端目录是否填写正确"
-	case strings.Contains(lower, "config") || strings.Contains(detail, "未配置") || strings.Contains(detail, "生成 rclone 配置失败"):
+	case strings.Contains(lower, "config") || strings.Contains(core, "未配置") || strings.Contains(core, "生成 rclone 配置失败"):
 		return "配置有误：请检查 WebDAV、远端目录、加密参数和备份路径是否填写完整"
 	default:
 		return detail
