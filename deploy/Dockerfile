@@ -1,6 +1,6 @@
 # ============================================================
 # Stage 1: 编译前端 (Vue 3 + Vite)
-#   产物输出到 /build/cmd/server/dist，供 Stage 2 嵌入
+#   产物输出到 /build/web/dist，供 Stage 2 通过 go:embed(all:web/dist) 嵌入
 # ============================================================
 FROM node:20-alpine AS frontend-builder
 
@@ -27,8 +27,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY . .
 
-# 将前端编译产物放到 Go embed 目录
-COPY --from=frontend-builder /build/web/dist ./cmd/server/dist
+# 将前端编译产物放到 Go embed 目录（web_embed.go: all:web/dist）
+COPY --from=frontend-builder /build/web/dist ./web/dist
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
