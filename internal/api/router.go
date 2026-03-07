@@ -562,10 +562,11 @@ func (s *Server) handleWebDAVList(c *gin.Context) {
 	}
 	defer config.CleanupRcloneConf(confPath)
 
-	remotePath := "webdav115:"
-	if req.Path != "" && req.Path != "/" {
-		remotePath += req.Path
+	cleanPath := path.Clean("/" + req.Path)
+	if cleanPath == "." {
+		cleanPath = "/"
 	}
+	remotePath := "webdav115:" + cleanPath
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
