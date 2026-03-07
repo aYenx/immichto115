@@ -3,7 +3,11 @@
     <div class="header">
       <div class="greeting">
         <h1>{{ greeting }}，Administrator</h1>
-        <p>系统环境良好。当前状态：{{ systemStatus?.backup_status === 'running' ? '备份中...' : '空闲' }}</p>
+        <p>系统环境良好。当前状态：{{ backupStatusText }}</p>
+        <div class="backup-status-strip">
+          <span :class="['status-chip', backupPhaseTone]">{{ backupPhaseLabel }}</span>
+          <span v-if="backupStatusDetail" class="status-detail">{{ backupStatusDetail }}</span>
+        </div>
       </div>
       <div v-if="!wsConnected || !apiReachable" class="connection-banner">
         <LucideWifiOff :size="16" />
@@ -132,6 +136,67 @@ const greeting = computed(() => {
   if (hour < 14) return '中午好'
   if (hour < 18) return '下午好'
   return '晚上好'
+})
+
+const latestLogText = computed(() => logs.value.length > 0 ? logs.value[logs.value.length - 1]!.text : '')
+
+const backupPhase = computed<'idle' | 'preparing' | 'library' | 'database' | 'stopping' | 'success' | 'partial' | 'failed'>(() => {
+  const text = latestLogText.value
+  const lower = text.toLowerCase()
+
+  if (lower.includes('任务已被手动停止') || lower.includes('安全退出') || lower.includes('停止信号')) return 'stopping'
+  if (lower.includes('所有备份阶段执行完毕') || lower.includes('当前同步阶段已成功完成')) return 'success'
+  if (lower.includes('数据库备份失败') || lower.includes('照片库备份失败') || lower.includes('failed to generate rclone config') || lower.includes('无法启动')) {
+    const completedLibrary = logs.value.some(log => log.text.includes('照片库目录备份阶段已结束'))
+    const completedDatabase = logs.value.some(log => log.text.includes('数据库备份目录同步阶段已结束'))
+    if (completedLibrary || completedDatabase) return 'partial'
+    return 'failed'
+  }
+  if (lower.includes('开始备份数据库备份目录')) return 'database'
+  if (lower.includes('开始备份照片库目录')) return 'library'
+  if (lower.includes('备份任务已启动') || lower.includes('正在生成临时 rclone 配置') || lower.includes('开始执行同步任务')) return 'preparing'
+  if (systemStatus.value?.backup_status === 'running') return 'preparing'
+  return 'idle'
+})
+
+const backupPhaseLabel = computed(() => {
+  switch (backupPhase.value) {
+    case 'preparing': return '准备中'
+    case 'library': return '备份照片库中'
+    case 'database': return '备份数据库中'
+    case 'stopping': return '停止中'
+    case 'success': return '已完成'
+    case 'partial': return '部分失败'
+    case 'failed': return '已失败'
+    default: return '空闲'
+  }
+})
+
+const backupPhaseTone = computed(() => {
+  switch (backupPhase.value) {
+    case 'success': return 'success'
+    case 'failed':
+    case 'partial': return 'error'
+    case 'stopping': return 'warning'
+    case 'preparing':
+    case 'library':
+    case 'database': return 'info'
+    default: return 'neutral'
+  }
+})
+
+const backupStatusText = computed(() => {
+  if (backupPhase.value === 'idle') {
+    return systemStatus.value?.backup_status === 'running' ? '备份中...' : '空闲'
+  }
+  return backupPhaseLabel.value
+})
+
+const backupStatusDetail = computed(() => {
+  const text = latestLogText.value.replace(/^\[immichto115\]\s*/, '').trim()
+  if (!text) return ''
+  if (backupPhase.value === 'idle') return ''
+  return text
 })
 
 let ws: WebSocket | null = null
@@ -344,6 +409,56 @@ onUnmounted(() => {
 .greeting p {
   color: var(--text-secondary);
   font-size: 16px;
+}
+
+.backup-status-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-chip.success {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+}
+
+.status-chip.error {
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+}
+
+.status-chip.warning {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+
+.status-chip.info {
+  background: rgba(37, 99, 235, 0.14);
+  color: #2563eb;
+}
+
+.status-chip.neutral {
+  background: var(--bg-card);
+  color: var(--text-secondary);
+}
+
+.status-detail {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .actions {
