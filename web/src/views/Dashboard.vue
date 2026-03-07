@@ -122,6 +122,7 @@ let logIdCounter = 0
 
 const systemStatus = ref<SystemStatus | null>(null)
 const logs = ref<Array<{ id: number, time: string, text: string }>>([])
+const lastStatusSnapshot = ref('')
 const terminalRef = ref<HTMLElement | null>(null)
 const autoScroll = ref(true)
 const wsConnected = ref(false)
@@ -164,7 +165,7 @@ const latestStatusLogText = computed(() => {
       return text
     }
   }
-  return ''
+  return lastStatusSnapshot.value
 })
 
 const backupPhase = computed<'idle' | 'preparing' | 'library' | 'database' | 'stopping' | 'success' | 'partial' | 'failed'>(() => {
@@ -294,6 +295,7 @@ const getLogLevelClass = (text: string) => {
 }
 
 const clearLogs = () => {
+  lastStatusSnapshot.value = latestStatusLogText.value || lastStatusSnapshot.value
   logs.value = []
 }
 
@@ -332,11 +334,15 @@ const connectWebSocket = () => {
     try {
       const data = JSON.parse(ev.data)
       const now = new Date()
+      const text = data.Text || data.text || ''
       logs.value.push({
         id: ++logIdCounter,
         time: now.toLocaleTimeString(),
-        text: data.Text || data.text || ''
+        text
       })
+      if (derivePhaseFromText(text) !== null) {
+        lastStatusSnapshot.value = text
+      }
       // Batch trim: remove 50 oldest when exceeding limit
       if (logs.value.length > MAX_LOGS) {
         logs.value.splice(0, logs.value.length - MAX_LOGS)
