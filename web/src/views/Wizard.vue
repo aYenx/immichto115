@@ -421,6 +421,10 @@ const normalizeRemotePath = (path: string) => {
 }
 
 const openRemoteFolderPicker = () => {
+  if (!config.webdav.url.trim() || !config.webdav.user.trim() || !config.webdav.password.trim()) {
+    showToast('warning', '请先完善连接信息', '需要先填写 WebDAV 地址、用户名和密码，才能浏览远端目录。')
+    return
+  }
   showRemoteFolderPicker.value = true
   currentRemotePath.value = normalizeRemotePath(config.backup.remote_dir)
   loadRemoteDir(currentRemotePath.value)
