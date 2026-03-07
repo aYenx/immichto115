@@ -120,10 +120,7 @@ cd immichto115
 # 编译前端
 cd web && npm ci && npm run build && cd ..
 
-# 将前端产物复制到 Go 内嵌目录
-rm -rf cmd/server/dist && cp -r web/dist cmd/server/dist
-
-# 编译后端（内嵌前端资源，注入版本号）
+# 编译后端（会从 web/dist 直接 go:embed 前端资源，注入版本号）
 VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
 CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${VERSION}" -o immichto115 ./cmd/server/
 
@@ -160,11 +157,7 @@ npm ci
 npm run build
 cd ..
 
-# 2) 准备 go:embed 目录（必须）
-rm -rf cmd/server/dist
-cp -r web/dist cmd/server/dist
-
-# 3) Go 测试 + 构建
+# 2) Go 测试 + 构建（将直接从 web/dist 内嵌静态资源）
 go test ./...
 CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=local-test" -o immichto115 ./cmd/server/
 
@@ -257,7 +250,7 @@ curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uni
 
 ```
 immichto115/
-├── cmd/server/              # Go 入口 + go:embed 内嵌前端（构建时需要 cmd/server/dist）
+├── cmd/server/              # Go 入口
 ├── internal/
 │   ├── api/                 # Gin 路由 + WebSocket Hub
 │   ├── config/              # Viper 配置管理 + rclone.conf 生成
@@ -296,7 +289,6 @@ immichto115/
 
 ```bash
 cd web && npm ci && npm run build && cd ..
-rm -rf cmd/server/dist && cp -r web/dist cmd/server/dist
 go test ./...
 ```
 
