@@ -55,7 +55,7 @@
           <LucideDatabase :size="20" class="icon" />
         </div>
         <div class="stat-info">
-          <span class="stat-label">配置已完成</span>
+          <span class="stat-label">初始化状态</span>
           <span class="stat-value" style="font-size: 16px;">{{ systemStatus?.setup_complete ? '是' : '否' }}</span>
         </div>
       </div>
