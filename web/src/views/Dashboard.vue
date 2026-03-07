@@ -2,7 +2,7 @@
   <div class="dashboard-container">
     <div class="header">
       <div class="greeting">
-        <h1>{{ greeting }}，Administrator</h1>
+        <h1>{{ greeting }}，管理员</h1>
         <p>系统环境良好。当前状态：{{ backupStatusText }}</p>
         <div class="backup-status-strip">
           <span :class="['status-chip', backupPhaseTone]">{{ backupPhaseLabel }}</span>
