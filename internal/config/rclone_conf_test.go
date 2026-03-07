@@ -39,6 +39,18 @@ func TestBuildRemotePath(t *testing.T) {
 			path: "",
 			want: "webdav115:/immich-backup",
 		},
+		{
+			name: "plain path is normalized",
+			cfg: AppConfig{Backup: BackupConfig{RemoteDir: "/immich-backup"}},
+			path: "//albums///2026//",
+			want: "webdav115:/immich-backup/albums/2026",
+		},
+		{
+			name: "crypt path is normalized",
+			cfg: AppConfig{Encrypt: EncryptConfig{Enabled: true}, Backup: BackupConfig{RemoteDir: "/immich-backup"}},
+			path: "//albums///2026//",
+			want: "crypt115:albums/2026",
+		},
 	}
 
 	for _, tt := range tests {
