@@ -115,6 +115,30 @@ func GetRemoteName(cfg AppConfig) string {
 	return "webdav115:" + cleanRemoteDir
 }
 
+// BuildRemotePath 根据配置和请求路径拼出可用于 rclone 的完整远端路径。
+func BuildRemotePath(cfg AppConfig, reqPath string) string {
+	cleanPath := path.Clean("/" + strings.TrimSpace(reqPath))
+	if cleanPath == "." || cleanPath == "" {
+		cleanPath = "/"
+	}
+
+	if cfg.Encrypt.Enabled {
+		if cleanPath == "/" {
+			return "crypt115:"
+		}
+		return "crypt115:" + strings.TrimPrefix(cleanPath, "/")
+	}
+
+	remote := GetRemoteName(cfg)
+	if cleanPath == "/" {
+		return remote
+	}
+	if strings.HasSuffix(remote, "/") {
+		return remote + strings.TrimPrefix(cleanPath, "/")
+	}
+	return remote + cleanPath
+}
+
 // CleanupRcloneConf 删除临时 rclone.conf 及其父目录。
 func CleanupRcloneConf(confPath string) {
 	if confPath == "" {

@@ -744,12 +744,7 @@ func (s *Server) handleRemoteList(c *gin.Context) {
 	}
 	defer config.CleanupRcloneConf(confPath)
 
-	remote := config.GetRemoteName(cfg)
-	cleanPath := path.Clean("/" + req.Path)
-	if cleanPath == "." {
-		cleanPath = "/"
-	}
-	remotePath := remote + cleanPath
+	remotePath := config.BuildRemotePath(cfg, req.Path)
 
 	// 带超时的 context 防止 rclone 挂起
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
