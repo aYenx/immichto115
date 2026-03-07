@@ -99,7 +99,7 @@ const items = ref<DirEntry[]>([])
 
 const breadcrumbs = computed(() => {
   if (!currentPath.value) return []
-  const parts = currentPath.value.split('/')
+  const parts = currentPath.value.split('/').filter(Boolean)
   return parts.map((part, index) => {
     return {
       name: part,
