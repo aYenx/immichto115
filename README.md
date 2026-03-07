@@ -14,7 +14,7 @@ Go 后端 + Vue 3 前端，编译为**单个二进制文件**，开箱即用。
 
 ---
 
-[安装 / 更新 / 卸载](#-安装--更新--卸载) · [快速开始](#-快速开始) · [功能特性](#-功能特性) · [配置说明](#️-配置说明) · [API 文档](#-api-文档) · [项目结构](#️-项目结构)
+[安装 / 更新 / 卸载](#-安装--更新--卸载) · [快速开始](#-快速开始) · [运行自检](#-运行自检) · [功能特性](#-功能特性) · [配置说明](#️-配置说明) · [API 文档](#-api-文档) · [项目结构](#️-项目结构)
 
 </div>
 
@@ -149,6 +149,34 @@ docker compose up -d --build
 
 ---
 
+## ✅ 运行自检
+
+下面这组命令可以快速确认“项目是否可编译/可运行”：
+
+```bash
+# 1) 前端构建
+cd web
+npm ci
+npm run build
+cd ..
+
+# 2) 准备 go:embed 目录（必须）
+rm -rf cmd/server/dist
+cp -r web/dist cmd/server/dist
+
+# 3) Go 测试 + 构建
+go test ./...
+CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=local-test" -o immichto115 ./cmd/server/
+
+# 4) 启动（示例）
+./immichto115 --config ./config/config.yaml --port 8096
+```
+
+> [!TIP]
+> 若你在 Linux 环境提示 `go: command not found`，请先安装 Go 并确保 `go` 在 PATH 中可用。
+
+---
+
 ## ⚙️ 配置说明
 
 > 配置文件路径优先级：`--config` 参数 > `IMMICHTO115_CONFIG` 环境变量 > `{可执行文件目录}/config/config.yaml`
@@ -229,7 +257,7 @@ curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uni
 
 ```
 immichto115/
-├── cmd/server/              # Go 入口 + go:embed 内嵌前端
+├── cmd/server/              # Go 入口 + go:embed 内嵌前端（构建时需要 cmd/server/dist）
 ├── internal/
 │   ├── api/                 # Gin 路由 + WebSocket Hub
 │   ├── config/              # Viper 配置管理 + rclone.conf 生成
@@ -263,6 +291,16 @@ immichto115/
 ---
 
 ## 🏷️ 发布
+
+发布前建议先做一次本地自检：
+
+```bash
+cd web && npm ci && npm run build && cd ..
+rm -rf cmd/server/dist && cp -r web/dist cmd/server/dist
+go test ./...
+```
+
+然后打 tag：
 
 ```bash
 git tag vX.Y.Z
