@@ -656,7 +656,7 @@ const testNotify = async () => {
     await api.saveConfig(draftConfig.value)
     Object.assign(config, cloneConfig(draftConfig.value))
     await api.testNotify()
-    showToast('success', '测试通知已发送', '请检查你的 Bark App 是否收到通知')
+    showToast('success', '测试通知已发送', '请检查 Bark App；你会看到更明确的状态字段，例如触发方式、当前阶段和结果。')
   } catch (error) {
     if (handleAuthFailure(error)) return
     showToast('error', '发送失败', getErrorMessage(error))
