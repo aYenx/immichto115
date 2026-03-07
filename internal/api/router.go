@@ -626,7 +626,7 @@ func (s *Server) handleWebDAVTest(c *gin.Context) {
 	if obscErr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"message": "failed to obscure password: " + obscErr.Error(),
+			"message": "处理 WebDAV 密码失败：" + obscErr.Error(),
 		})
 		return
 	}
@@ -643,14 +643,14 @@ func (s *Server) handleWebDAVTest(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "connection failed: " + string(out),
+			"message": "WebDAV 连接失败：" + strings.TrimSpace(string(out)),
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "WebDAV connection successful",
+		"message": "WebDAV 连接成功",
 	})
 }
 
@@ -678,7 +678,7 @@ func (s *Server) handleWebDAVList(c *gin.Context) {
 
 	confPath, err := config.GenerateRcloneConf(tmpCfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate rclone config: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成 rclone 配置失败：" + err.Error()})
 		return
 	}
 	defer config.CleanupRcloneConf(confPath)
@@ -693,9 +693,9 @@ func (s *Server) handleWebDAVList(c *gin.Context) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "rclone", "lsjson", remotePath, "--config", confPath)
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list webdav directory: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取 WebDAV 目录失败：" + strings.TrimSpace(string(out))})
 		return
 	}
 
