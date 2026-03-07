@@ -326,6 +326,7 @@ const getLogLevelClass = (text: string) => {
   if (
     upper.includes('WARN') ||
     text.includes('停止') ||
+    text.includes('停止指令') ||
     text.includes('跳过') ||
     text.includes('请先')
   ) return 'warning'
