@@ -420,7 +420,7 @@ const connectWebSocket = () => {
       return
     }
 
-    console.log('WebSocket closed, reconnecting in 5s...')
+    console.log('WebSocket 已断开，5 秒后重连...')
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
       connectWebSocket()
