@@ -30,6 +30,18 @@ func normalizeRemoteDir(remoteDir string) string {
 	return cleaned
 }
 
+func normalizeCronExpression(expr string) string {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return ""
+	}
+	parts := strings.Fields(expr)
+	if len(parts) == 5 {
+		return "0 " + expr
+	}
+	return expr
+}
+
 // Server 持有所有 API 依赖。
 type Server struct {
 	Runner    *rclone.Runner
@@ -469,11 +481,7 @@ func (s *Server) InitCron() {
 	cfg := s.Config.Get()
 	if cfg.Cron.Enabled && cfg.Cron.Expression != "" {
 		// 对于非标准5段cron，尝试补前导0秒
-		expr := cfg.Cron.Expression
-		parts := strings.Fields(expr)
-		if len(parts) == 5 {
-			expr = "0 " + expr // 补秒字段
-		}
+		expr := normalizeCronExpression(cfg.Cron.Expression)
 		if err := s.Scheduler.Start(expr); err != nil {
 			log.Printf("[cron] failed to start scheduler: %v", err)
 		}
@@ -574,11 +582,7 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 
 	// 更新定时任务
 	if newCfg.Cron.Enabled && newCfg.Cron.Expression != "" {
-		expr := newCfg.Cron.Expression
-		parts := strings.Fields(expr)
-		if len(parts) == 5 {
-			expr = "0 " + expr
-		}
+		expr := normalizeCronExpression(newCfg.Cron.Expression)
 		if err := s.Scheduler.Start(expr); err != nil {
 			c.JSON(http.StatusOK, gin.H{"message": "config saved, but cron failed: " + err.Error()})
 			return
