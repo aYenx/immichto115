@@ -105,7 +105,7 @@ func (s *Server) triggerBackup(trigger string) {
 	confPath, err := config.GenerateRcloneConf(cfg)
 	if err != nil {
 		log.Printf("[backup] failed to generate rclone.conf: %v", err)
-		s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] failed to generate rclone config: " + err.Error()})
+		s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 生成 rclone 配置失败：" + err.Error()})
 		s.sendBackupNotify(cfg, notify.BackupNotification{
 			Success:    false,
 			Trigger:    trigger,
@@ -136,7 +136,7 @@ func (s *Server) triggerBackup(trigger string) {
 		plannedStages = append(plannedStages, "照片库备份")
 		hasSyncTarget = true
 		if jobCtx.Err() != nil {
-			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] backup stopped before library sync started"})
+			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 任务已停止，照片库备份尚未开始"})
 			return
 		}
 		dest := remote
@@ -189,7 +189,7 @@ func (s *Server) triggerBackup(trigger string) {
 		completedStages = append(completedStages, "照片库备份")
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 照片库目录备份阶段已结束"})
 		if jobCtx.Err() != nil {
-			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] backup stopped after library sync"})
+			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 任务已停止，照片库备份已结束，后续阶段不会继续执行"})
 			return
 		}
 	} else {
@@ -201,7 +201,7 @@ func (s *Server) triggerBackup(trigger string) {
 		plannedStages = append(plannedStages, "数据库备份")
 		hasSyncTarget = true
 		if jobCtx.Err() != nil {
-			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] backup stopped before backups sync started"})
+			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 任务已停止，数据库备份尚未开始"})
 			return
 		}
 		dest := remote
@@ -254,7 +254,7 @@ func (s *Server) triggerBackup(trigger string) {
 		completedStages = append(completedStages, "数据库备份")
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 数据库备份目录同步阶段已结束"})
 		if jobCtx.Err() != nil {
-			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] backup stopped after backups sync"})
+			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 任务已停止，数据库备份已结束，后续阶段不会继续执行"})
 			return
 		}
 	} else {
