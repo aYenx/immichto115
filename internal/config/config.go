@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/spf13/viper"
@@ -187,5 +188,19 @@ func VerifyPassword(hash string, plaintext string) bool {
 func (m *Manager) IsSetupComplete() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.cfg.WebDAV.URL != "" && m.cfg.WebDAV.User != "" && m.cfg.WebDAV.Password != ""
+
+	cfg := m.cfg
+	if strings.TrimSpace(cfg.WebDAV.URL) == "" || strings.TrimSpace(cfg.WebDAV.User) == "" || strings.TrimSpace(cfg.WebDAV.Password) == "" {
+		return false
+	}
+	if strings.TrimSpace(cfg.Backup.RemoteDir) == "" {
+		return false
+	}
+	if strings.TrimSpace(cfg.Backup.LibraryDir) == "" && strings.TrimSpace(cfg.Backup.BackupsDir) == "" {
+		return false
+	}
+	if cfg.Encrypt.Enabled && strings.TrimSpace(cfg.Encrypt.Password) == "" {
+		return false
+	}
+	return true
 }
