@@ -47,6 +47,18 @@
           </div>
           
           <template v-else>
+            <div v-if="canGoUp" class="table-row folder go-up" @click="goUp()">
+              <div class="col-name" style="padding-left: 16px;">
+                <LucideCornerLeftUp :size="20" class="icon text-gray" />
+                <span>返回上级目录</span>
+              </div>
+              <div class="col-size">--</div>
+              <div class="col-date">--</div>
+              <div class="col-actions">
+                <button class="action-btn"><LucideChevronRight :size="18" /></button>
+              </div>
+            </div>
+
             <div class="table-row folder" v-for="folder in folders" :key="folder.Path || folder.Name" @click="navigateToFolder(folder)">
               <div class="col-name" style="padding-left: 16px;">
                 <LucideFolder :size="20" class="icon text-blue" />
@@ -59,7 +71,7 @@
               </div>
             </div>
 
-            <div class="table-row file" v-for="file in files" :key="file.Name">
+            <div class="table-row file" v-for="file in files" :key="file.Path || file.Name">
               <div class="col-name" style="padding-left: 16px;">
                 <LucideImage :size="20" class="icon text-gray" v-if="isImage(file.Name)" />
                 <LucideFileJson :size="20" class="icon text-yellow" v-else-if="isJson(file.Name)" />
@@ -83,6 +95,7 @@ import {
   LucideRefreshCw, 
   LucideCloud, 
   LucideChevronRight, 
+  LucideCornerLeftUp,
   LucideFolder, 
   LucideFolderOpen,
   LucideImage, 
@@ -110,6 +123,7 @@ const breadcrumbs = computed(() => {
 
 const folders = computed(() => items.value.filter(i => i.IsDir).sort((a, b) => a.Name.localeCompare(b.Name)))
 const files = computed(() => items.value.filter(i => !i.IsDir).sort((a, b) => a.Name.localeCompare(b.Name)))
+const canGoUp = computed(() => normalizePath(currentPath.value) !== '')
 
 const fetchList = async () => {
   isLoading.value = true
@@ -127,11 +141,17 @@ const fetchList = async () => {
 }
 
 const navigateTo = (path: string) => {
-  currentPath.value = path
+  currentPath.value = normalizePath(path)
   fetchList()
 }
 
 const normalizePath = (value: string) => value.replace(/^\/+|\/+$/g, '')
+
+const goUp = () => {
+  const parts = normalizePath(currentPath.value).split('/').filter(Boolean)
+  parts.pop()
+  navigateTo(parts.join('/'))
+}
 
 const navigateToFolder = (folder: DirEntry) => {
   const folderPath = normalizePath(folder.Path || folder.Name || '')
