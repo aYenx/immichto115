@@ -37,9 +37,10 @@ type Server struct {
 	Config    *config.Manager
 	Scheduler *appCron.Scheduler
 
-	backupMu     sync.Mutex
-	backupCancel context.CancelFunc
-	backupActive bool
+	backupMu      sync.Mutex
+	backupCancel  context.CancelFunc
+	backupActive  bool
+	backupTrigger string
 }
 
 // NewServer 创建 API Server 实例。
@@ -52,15 +53,15 @@ func NewServer(cfgMgr *config.Manager) *Server {
 
 	// 定时任务：触发时执行备份
 	s.Scheduler = appCron.NewScheduler(func() {
-		s.triggerBackup()
+		s.triggerBackup("定时任务")
 	})
 
 	return s
 }
 
 // triggerBackup 是定时任务和手动触发共用的备份逻辑。
-func (s *Server) triggerBackup() {
-	jobCtx, ok := s.beginBackupJob()
+func (s *Server) triggerBackup(trigger string) {
+	jobCtx, ok := s.beginBackupJob(trigger)
 	if !ok {
 		log.Println("[backup] skipped: already running")
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 已有备份任务正在运行，本次请求已跳过"})
@@ -69,11 +70,18 @@ func (s *Server) triggerBackup() {
 	defer s.finishBackupJob()
 
 	cfg := s.Config.Get()
+	trigger = s.currentBackupTrigger()
 	backupMode := cfg.Backup.Mode
 	if backupMode != "sync" {
 		backupMode = "copy" // 默认增量备份
 	}
+	modeLabel := "增量备份（copy）"
+	if backupMode == "sync" {
+		modeLabel = "镜像同步（sync）"
+	}
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 备份任务已启动，正在检查配置与目标路径..."})
+	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 触发方式: " + trigger})
+	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 备份模式: " + modeLabel})
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 正在生成临时 rclone 配置..."})
 
 	// 生成临时 rclone.conf
@@ -81,7 +89,14 @@ func (s *Server) triggerBackup() {
 	if err != nil {
 		log.Printf("[backup] failed to generate rclone.conf: %v", err)
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] failed to generate rclone config: " + err.Error()})
-		s.sendBackupNotify(cfg, false, "生成 rclone 配置失败")
+		s.sendBackupNotify(cfg, notify.BackupNotification{
+			Success:    false,
+			Trigger:    trigger,
+			Mode:       modeLabel,
+			Stage:      "准备阶段",
+			RemotePath: config.GetRemoteName(cfg),
+			Detail:     "生成 rclone 配置失败：" + err.Error(),
+		})
 		return
 	}
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] rclone 配置生成完成，开始执行同步任务"})
@@ -116,7 +131,14 @@ func (s *Server) triggerBackup() {
 		if err != nil {
 			log.Printf("[backup] failed to start library backup: %v", err)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 无法启动照片库备份: " + err.Error()})
-			s.sendBackupNotify(cfg, false, "照片库备份启动失败")
+			s.sendBackupNotify(cfg, notify.BackupNotification{
+				Success:    false,
+				Trigger:    trigger,
+				Mode:       modeLabel,
+				Stage:      "照片库备份",
+				RemotePath: dest,
+				Detail:     "启动失败：" + err.Error(),
+			})
 			return
 		}
 		s.Hub.BroadcastFromChannel(logCh) // 阻塞直到完成
@@ -124,11 +146,26 @@ func (s *Server) triggerBackup() {
 			if errors.Is(runErr, rclone.ErrCancelled) {
 				log.Printf("[backup] library backup cancelled by user")
 				s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 照片库备份已手动停止"})
+				s.sendBackupNotify(cfg, notify.BackupNotification{
+					Success:    false,
+					Trigger:    trigger,
+					Mode:       modeLabel,
+					Stage:      "照片库备份",
+					RemotePath: dest,
+					Detail:     "任务已被手动停止",
+				})
 				return
 			}
 			log.Printf("[backup] library backup failed: %v", runErr)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 照片库备份失败: " + runErr.Error()})
-			s.sendBackupNotify(cfg, false, "照片库备份失败")
+			s.sendBackupNotify(cfg, notify.BackupNotification{
+				Success:    false,
+				Trigger:    trigger,
+				Mode:       modeLabel,
+				Stage:      "照片库备份",
+				RemotePath: dest,
+				Detail:     runErr.Error(),
+			})
 			return
 		}
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 照片库目录备份阶段已结束"})
@@ -157,7 +194,14 @@ func (s *Server) triggerBackup() {
 		if err != nil {
 			log.Printf("[backup] failed to start backups backup: %v", err)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 无法启动数据库备份目录同步: " + err.Error()})
-			s.sendBackupNotify(cfg, false, "数据库备份启动失败")
+			s.sendBackupNotify(cfg, notify.BackupNotification{
+				Success:    false,
+				Trigger:    trigger,
+				Mode:       modeLabel,
+				Stage:      "数据库备份",
+				RemotePath: dest,
+				Detail:     "启动失败：" + err.Error(),
+			})
 			return
 		}
 		s.Hub.BroadcastFromChannel(logCh) // 阻塞直到完成
@@ -165,11 +209,26 @@ func (s *Server) triggerBackup() {
 			if errors.Is(runErr, rclone.ErrCancelled) {
 				log.Printf("[backup] backups backup cancelled by user")
 				s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 数据库备份已手动停止"})
+				s.sendBackupNotify(cfg, notify.BackupNotification{
+					Success:    false,
+					Trigger:    trigger,
+					Mode:       modeLabel,
+					Stage:      "数据库备份",
+					RemotePath: dest,
+					Detail:     "任务已被手动停止",
+				})
 				return
 			}
 			log.Printf("[backup] backups backup failed: %v", runErr)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 数据库备份失败: " + runErr.Error()})
-			s.sendBackupNotify(cfg, false, "数据库备份失败")
+			s.sendBackupNotify(cfg, notify.BackupNotification{
+				Success:    false,
+				Trigger:    trigger,
+				Mode:       modeLabel,
+				Stage:      "数据库备份",
+				RemotePath: dest,
+				Detail:     runErr.Error(),
+			})
 			return
 		}
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 数据库备份目录同步阶段已结束"})
@@ -183,14 +242,29 @@ func (s *Server) triggerBackup() {
 
 	if !hasSyncTarget {
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 未配置任何可备份目录，请先在设置中填写照片库或数据库备份目录"})
+		s.sendBackupNotify(cfg, notify.BackupNotification{
+			Success:    false,
+			Trigger:    trigger,
+			Mode:       modeLabel,
+			Stage:      "准备阶段",
+			RemotePath: remote,
+			Detail:     "未配置任何可备份目录，请先填写照片库或数据库备份目录",
+		})
 		return
 	}
 
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 所有备份阶段执行完毕"})
-	s.sendBackupNotify(cfg, true, "")
+	s.sendBackupNotify(cfg, notify.BackupNotification{
+		Success:    true,
+		Trigger:    trigger,
+		Mode:       modeLabel,
+		Stage:      "全部备份",
+		RemotePath: remote,
+		Detail:     "照片库与数据库备份阶段都已执行完成",
+	})
 }
 
-func (s *Server) beginBackupJob() (context.Context, bool) {
+func (s *Server) beginBackupJob(trigger string) (context.Context, bool) {
 	s.backupMu.Lock()
 	defer s.backupMu.Unlock()
 
@@ -201,7 +275,22 @@ func (s *Server) beginBackupJob() (context.Context, bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.backupCancel = cancel
 	s.backupActive = true
+	s.backupTrigger = fallbackBackupTrigger(trigger)
 	return ctx, true
+}
+
+func fallbackBackupTrigger(trigger string) string {
+	trigger = strings.TrimSpace(trigger)
+	if trigger == "" {
+		return "手动"
+	}
+	return trigger
+}
+
+func (s *Server) currentBackupTrigger() string {
+	s.backupMu.Lock()
+	defer s.backupMu.Unlock()
+	return fallbackBackupTrigger(s.backupTrigger)
 }
 
 func (s *Server) finishBackupJob() {
@@ -210,6 +299,7 @@ func (s *Server) finishBackupJob() {
 
 	s.backupCancel = nil
 	s.backupActive = false
+	s.backupTrigger = ""
 }
 
 func (s *Server) stopBackupJob() bool {
@@ -597,9 +687,9 @@ func (s *Server) handleBackupStart(c *gin.Context) {
 		return
 	}
 
-	go s.triggerBackup()
+	go s.triggerBackup("手动")
 
-	c.JSON(http.StatusOK, gin.H{"message": "backup started"})
+	c.JSON(http.StatusOK, gin.H{"message": "备份已开始，正在检查配置并准备同步任务"})
 }
 
 func (s *Server) handleBackupStop(c *gin.Context) {
@@ -609,7 +699,7 @@ func (s *Server) handleBackupStop(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": runnerErr.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "backup stop signal sent"})
+	c.JSON(http.StatusOK, gin.H{"message": "已发送停止指令，当前任务会在安全收尾后退出"})
 }
 
 // RemoteListRequest 云端文件浏览请求。
@@ -690,11 +780,11 @@ func (s *Server) handleLocalList(c *gin.Context) {
 }
 
 // sendBackupNotify 在备份完成时发送 Bark 推送通知。
-func (s *Server) sendBackupNotify(cfg config.AppConfig, success bool, detail string) {
+func (s *Server) sendBackupNotify(cfg config.AppConfig, info notify.BackupNotification) {
 	if !cfg.Notify.Enabled || cfg.Notify.BarkURL == "" {
 		return
 	}
-	go notify.NotifyBackupResult(cfg.Notify.BarkURL, success, detail)
+	go notify.NotifyBackupResult(cfg.Notify.BarkURL, info)
 }
 
 // handleNotifyTest 测试 Bark 推送通知。
@@ -704,7 +794,7 @@ func (s *Server) handleNotifyTest(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "通知未启用或 Bark 地址为空，请先保存通知配置"})
 		return
 	}
-	err := notify.SendBark(cfg.Notify.BarkURL, "🔔 测试通知", "ImmichTo115 通知服务连接正常")
+	err := notify.SendBark(cfg.Notify.BarkURL, "🔔 测试通知", "应用：ImmichTo115\n结果：通知服务连接正常\n说明：后续会推送备份成功、失败、手动停止等状态")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "推送失败: " + err.Error()})
 		return

@@ -184,8 +184,9 @@ const openSettings = () => {
 
 const startBackup = async () => {
   try {
-    await api.startBackup()
+    const result = await api.startBackup()
     await fetchStatus()
+    showToast('info', '备份已启动', result.message || '正在检查配置并准备同步任务，请留意实时日志。')
   } catch (err: any) {
     if (handleAuthFailure(err)) return
     showToast('error', '启动备份失败', getErrorMessage(err))
@@ -194,8 +195,9 @@ const startBackup = async () => {
 
 const stopBackup = async () => {
   try {
-    await api.stopBackup()
+    const result = await api.stopBackup()
     await fetchStatus()
+    showToast('warning', '已请求停止备份', result.message || '当前任务会在安全收尾后退出。')
   } catch (err: any) {
     if (handleAuthFailure(err)) return
     showToast('error', '停止备份失败', getErrorMessage(err))
