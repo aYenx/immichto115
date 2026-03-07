@@ -47,7 +47,7 @@
           </div>
           
           <template v-else>
-            <div class="table-row folder" v-for="folder in folders" :key="folder.Name" @click="navigateToFolder(folder.Name)">
+            <div class="table-row folder" v-for="folder in folders" :key="folder.Path || folder.Name" @click="navigateToFolder(folder)">
               <div class="col-name" style="padding-left: 16px;">
                 <LucideFolder :size="20" class="icon text-blue" />
                 <span>{{ folder.Name }}</span>
@@ -114,7 +114,8 @@ const files = computed(() => items.value.filter(i => !i.IsDir).sort((a, b) => a.
 const fetchList = async () => {
   isLoading.value = true
   try {
-    const data = await api.listRemote('/' + currentPath.value)
+    const normalizedPath = currentPath.value ? `/${normalizePath(currentPath.value)}` : '/'
+    const data = await api.listRemote(normalizedPath)
     items.value = Array.isArray(data) ? data : []
   } catch (err: any) {
     if (handleAuthFailure(err)) return
@@ -130,9 +131,18 @@ const navigateTo = (path: string) => {
   fetchList()
 }
 
-const navigateToFolder = (folderName: string) => {
+const normalizePath = (value: string) => value.replace(/^\/+|\/+$/g, '')
+
+const navigateToFolder = (folder: DirEntry) => {
+  const folderPath = normalizePath(folder.Path || folder.Name || '')
+  if (folderPath) {
+    navigateTo(folderPath)
+    return
+  }
+
+  const folderName = normalizePath(folder.Name || '')
   if (currentPath.value) {
-    navigateTo(`${currentPath.value}/${folderName}`)
+    navigateTo(`${normalizePath(currentPath.value)}/${folderName}`)
   } else {
     navigateTo(folderName)
   }
