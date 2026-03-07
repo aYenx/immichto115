@@ -29,8 +29,8 @@ export function createDefaultConfig(): AppConfig {
       salt: '',
     },
     cron: {
-      enabled: true,
-      expression: '0 3 * * *',
+      enabled: false,
+      expression: '0 2 * * *',
     },
     notify: {
       enabled: false,

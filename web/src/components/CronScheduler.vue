@@ -105,7 +105,7 @@
         class="cron-input"
         type="text"
         v-model="customExpression"
-        placeholder="例如: 0 3 * * *"
+        placeholder="例如: 0 2 * * *"
       />
       <span class="field-hint">格式: 分 时 日 月 星期 (5段标准 cron)</span>
     </div>
@@ -167,11 +167,11 @@ const minutes = Array.from({ length: 12 }, (_, i) => i * 5) // 0, 5, 10, ..., 55
 const intervalOptions = [1, 2, 3, 4, 6, 8, 12]
 
 const frequency = ref<FrequencyType>('daily')
-const hour = ref(3)
+const hour = ref(2)
 const minute = ref(0)
 const dayOfWeek = ref(0) // Sunday
 const intervalHours = ref(6)
-const customExpression = ref('0 3 * * *')
+const customExpression = ref('0 2 * * *')
 let isInitializing = true
 
 // Custom dropdown state
@@ -308,7 +308,7 @@ const generatedExpression = computed(() => {
     case 'custom':
       return customExpression.value
     default:
-      return '0 3 * * *'
+      return '0 2 * * *'
   }
 })
 
