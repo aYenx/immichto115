@@ -79,6 +79,23 @@ func (s *Server) triggerBackup(trigger string) {
 	if backupMode == "sync" {
 		modeLabel = "镜像同步（sync）"
 	}
+	completedStages := make([]string, 0, 2)
+	plannedStages := make([]string, 0, 2)
+	summarizeProgress := func(failedStage string) string {
+		parts := make([]string, 0, 3)
+		if len(plannedStages) > 0 {
+			parts = append(parts, "计划阶段："+strings.Join(plannedStages, "、"))
+		}
+		if len(completedStages) > 0 {
+			parts = append(parts, "已完成："+strings.Join(completedStages, "、"))
+		} else {
+			parts = append(parts, "已完成：无")
+		}
+		if failedStage != "" {
+			parts = append(parts, "失败阶段："+failedStage)
+		}
+		return strings.Join(parts, "；")
+	}
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 备份任务已启动，正在检查配置与目标路径..."})
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 触发方式: " + trigger})
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 备份模式: " + modeLabel})
@@ -116,6 +133,7 @@ func (s *Server) triggerBackup(trigger string) {
 
 	// 备份 Library 目录
 	if cfg.Backup.LibraryDir != "" {
+		plannedStages = append(plannedStages, "照片库备份")
 		hasSyncTarget = true
 		if jobCtx.Err() != nil {
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] backup stopped before library sync started"})
@@ -137,7 +155,7 @@ func (s *Server) triggerBackup(trigger string) {
 				Mode:       modeLabel,
 				Stage:      "照片库备份",
 				RemotePath: dest,
-				Detail:     "启动失败：" + err.Error(),
+				Detail:     summarizeProgress("照片库备份") + "；启动失败：" + err.Error(),
 			})
 			return
 		}
@@ -152,7 +170,7 @@ func (s *Server) triggerBackup(trigger string) {
 					Mode:       modeLabel,
 					Stage:      "照片库备份",
 					RemotePath: dest,
-					Detail:     "任务已被手动停止",
+					Detail:     summarizeProgress("照片库备份") + "；任务已被手动停止",
 				})
 				return
 			}
@@ -164,10 +182,11 @@ func (s *Server) triggerBackup(trigger string) {
 				Mode:       modeLabel,
 				Stage:      "照片库备份",
 				RemotePath: dest,
-				Detail:     runErr.Error(),
+				Detail:     summarizeProgress("照片库备份") + "；" + runErr.Error(),
 			})
 			return
 		}
+		completedStages = append(completedStages, "照片库备份")
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 照片库目录备份阶段已结束"})
 		if jobCtx.Err() != nil {
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] backup stopped after library sync"})
@@ -179,6 +198,7 @@ func (s *Server) triggerBackup(trigger string) {
 
 	// 备份 Database Dumps 目录
 	if cfg.Backup.BackupsDir != "" {
+		plannedStages = append(plannedStages, "数据库备份")
 		hasSyncTarget = true
 		if jobCtx.Err() != nil {
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] backup stopped before backups sync started"})
@@ -200,7 +220,7 @@ func (s *Server) triggerBackup(trigger string) {
 				Mode:       modeLabel,
 				Stage:      "数据库备份",
 				RemotePath: dest,
-				Detail:     "启动失败：" + err.Error(),
+				Detail:     summarizeProgress("数据库备份") + "；启动失败：" + err.Error(),
 			})
 			return
 		}
@@ -215,7 +235,7 @@ func (s *Server) triggerBackup(trigger string) {
 					Mode:       modeLabel,
 					Stage:      "数据库备份",
 					RemotePath: dest,
-					Detail:     "任务已被手动停止",
+					Detail:     summarizeProgress("数据库备份") + "；任务已被手动停止",
 				})
 				return
 			}
@@ -227,10 +247,11 @@ func (s *Server) triggerBackup(trigger string) {
 				Mode:       modeLabel,
 				Stage:      "数据库备份",
 				RemotePath: dest,
-				Detail:     runErr.Error(),
+				Detail:     summarizeProgress("数据库备份") + "；" + runErr.Error(),
 			})
 			return
 		}
+		completedStages = append(completedStages, "数据库备份")
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 数据库备份目录同步阶段已结束"})
 		if jobCtx.Err() != nil {
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] backup stopped after backups sync"})
@@ -248,7 +269,7 @@ func (s *Server) triggerBackup(trigger string) {
 			Mode:       modeLabel,
 			Stage:      "准备阶段",
 			RemotePath: remote,
-			Detail:     "未配置任何可备份目录，请先填写照片库或数据库备份目录",
+			Detail:     summarizeProgress("准备阶段") + "；未配置任何可备份目录，请先填写照片库或数据库备份目录",
 		})
 		return
 	}
@@ -260,7 +281,7 @@ func (s *Server) triggerBackup(trigger string) {
 		Mode:       modeLabel,
 		Stage:      "全部备份",
 		RemotePath: remote,
-		Detail:     "照片库与数据库备份阶段都已执行完成",
+		Detail:     summarizeProgress("") + "；照片库与数据库备份阶段都已执行完成",
 	})
 }
 
