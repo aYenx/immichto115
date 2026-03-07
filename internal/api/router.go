@@ -367,7 +367,7 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 			if isSetupWhitelisted(c.Request) {
 				c.Next()
 			} else {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "setup not complete"})
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "初始化配置尚未完成，请先完成设置向导"})
 			}
 			return
 		}
@@ -379,7 +379,7 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 		}
 
 		if strings.TrimSpace(cfg.Server.AuthUser) == "" || cfg.Server.AuthPasswordHash == "" {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "authentication is enabled but not configured correctly"})
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "访问保护已启用，但管理员账号配置不完整"})
 			return
 		}
 
