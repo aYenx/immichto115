@@ -142,7 +142,7 @@ const greeting = computed(() => {
 const latestLogText = computed(() => {
   for (let i = logs.value.length - 1; i >= 0; i -= 1) {
     const text = logs.value[i]!.text
-    if (!text.includes('connected to log stream')) {
+    if (!text.includes('connected to log stream') && !text.includes('连接到日志流')) {
       return text
     }
   }
