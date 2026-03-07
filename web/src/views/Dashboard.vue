@@ -278,6 +278,7 @@ const startBackup = async () => {
 
 const stopBackup = async () => {
   try {
+    lastStatusSnapshot.value = '[immichto115] 已发送停止指令，当前任务会在安全收尾后退出'
     const result = await api.stopBackup()
     await fetchStatus()
     showToast('warning', '已请求停止备份', result.message || '当前任务会在安全收尾后退出。')
