@@ -22,6 +22,14 @@ import (
 
 const maskedSecret = "********"
 
+func normalizeRemoteDir(remoteDir string) string {
+	cleaned := path.Clean("/" + strings.TrimSpace(remoteDir))
+	if cleaned == "." || cleaned == "" {
+		return "/"
+	}
+	return cleaned
+}
+
 // Server 持有所有 API 依赖。
 type Server struct {
 	Runner    *rclone.Runner
@@ -445,6 +453,8 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 			return
 		}
 	}
+
+	newCfg.Backup.RemoteDir = normalizeRemoteDir(newCfg.Backup.RemoteDir)
 
 	if err := s.Config.Update(newCfg); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
