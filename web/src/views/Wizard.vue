@@ -466,20 +466,14 @@ const loadRemoteDir = async (path: string) => {
   }
 }
 
-const enterLocalDir = (item: any) => {
-  const sep = currentLocalPath.value.includes('\\') ? '\\' : '/'
-  let newPath = currentLocalPath.value
-  if (newPath === '' || newPath.endsWith(sep)) {
-    newPath += item.Name
-  } else {
-    newPath += sep + item.Name
-  }
+const enterLocalDir = (item: DirEntry) => {
+  const newPath = item.Path || item.Name
   currentLocalPath.value = newPath
   loadLocalDir(newPath)
 }
 
-const enterRemoteDir = (item: any) => {
-  const newPath = currentRemotePath.value === '/' ? `/${item.Name}` : `${currentRemotePath.value}/${item.Name}`
+const enterRemoteDir = (item: DirEntry) => {
+  const newPath = normalizeRemotePath(item.Path || item.Name)
   loadRemoteDir(newPath)
 }
 
