@@ -56,7 +56,7 @@
         </div>
         <div class="stat-info">
           <span class="stat-label">初始化状态</span>
-          <span class="stat-value" style="font-size: 16px;">{{ systemStatus?.setup_complete ? '是' : '否' }}</span>
+          <span class="stat-value" style="font-size: 16px;">{{ systemStatus?.setup_complete ? '已完成' : '未完成' }}</span>
         </div>
       </div>
 
