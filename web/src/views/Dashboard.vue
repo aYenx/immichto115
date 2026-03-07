@@ -139,12 +139,20 @@ const greeting = computed(() => {
   return '晚上好'
 })
 
-const latestLogText = computed(() => logs.value.length > 0 ? logs.value[logs.value.length - 1]!.text : '')
+const latestLogText = computed(() => {
+  for (let i = logs.value.length - 1; i >= 0; i -= 1) {
+    const text = logs.value[i]!.text
+    if (!text.includes('connected to log stream')) {
+      return text
+    }
+  }
+  return ''
+})
 
 const derivePhaseFromText = (text: string): 'idle' | 'preparing' | 'library' | 'database' | 'stopping' | 'success' | 'partial' | 'failed' | null => {
   const lower = text.toLowerCase()
 
-  if (lower.includes('任务已被手动停止') || lower.includes('安全退出') || lower.includes('停止信号')) return 'stopping'
+  if (lower.includes('任务已被手动停止') || lower.includes('安全退出') || lower.includes('停止信号') || lower.includes('已发送停止指令')) return 'stopping'
   if (lower.includes('所有备份阶段执行完毕') || lower.includes('当前同步阶段已成功完成')) return 'success'
   if (lower.includes('数据库备份失败') || lower.includes('照片库备份失败') || lower.includes('生成 rclone 配置失败') || lower.includes('无法启动')) {
     const completedLibrary = logs.value.some(log => log.text.includes('照片库目录备份阶段已结束'))
@@ -211,9 +219,16 @@ const backupStatusText = computed(() => {
 const backupStatusDetail = computed(() => {
   const sourceText = latestStatusLogText.value || latestLogText.value
   const text = sourceText.replace(/^\[immichto115\]\s*/, '').trim()
-  if (!text) return ''
-  if (backupPhase.value === 'idle') return ''
-  return text
+  if (text) {
+    if (backupPhase.value === 'idle') return ''
+    return text
+  }
+
+  if (backupPhase.value === 'preparing') {
+    return '任务正在运行，等待实时日志同步...'
+  }
+
+  return ''
 })
 
 let ws: WebSocket | null = null
@@ -265,6 +280,8 @@ const openSettings = () => {
 }
 
 const startBackup = async () => {
+  const previousSnapshot = lastStatusSnapshot.value
+  const previousLogs = [...logs.value]
   try {
     lastStatusSnapshot.value = '[immichto115] 备份任务已启动，正在检查配置与目标路径...'
     logs.value = []
@@ -272,18 +289,25 @@ const startBackup = async () => {
     await fetchStatus()
     showToast('info', '备份已启动', result.message || '正在检查配置并准备同步任务，请留意实时日志。')
   } catch (err: any) {
+    lastStatusSnapshot.value = previousSnapshot
+    logs.value = previousLogs
     if (handleAuthFailure(err)) return
     showToast('error', '启动备份失败', getErrorMessage(err))
   }
 }
 
 const stopBackup = async () => {
+  const previousSnapshot = lastStatusSnapshot.value
+  const previousLogs = [...logs.value]
   try {
     lastStatusSnapshot.value = '[immichto115] 已发送停止指令，当前任务会在安全收尾后退出'
+    logs.value = []
     const result = await api.stopBackup()
     await fetchStatus()
     showToast('warning', '已请求停止备份', result.message || '当前任务会在安全收尾后退出。')
   } catch (err: any) {
+    lastStatusSnapshot.value = previousSnapshot
+    logs.value = previousLogs
     if (handleAuthFailure(err)) return
     showToast('error', '停止备份失败', getErrorMessage(err))
   }
