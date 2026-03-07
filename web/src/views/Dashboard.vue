@@ -140,13 +140,12 @@ const greeting = computed(() => {
 
 const latestLogText = computed(() => logs.value.length > 0 ? logs.value[logs.value.length - 1]!.text : '')
 
-const backupPhase = computed<'idle' | 'preparing' | 'library' | 'database' | 'stopping' | 'success' | 'partial' | 'failed'>(() => {
-  const text = latestLogText.value
+const derivePhaseFromText = (text: string): 'idle' | 'preparing' | 'library' | 'database' | 'stopping' | 'success' | 'partial' | 'failed' | null => {
   const lower = text.toLowerCase()
 
   if (lower.includes('任务已被手动停止') || lower.includes('安全退出') || lower.includes('停止信号')) return 'stopping'
   if (lower.includes('所有备份阶段执行完毕') || lower.includes('当前同步阶段已成功完成')) return 'success'
-  if (lower.includes('数据库备份失败') || lower.includes('照片库备份失败') || lower.includes('failed to generate rclone config') || lower.includes('无法启动')) {
+  if (lower.includes('数据库备份失败') || lower.includes('照片库备份失败') || lower.includes('生成 rclone 配置失败') || lower.includes('无法启动')) {
     const completedLibrary = logs.value.some(log => log.text.includes('照片库目录备份阶段已结束'))
     const completedDatabase = logs.value.some(log => log.text.includes('数据库备份目录同步阶段已结束'))
     if (completedLibrary || completedDatabase) return 'partial'
@@ -155,6 +154,22 @@ const backupPhase = computed<'idle' | 'preparing' | 'library' | 'database' | 'st
   if (lower.includes('开始备份数据库备份目录')) return 'database'
   if (lower.includes('开始备份照片库目录')) return 'library'
   if (lower.includes('备份任务已启动') || lower.includes('正在生成临时 rclone 配置') || lower.includes('开始执行同步任务')) return 'preparing'
+  return null
+}
+
+const latestStatusLogText = computed(() => {
+  for (let i = logs.value.length - 1; i >= 0; i -= 1) {
+    const text = logs.value[i]!.text
+    if (derivePhaseFromText(text) !== null) {
+      return text
+    }
+  }
+  return ''
+})
+
+const backupPhase = computed<'idle' | 'preparing' | 'library' | 'database' | 'stopping' | 'success' | 'partial' | 'failed'>(() => {
+  const phase = derivePhaseFromText(latestStatusLogText.value)
+  if (phase) return phase
   if (systemStatus.value?.backup_status === 'running') return 'preparing'
   return 'idle'
 })
@@ -193,7 +208,8 @@ const backupStatusText = computed(() => {
 })
 
 const backupStatusDetail = computed(() => {
-  const text = latestLogText.value.replace(/^\[immichto115\]\s*/, '').trim()
+  const sourceText = latestStatusLogText.value || latestLogText.value
+  const text = sourceText.replace(/^\[immichto115\]\s*/, '').trim()
   if (!text) return ''
   if (backupPhase.value === 'idle') return ''
   return text
