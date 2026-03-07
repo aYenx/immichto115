@@ -80,7 +80,7 @@
 
             <div v-if="items.length === 0" class="table-empty">
               <LucideFolderOpen :size="40" class="empty-icon" />
-              <span class="empty-title">暂无文件</span>
+              <span class="empty-title">当前目录为空</span>
               <span class="empty-desc">当前目录下没有文件或文件夹</span>
             </div>
           </template>
