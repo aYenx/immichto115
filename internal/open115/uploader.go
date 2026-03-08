@@ -16,6 +16,8 @@ import (
 )
 
 const preHashSize int64 = 128 * 1024
+const multipartThreshold int64 = 20 * 1024 * 1024
+const multipartChunkSize int64 = 20 * 1024 * 1024
 
 // Uploader 负责承载 Open115 上传相关能力。
 type Uploader struct {
@@ -180,12 +182,16 @@ func signValForRange(localPath string, signCheck string) (string, error) {
 	return strings.ToUpper(fmt.Sprintf("%x", h.Sum(nil))), nil
 }
 
-func putObject(localPath string, tokenResp *sdk.UploadGetTokenResp, initResp *sdk.UploadInitResp) error {
+func newOSSBucket(tokenResp *sdk.UploadGetTokenResp, initResp *sdk.UploadInitResp) (*oss.Bucket, error) {
 	ossClient, err := oss.New(tokenResp.Endpoint, tokenResp.AccessKeyId, tokenResp.AccessKeySecret, oss.SecurityToken(tokenResp.SecurityToken))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	bucket, err := ossClient.Bucket(initResp.Bucket)
+	return ossClient.Bucket(initResp.Bucket)
+}
+
+func putObject(ctx context.Context, localPath string, tokenResp *sdk.UploadGetTokenResp, initResp *sdk.UploadInitResp) error {
+	bucket, err := newOSSBucket(tokenResp, initResp)
 	if err != nil {
 		return err
 	}
@@ -194,10 +200,54 @@ func putObject(localPath string, tokenResp *sdk.UploadGetTokenResp, initResp *sd
 		return err
 	}
 	defer f.Close()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	return bucket.PutObject(initResp.Object, f,
 		oss.Callback(base64.StdEncoding.EncodeToString([]byte(initResp.Callback.Value.Callback))),
 		oss.CallbackVar(base64.StdEncoding.EncodeToString([]byte(initResp.Callback.Value.CallbackVar))),
 	)
+}
+
+func multipartUpload(ctx context.Context, localPath string, size int64, tokenResp *sdk.UploadGetTokenResp, initResp *sdk.UploadInitResp) error {
+	bucket, err := newOSSBucket(tokenResp, initResp)
+	if err != nil {
+		return err
+	}
+	file, err := os.Open(localPath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	imur, err := bucket.InitiateMultipartUpload(initResp.Object, oss.Sequential())
+	if err != nil {
+		return err
+	}
+	partNum := (size + multipartChunkSize - 1) / multipartChunkSize
+	parts := make([]oss.UploadPart, 0, partNum)
+	for i := int64(0); i < partNum; i++ {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		offset := i * multipartChunkSize
+		partSize := multipartChunkSize
+		if offset+partSize > size {
+			partSize = size - offset
+		}
+		section := io.NewSectionReader(file, offset, partSize)
+		part, err := bucket.UploadPart(imur, section, partSize, int(i+1))
+		if err != nil {
+			return err
+		}
+		parts = append(parts, part)
+	}
+	_, err = bucket.CompleteMultipartUpload(
+		imur,
+		parts,
+		oss.Callback(base64.StdEncoding.EncodeToString([]byte(initResp.Callback.Value.Callback))),
+		oss.CallbackVar(base64.StdEncoding.EncodeToString([]byte(initResp.Callback.Value.CallbackVar))),
+	)
+	return err
 }
 
 func (u *Uploader) ResolveDirID(ctx context.Context, remotePath string) (string, error) {
@@ -326,5 +376,8 @@ func (u *Uploader) UploadFile(ctx context.Context, localPath string, remotePath 
 	if err != nil {
 		return err
 	}
-	return putObject(localPath, tokenResp, initResp)
+	if size >= multipartThreshold {
+		return multipartUpload(ctx, localPath, size, tokenResp, initResp)
+	}
+	return putObject(ctx, localPath, tokenResp, initResp)
 }

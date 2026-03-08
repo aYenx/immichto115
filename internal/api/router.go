@@ -137,6 +137,19 @@ func (s *Server) triggerBackup(trigger string) {
 		defer func() { _ = runner.Close() }()
 		summary, err := runner.Run(jobCtx)
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				msg := "[immichto115] Open115 备份已手动停止"
+				s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: msg})
+				s.sendBackupNotify(cfg, notify.BackupNotification{
+					Success:    false,
+					Trigger:    trigger,
+					Mode:       modeLabel,
+					Stage:      "Open115 备份",
+					RemotePath: cfg.Backup.RemoteDir,
+					Detail:     "任务已被手动停止",
+				})
+				return
+			}
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] Open115 备份失败：" + err.Error()})
 			s.sendBackupNotify(cfg, notify.BackupNotification{
 				Success:    false,
