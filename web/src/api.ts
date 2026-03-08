@@ -75,6 +75,30 @@ export interface WebDAVTestResponse {
   message: string
 }
 
+export interface Open115AuthStartResponse {
+  uid: string
+  time: number
+  sign: string
+  qrcode: string
+  created_at: string
+}
+
+export interface Open115AuthStatusResponse {
+  status: number
+  message: string
+  authorized: boolean
+}
+
+export interface Open115AuthFinishResponse {
+  message: string
+  state: Open115Config
+}
+
+export interface Open115TestResponse {
+  success: boolean
+  message: string
+}
+
 export interface SystemStatus {
   rclone_installed: boolean
   rclone_version: string
@@ -190,6 +214,30 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     })
+  },
+
+  open115AuthStart: async (data: { client_id: string }): Promise<Open115AuthStartResponse> => {
+    return await requestJSON<Open115AuthStartResponse>(`${BASE_URL}/open115/auth/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+  },
+
+  open115AuthStatus: async (uid: string): Promise<Open115AuthStatusResponse> => {
+    return await requestJSON<Open115AuthStatusResponse>(`${BASE_URL}/open115/auth/status?uid=${encodeURIComponent(uid)}`)
+  },
+
+  open115AuthFinish: async (data: { uid: string }): Promise<Open115AuthFinishResponse> => {
+    return await requestJSON<Open115AuthFinishResponse>(`${BASE_URL}/open115/auth/finish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+  },
+
+  open115Test: async (): Promise<Open115TestResponse> => {
+    return await requestJSON<Open115TestResponse>(`${BASE_URL}/open115/test`, { method: 'POST' })
   },
 
   startBackup: async (): Promise<{ message: string }> => {

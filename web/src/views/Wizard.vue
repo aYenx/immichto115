@@ -7,16 +7,13 @@
       </div>
 
       <div class="step-list">
-        <!-- Step 1 Navigation -->
         <div class="step-item">
           <div :class="['step-icon', step > 1 ? 'completed' : step === 1 ? 'active' : 'pending']">
             <LucideCheck v-if="step > 1" :size="16" />
             <span v-else>1</span>
           </div>
-          <span :class="['step-text', step >= 1 ? 'active-text' : 'pending-text']">WebDAV 账号</span>
+          <span :class="['step-text', step >= 1 ? 'active-text' : 'pending-text']">接入方式</span>
         </div>
-
-        <!-- Step 2 Navigation -->
         <div class="step-item">
           <div :class="['step-icon', step > 2 ? 'completed' : step === 2 ? 'active' : 'pending']">
             <LucideCheck v-if="step > 2" :size="16" />
@@ -24,8 +21,6 @@
           </div>
           <span :class="['step-text', step >= 2 ? 'active-text' : 'pending-text']">备份路径</span>
         </div>
-
-        <!-- Step 3 Navigation -->
         <div class="step-item">
           <div :class="['step-icon', step > 3 ? 'completed' : step === 3 ? 'active' : 'pending']">
             <LucideCheck v-if="step > 3" :size="16" />
@@ -33,8 +28,6 @@
           </div>
           <span :class="['step-text', step >= 3 ? 'active-text' : 'pending-text']">加密配置</span>
         </div>
-
-        <!-- Step 4 Navigation -->
         <div class="step-item">
           <div :class="['step-icon', step > 4 ? 'completed' : step === 4 ? 'active' : 'pending']">
             <LucideCheck v-if="step > 4" :size="16" />
@@ -45,53 +38,104 @@
       </div>
     </div>
 
-    <!-- Right Content Area -->
     <div class="right-col">
-      <!-- Step 1: WebDAV Account -->
       <div v-if="step === 1" class="step-content">
         <div class="header-group">
-          <h2 class="content-title">WebDAV 账号</h2>
-          <p class="content-desc">连接您的配置以确保文件和数据库可以上传到云端</p>
+          <h2 class="content-title">接入方式</h2>
+          <p class="content-desc">选择继续使用 WebDAV，或切换到 115 Open 扫码授权。</p>
         </div>
 
         <div class="form-group">
-          <div class="input-field">
-            <span class="input-label">服务器地址</span>
-            <input class="input-control" type="text" v-model="config.webdav.url" placeholder="请输入 WebDAV 地址，例如 https://dav.example.com" />
+          <div class="radio-group provider-group">
+            <label class="radio-option" :class="{ active: config.provider === 'webdav' }">
+              <input type="radio" v-model="config.provider" value="webdav" />
+              <div class="radio-option-text">
+                <strong>WebDAV</strong>
+                <span>兼容现有 rclone + WebDAV 备份模式</span>
+              </div>
+            </label>
+            <label class="radio-option" :class="{ active: config.provider === 'open115' }">
+              <input type="radio" v-model="config.provider" value="open115" />
+              <div class="radio-option-text">
+                <strong>115 Open</strong>
+                <span>通过二维码授权，后续走 115 Open API</span>
+              </div>
+            </label>
           </div>
 
-          <div class="input-field">
-            <span class="input-label">用户名</span>
-            <input class="input-control" type="text" v-model="config.webdav.user" placeholder="请输入 WebDAV 用户名" />
-          </div>
+          <template v-if="config.provider === 'webdav'">
+            <div class="input-field">
+              <span class="input-label">服务器地址</span>
+              <input class="input-control" type="text" v-model="config.webdav.url" placeholder="请输入 WebDAV 地址，例如 https://dav.example.com" />
+            </div>
 
-          <div class="input-field">
-            <span class="input-label">密码或授权码</span>
-            <input class="input-control" type="password" v-model="config.webdav.password" placeholder="••••••••••••" autocomplete="off" />
-          </div>
+            <div class="input-field">
+              <span class="input-label">用户名</span>
+              <input class="input-control" type="text" v-model="config.webdav.user" placeholder="请输入 WebDAV 用户名" />
+            </div>
 
-          <div class="input-field">
-            <span class="input-label">远端目录</span>
-            <div class="path-input-row">
-              <input class="input-control" type="text" v-model="config.backup.remote_dir" placeholder="例如 /immich-backup（云端目录）" style="flex: 1;" />
-              <button class="btn secondary browse-btn" @click="openRemoteFolderPicker">
-                <LucideFolderOpen :size="16" />
-                WebDAV
+            <div class="input-field">
+              <span class="input-label">密码或授权码</span>
+              <input class="input-control" type="password" v-model="config.webdav.password" placeholder="••••••••••••" autocomplete="off" />
+            </div>
+
+            <div class="input-field">
+              <span class="input-label">远端目录</span>
+              <div class="path-input-row">
+                <input class="input-control" type="text" v-model="config.backup.remote_dir" placeholder="例如 /immich-backup（云端目录）" style="flex: 1;" />
+                <button class="btn secondary browse-btn" @click="openRemoteFolderPicker">
+                  <LucideFolderOpen :size="16" />
+                  WebDAV
+                </button>
+              </div>
+              <span class="input-hint">WebDAV 用户的根目录只是登录后的起点，真正备份会写入这里选择的云端目录。</span>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="input-field">
+              <span class="input-label">Client ID</span>
+              <input class="input-control" type="text" v-model="config.open115.client_id" placeholder="请输入 115 Open Client ID" />
+            </div>
+
+            <div class="input-field">
+              <span class="input-label">远端目录</span>
+              <input class="input-control" type="text" v-model="config.backup.remote_dir" placeholder="例如 /immich-backup（逻辑目录）" />
+              <span class="input-hint">115 Open 模式下先使用逻辑路径；远端浏览功能后续补齐。</span>
+            </div>
+
+            <div class="settings-inline-actions">
+              <button class="btn secondary" @click="startOpen115Auth" :disabled="isOpen115AuthLoading">
+                {{ isOpen115AuthLoading ? '生成中...' : '开始扫码授权' }}
+              </button>
+              <button class="btn secondary" @click="finishOpen115Auth" :disabled="isOpen115Finishing || !open115Auth.uid || open115Authorized !== true">
+                {{ isOpen115Finishing ? '确认中...' : '完成授权' }}
+              </button>
+              <button class="btn secondary" @click="testConnection" :disabled="isTesting">
+                {{ isTesting ? '测试中...' : '测试连接' }}
               </button>
             </div>
-            <span class="input-hint">WebDAV 用户的根目录只是登录后的起点，真正备份会写入这里选择的云端目录。</span>
-          </div>
+
+            <div v-if="open115Auth.qrcode" class="qrcode-panel">
+              <p class="input-label">扫码二维码</p>
+              <img :src="open115Auth.qrcode" alt="115 QR Code" class="qrcode-image" />
+              <p class="input-hint">请使用 115 App 扫码并确认授权。</p>
+              <p class="input-hint">当前状态：{{ open115AuthStatusText }}</p>
+            </div>
+
+            <div v-if="config.open115.user_id" class="input-hint success-hint">
+              当前已授权用户 ID：{{ config.open115.user_id }}
+            </div>
+          </template>
         </div>
 
         <div class="buttons">
           <span v-if="testResult" :style="{ color: testSuccess ? 'var(--text-primary)' : 'red', alignSelf: 'center', marginRight: '16px' }">{{ testResult }}</span>
           <span v-if="validationError && step === 1" class="validation-error">{{ validationError }}</span>
-          <button class="btn secondary" @click="testConnection" :disabled="isTesting">测试连接</button>
           <button class="btn primary" @click="nextStep">下一步</button>
         </div>
       </div>
-      
-      <!-- Step 2: Backup Path -->
+
       <div v-else-if="step === 2" class="step-content">
         <div class="header-group">
           <h2 class="content-title">备份路径</h2>
@@ -128,8 +172,7 @@
           <button class="btn primary" @click="nextStep">下一步</button>
         </div>
       </div>
-      
-      <!-- Step 3: Encryption Configuration -->
+
       <div v-else-if="step === 3" class="step-content">
         <div class="header-group">
           <h2 class="content-title">加密配置</h2>
@@ -164,8 +207,7 @@
           <button class="btn primary" @click="nextStep">下一步</button>
         </div>
       </div>
-      
-      <!-- Step 4: Cron Job Configuration -->
+
       <div v-else-if="step === 4" class="step-content">
         <div class="header-group">
           <h2 class="content-title">定时任务</h2>
@@ -211,145 +253,216 @@
           <button class="btn primary" @click="finishSetup" :disabled="isSaving">{{ isSaving ? '保存中...' : '完成并开始使用' }}</button>
         </div>
       </div>
-    <!-- Local Folder Picker Modal -->
-    <div v-if="showFolderPicker" class="modal-overlay" @click.self="showFolderPicker = false">
-      <div class="modal">
-        <div class="modal-header">
-          <h3 style="margin: 0; font-size: 16px;">选择本地文件夹</h3>
-          <button class="btn-icon" @click="showFolderPicker = false" style="background:none; border:none; cursor:pointer; color: var(--text-primary);"><LucideX :size="20" /></button>
-        </div>
-        <div class="modal-body">
-          <!-- Breadcrumb Navigation -->
-          <div class="breadcrumb-bar">
-            <div class="breadcrumb-inner">
-              <button class="breadcrumb-item" @click="loadLocalDir(isWindowsPath ? 'C:\\' : '/')">
-                <LucideHardDrive :size="14" />
-              </button>
-              <template v-for="(seg, idx) in pathSegments" :key="idx">
-                <span class="breadcrumb-sep">/</span>
-                <button class="breadcrumb-item" @click="navigateToSegment(idx)" :class="{ last: idx === pathSegments.length - 1 }">
-                  {{ seg }}
+
+      <div v-if="showFolderPicker" class="modal-overlay" @click.self="showFolderPicker = false">
+        <div class="modal">
+          <div class="modal-header">
+            <h3 style="margin: 0; font-size: 16px;">选择本地文件夹</h3>
+            <button class="btn-icon" @click="showFolderPicker = false" style="background:none; border:none; cursor:pointer; color: var(--text-primary);"><LucideX :size="20" /></button>
+          </div>
+          <div class="modal-body">
+            <div class="breadcrumb-bar">
+              <div class="breadcrumb-inner">
+                <button class="breadcrumb-item" @click="loadLocalDir(isWindowsPath ? 'C:\\' : '/')">
+                  <LucideHardDrive :size="14" />
                 </button>
-              </template>
-            </div>
-            <button class="breadcrumb-edit-btn" @click="showPathInput = !showPathInput" title="手动输入路径">
-              <LucidePencil :size="14" />
-            </button>
-          </div>
-          <!-- Optional manual path input -->
-          <input v-if="showPathInput" type="text" v-model="currentLocalPath" class="input-control path-manual-input" @keydown.enter="loadLocalDir(currentLocalPath); showPathInput = false" placeholder="输入路径后按 Enter" />
-          <!-- Folder List -->
-          <div class="folder-list">
-            <div v-if="isLoadingLocal" class="folder-empty">
-              <LucideLoader2 :size="20" class="spin-icon" />
-              <span>加载中...</span>
-            </div>
-            <div v-else class="folder-scroll">
-              <div v-if="canGoUp" class="folder-item go-up" @click="goUpLocalDir">
-                <LucideCornerLeftUp :size="16" />
-                <span>返回上级目录</span>
+                <template v-for="(seg, idx) in pathSegments" :key="idx">
+                  <span class="breadcrumb-sep">/</span>
+                  <button class="breadcrumb-item" @click="navigateToSegment(idx)" :class="{ last: idx === pathSegments.length - 1 }">
+                    {{ seg }}
+                  </button>
+                </template>
               </div>
-              <div v-for="item in localDirs" :key="item.Path" class="folder-item" @click="enterLocalDir(item)">
-                <LucideFolder :size="16" />
-                <span>{{ item.Name }}</span>
+              <button class="breadcrumb-edit-btn" @click="showPathInput = !showPathInput" title="手动输入路径">
+                <LucidePencil :size="14" />
+              </button>
+            </div>
+            <input v-if="showPathInput" type="text" v-model="currentLocalPath" class="input-control path-manual-input" @keydown.enter="loadLocalDir(currentLocalPath); showPathInput = false" placeholder="输入路径后按 Enter" />
+            <div class="folder-list">
+              <div v-if="isLoadingLocal" class="folder-empty">
+                <LucideLoader2 :size="20" class="spin-icon" />
+                <span>加载中...</span>
               </div>
-              <div v-if="localDirs.length === 0" class="folder-empty">
-                <LucideFolderOpen :size="20" />
-                <span>该目录下没有子文件夹</span>
+              <div v-else class="folder-scroll">
+                <div v-if="canGoUp" class="folder-item go-up" @click="goUpLocalDir">
+                  <LucideCornerLeftUp :size="16" />
+                  <span>返回上级目录</span>
+                </div>
+                <div v-for="item in localDirs" :key="item.Path" class="folder-item" @click="enterLocalDir(item)">
+                  <LucideFolder :size="16" />
+                  <span>{{ item.Name }}</span>
+                </div>
+                <div v-if="localDirs.length === 0" class="folder-empty">
+                  <LucideFolderOpen :size="20" />
+                  <span>该目录下没有子文件夹</span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-        <div class="modal-footer">
-          <div class="selected-path-preview" v-if="currentLocalPath">
-            <LucideCheck :size="14" />
-            <span>{{ currentLocalPath }}</span>
-          </div>
-          <div class="modal-footer-btns">
-            <button class="btn secondary" style="height: 36px; padding: 0 16px;" @click="showFolderPicker = false">取消</button>
-            <button class="btn primary" style="height: 36px; padding: 0 16px;" @click="confirmFolder">选择此目录</button>
+          <div class="modal-footer">
+            <div class="selected-path-preview" v-if="currentLocalPath">
+              <LucideCheck :size="14" />
+              <span>{{ currentLocalPath }}</span>
+            </div>
+            <div class="modal-footer-btns">
+              <button class="btn secondary" style="height: 36px; padding: 0 16px;" @click="showFolderPicker = false">取消</button>
+              <button class="btn primary" style="height: 36px; padding: 0 16px;" @click="confirmFolder">选择此目录</button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-    <div v-if="showRemoteFolderPicker" class="modal-overlay" @click.self="showRemoteFolderPicker = false">
-      <div class="modal">
-        <div class="modal-header">
-          <h3 style="margin: 0; font-size: 16px;">选择 WebDAV 备份目录</h3>
-          <button class="btn-icon" @click="showRemoteFolderPicker = false" style="background:none; border:none; cursor:pointer; color: var(--text-primary);"><LucideX :size="20" /></button>
-        </div>
-        <div class="modal-body">
-          <div class="breadcrumb-bar">
-            <div class="breadcrumb-inner">
-              <button class="breadcrumb-item" @click="loadRemoteDir('/')">
-                <LucideFolder :size="14" />
-              </button>
-              <template v-for="(seg, idx) in remotePathSegments" :key="idx">
-                <span class="breadcrumb-sep">/</span>
-                <button class="breadcrumb-item" @click="navigateToRemoteSegment(idx)" :class="{ last: idx === remotePathSegments.length - 1 }">
-                  {{ seg }}
+
+      <div v-if="showRemoteFolderPicker" class="modal-overlay" @click.self="showRemoteFolderPicker = false">
+        <div class="modal">
+          <div class="modal-header">
+            <h3 style="margin: 0; font-size: 16px;">选择 WebDAV 备份目录</h3>
+            <button class="btn-icon" @click="showRemoteFolderPicker = false" style="background:none; border:none; cursor:pointer; color: var(--text-primary);"><LucideX :size="20" /></button>
+          </div>
+          <div class="modal-body">
+            <div class="breadcrumb-bar">
+              <div class="breadcrumb-inner">
+                <button class="breadcrumb-item" @click="loadRemoteDir('/')">
+                  <LucideFolder :size="14" />
                 </button>
-              </template>
-            </div>
-          </div>
-          <div class="folder-list">
-            <div v-if="isLoadingRemote" class="folder-empty">
-              <LucideLoader2 :size="20" class="spin-icon" />
-              <span>加载中...</span>
-            </div>
-            <div v-else class="folder-scroll">
-              <div v-if="remoteCanGoUp" class="folder-item go-up" @click="goUpRemoteDir">
-                <LucideCornerLeftUp :size="16" />
-                <span>返回上级目录</span>
-              </div>
-              <div v-for="item in remoteDirs" :key="item.Path || item.Name" class="folder-item" @click="enterRemoteDir(item)">
-                <LucideFolder :size="16" />
-                <span>{{ item.Name }}</span>
-              </div>
-              <div v-if="remoteDirs.length === 0" class="folder-empty">
-                <LucideFolderOpen :size="20" />
-                <span>该目录下没有子文件夹</span>
+                <template v-for="(seg, idx) in remotePathSegments" :key="idx">
+                  <span class="breadcrumb-sep">/</span>
+                  <button class="breadcrumb-item" @click="navigateToRemoteSegment(idx)" :class="{ last: idx === remotePathSegments.length - 1 }">{{ seg }}</button>
+                </template>
               </div>
             </div>
+            <div class="folder-list">
+              <div v-if="isLoadingRemote" class="folder-empty">
+                <LucideLoader2 :size="20" class="spin-icon" />
+                <span>加载中...</span>
+              </div>
+              <div v-else class="folder-scroll">
+                <div v-if="remoteCanGoUp" class="folder-item go-up" @click="goUpRemoteDir">
+                  <LucideCornerLeftUp :size="16" />
+                  <span>返回上级目录</span>
+                </div>
+                <div v-for="item in remoteDirs" :key="item.Path || item.Name" class="folder-item" @click="enterRemoteDir(item)">
+                  <LucideFolder :size="16" />
+                  <span>{{ item.Name }}</span>
+                </div>
+                <div v-if="remoteDirs.length === 0" class="folder-empty">
+                  <LucideFolderOpen :size="20" />
+                  <span>该目录下没有子文件夹</span>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-        <div class="modal-footer">
-          <div class="selected-path-preview">
-            <LucideCheck :size="14" />
-            <span>{{ currentRemotePath }}</span>
-          </div>
-          <div class="modal-footer-btns">
-            <button class="btn secondary" style="height: 36px; padding: 0 16px;" @click="showRemoteFolderPicker = false">取消</button>
-            <button class="btn primary" style="height: 36px; padding: 0 16px;" @click="confirmRemoteFolder">选择此目录</button>
+          <div class="modal-footer">
+            <div class="selected-path-preview">
+              <LucideCheck :size="14" />
+              <span>{{ currentRemotePath }}</span>
+            </div>
+            <div class="modal-footer-btns">
+              <button class="btn secondary" style="height: 36px; padding: 0 16px;" @click="showRemoteFolderPicker = false">取消</button>
+              <button class="btn primary" style="height: 36px; padding: 0 16px;" @click="confirmRemoteFolder">选择此目录</button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
     </div>
   </div>
 </template>
+
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, reactive, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { LucideCheck, LucideFolder, LucideFolderOpen, LucideX, LucideHardDrive, LucidePencil, LucideLoader2, LucideCornerLeftUp } from 'lucide-vue-next'
-import { api, getErrorMessage, handleAuthFailure, type AppConfig, type DirEntry } from '../api'
+import { api, getErrorMessage, handleAuthFailure, type AppConfig, type DirEntry, type Open115AuthStartResponse } from '../api'
 import { showToast } from '../composables/toast'
 import { markSetupComplete } from '../router'
 import CronScheduler from '../components/CronScheduler.vue'
+import { createDefaultConfig } from '../configDefaults'
 
 const router = useRouter()
 const route = useRoute()
 const step = ref(1)
-
 const testResult = ref('')
 const testSuccess = ref(false)
 const isTesting = ref(false)
 const isSaving = ref(false)
 const isSettingsMode = computed(() => route.name === 'settings')
-
-import { createDefaultConfig } from '../configDefaults'
 const config = reactive<AppConfig>(createDefaultConfig())
 
+const isOpen115AuthLoading = ref(false)
+const isOpen115Finishing = ref(false)
+const open115Auth = reactive<Open115AuthStartResponse>({ uid: '', time: 0, sign: '', qrcode: '', created_at: '' })
+const open115AuthStatusText = ref('未开始')
+const open115Authorized = ref<boolean | null>(null)
+let authPollTimer: number | null = null
+
+const stopAuthPolling = () => {
+  if (authPollTimer != null) {
+    window.clearInterval(authPollTimer)
+    authPollTimer = null
+  }
+}
+
+const pollOpen115Auth = async () => {
+  if (!open115Auth.uid) return
+  try {
+    const status = await api.open115AuthStatus(open115Auth.uid)
+    open115AuthStatusText.value = status.message || `status=${status.status}`
+    open115Authorized.value = status.authorized
+    if (status.authorized) {
+      stopAuthPolling()
+      showToast('success', '扫码已确认', '已收到 115 授权确认，请点击“完成授权”。')
+    }
+  } catch (err: any) {
+    if (handleAuthFailure(err)) return
+    open115AuthStatusText.value = '状态查询失败：' + getErrorMessage(err)
+    stopAuthPolling()
+  }
+}
+
+const startOpen115Auth = async () => {
+  if (!config.open115.client_id.trim()) {
+    validationError.value = '请输入 115 Open Client ID'
+    return
+  }
+  validationError.value = ''
+  isOpen115AuthLoading.value = true
+  open115Authorized.value = null
+  open115AuthStatusText.value = '正在生成二维码...'
+  try {
+    const result = await api.open115AuthStart({ client_id: config.open115.client_id.trim() })
+    Object.assign(open115Auth, result)
+    open115AuthStatusText.value = '等待扫码'
+    stopAuthPolling()
+    authPollTimer = window.setInterval(() => {
+      void pollOpen115Auth()
+    }, 2500)
+  } catch (err: any) {
+    if (handleAuthFailure(err)) return
+    showToast('error', '启动扫码失败', getErrorMessage(err))
+    open115AuthStatusText.value = '启动失败'
+  } finally {
+    isOpen115AuthLoading.value = false
+  }
+}
+
+const finishOpen115Auth = async () => {
+  if (!open115Auth.uid) {
+    validationError.value = '请先开始扫码授权'
+    return
+  }
+  isOpen115Finishing.value = true
+  try {
+    const result = await api.open115AuthFinish({ uid: open115Auth.uid })
+    config.open115 = { ...config.open115, ...result.state }
+    open115Authorized.value = true
+    open115AuthStatusText.value = '授权完成'
+    showToast('success', '授权成功', '115 Open token 已保存，可以继续下一步。')
+  } catch (err: any) {
+    if (handleAuthFailure(err)) return
+    showToast('error', '完成授权失败', getErrorMessage(err))
+  } finally {
+    isOpen115Finishing.value = false
+  }
+}
 
 onMounted(async () => {
   try {
@@ -360,7 +473,8 @@ onMounted(async () => {
   }
 })
 
-// ============== Folder Picker ===============
+onUnmounted(() => stopAuthPolling())
+
 const showFolderPicker = ref(false)
 const showPathInput = ref(false)
 const targetLocalField = ref<'library_dir' | 'backups_dir'>('library_dir')
@@ -374,21 +488,17 @@ const isLoadingRemote = ref(false)
 const validationError = ref('')
 
 const isWindowsPath = computed(() => currentLocalPath.value.includes('\\'))
-
 const pathSegments = computed(() => {
   const p = currentLocalPath.value
   if (!p) return []
   const sep = p.includes('\\') ? '\\' : '/'
   return p.split(sep).filter(s => s !== '')
 })
-
 const canGoUp = computed(() => {
   const p = currentLocalPath.value
   return p !== '/' && p !== 'C:\\' && p !== ''
 })
-
 const remotePathSegments = computed(() => currentRemotePath.value.split('/').filter(s => s !== ''))
-
 const remoteCanGoUp = computed(() => currentRemotePath.value !== '/')
 
 const navigateToSegment = (idx: number) => {
@@ -396,13 +506,12 @@ const navigateToSegment = (idx: number) => {
   const segs = pathSegments.value.slice(0, idx + 1)
   let newPath = segs.join(sep)
   if (isWindowsPath.value) {
-    // e.g. "C:" + "\\" + "Users" ...
     if (!newPath.endsWith('\\')) newPath += '\\'
   } else {
     newPath = '/' + newPath
   }
   currentLocalPath.value = newPath
-  loadLocalDir(newPath)
+  void loadLocalDir(newPath)
 }
 
 const openFolderPicker = (field: 'library_dir' | 'backups_dir') => {
@@ -410,7 +519,7 @@ const openFolderPicker = (field: 'library_dir' | 'backups_dir') => {
   showFolderPicker.value = true
   showPathInput.value = false
   currentLocalPath.value = config.backup[field] || ''
-  loadLocalDir(currentLocalPath.value)
+  void loadLocalDir(currentLocalPath.value)
 }
 
 const normalizeRemotePath = (path: string) => {
@@ -421,13 +530,17 @@ const normalizeRemotePath = (path: string) => {
 }
 
 const openRemoteFolderPicker = () => {
+  if (config.provider !== 'webdav') {
+    showToast('info', '暂不支持', '115 Open 目录浏览后续补充，当前可直接填写逻辑目录。')
+    return
+  }
   if (!config.webdav.url.trim() || !config.webdav.user.trim() || !config.webdav.password.trim()) {
     showToast('warning', '请先完善连接信息', '需要先填写 WebDAV 地址、用户名和密码，才能浏览远端目录。')
     return
   }
   showRemoteFolderPicker.value = true
   currentRemotePath.value = normalizeRemotePath(config.backup.remote_dir)
-  loadRemoteDir(currentRemotePath.value)
+  void loadRemoteDir(currentRemotePath.value)
 }
 
 const loadLocalDir = async (path: string) => {
@@ -471,35 +584,28 @@ const resolveLocalEntryPath = (item: DirEntry) => {
   if (candidate.startsWith('/') || /^[A-Za-z]:[\\/]/.test(candidate)) {
     return candidate
   }
-
   const sep = currentLocalPath.value.includes('\\') ? '\\' : '/'
   let newPath = currentLocalPath.value
-  if (newPath === '' || newPath.endsWith(sep)) {
-    newPath += item.Name
-  } else {
-    newPath += sep + item.Name
-  }
+  if (newPath === '' || newPath.endsWith(sep)) newPath += item.Name
+  else newPath += sep + item.Name
   return newPath
 }
 
 const enterLocalDir = (item: DirEntry) => {
   const newPath = resolveLocalEntryPath(item)
   currentLocalPath.value = newPath
-  loadLocalDir(newPath)
+  void loadLocalDir(newPath)
 }
 
 const resolveRemoteEntryPath = (item: DirEntry) => {
   const candidate = normalizeRemotePath((item.Path || '').trim())
-  if (candidate !== '/' || (item.Path || '').trim().startsWith('/')) {
-    return candidate
-  }
-
+  if (candidate !== '/' || (item.Path || '').trim().startsWith('/')) return candidate
   return currentRemotePath.value === '/' ? `/${item.Name}` : `${currentRemotePath.value}/${item.Name}`
 }
 
 const enterRemoteDir = (item: DirEntry) => {
   const newPath = resolveRemoteEntryPath(item)
-  loadRemoteDir(newPath)
+  void loadRemoteDir(newPath)
 }
 
 const goUpLocalDir = () => {
@@ -510,7 +616,7 @@ const goUpLocalDir = () => {
   let newPath = parts.join(sep)
   if (newPath === '' || (sep === '\\' && !newPath.includes('\\'))) newPath += sep
   currentLocalPath.value = newPath
-  loadLocalDir(newPath)
+  void loadLocalDir(newPath)
 }
 
 const goUpRemoteDir = () => {
@@ -518,13 +624,13 @@ const goUpRemoteDir = () => {
   const parts = currentRemotePath.value.split('/').filter(Boolean)
   parts.pop()
   const newPath = parts.length === 0 ? '/' : `/${parts.join('/')}`
-  loadRemoteDir(newPath)
+  void loadRemoteDir(newPath)
 }
 
 const navigateToRemoteSegment = (idx: number) => {
   const segs = remotePathSegments.value.slice(0, idx + 1)
   const newPath = segs.length === 0 ? '/' : `/${segs.join('/')}`
-  loadRemoteDir(newPath)
+  void loadRemoteDir(newPath)
 }
 
 const confirmFolder = () => {
@@ -539,14 +645,17 @@ const confirmRemoteFolder = () => {
 
 const validateCurrentStep = (): string | null => {
   if (step.value === 1) {
-    if (!config.webdav.url.trim()) return '请输入 WebDAV 服务器地址'
-    if (!config.webdav.user.trim()) return '请输入用户名'
-    if (!config.webdav.password.trim()) return '请输入密码'
+    if (config.provider === 'webdav') {
+      if (!config.webdav.url.trim()) return '请输入 WebDAV 服务器地址'
+      if (!config.webdav.user.trim()) return '请输入用户名'
+      if (!config.webdav.password.trim()) return '请输入密码'
+    } else {
+      if (!config.open115.client_id.trim()) return '请输入 115 Open Client ID'
+      if (!config.open115.access_token.trim() || !config.open115.refresh_token.trim()) return '请先完成 115 Open 扫码授权'
+    }
     if (!config.backup.remote_dir.trim()) return '请选择远端备份目录'
   } else if (step.value === 2) {
-    if (!config.backup.library_dir.trim() && !config.backup.backups_dir.trim()) {
-      return '请至少填写一个备份路径（照片库或数据库备份路径）'
-    }
+    if (!config.backup.library_dir.trim() && !config.backup.backups_dir.trim()) return '请至少填写一个备份路径（照片库或数据库备份路径）'
   } else if (step.value === 3) {
     if (config.encrypt.enabled) {
       if (!config.encrypt.password.trim()) return '请输入加密密码'
@@ -576,19 +685,23 @@ const testConnection = async () => {
   testResult.value = '测试中...'
   testSuccess.value = false
   try {
-    const result = await api.testWebDAV({
-      url: config.webdav.url,
-      user: config.webdav.user,
-      password: config.webdav.password
-    })
-
-    if (!result.success) {
-      throw new Error(result.message || 'WebDAV 连接失败')
+    if (config.provider === 'webdav') {
+      const result = await api.testWebDAV({
+        url: config.webdav.url,
+        user: config.webdav.user,
+        password: config.webdav.password,
+      })
+      if (!result.success) throw new Error(result.message || 'WebDAV 连接失败')
+      testSuccess.value = true
+      testResult.value = '连接成功!'
+      showToast('success', '连接成功', 'WebDAV 已通过测试，可以继续下一步配置。')
+    } else {
+      const result = await api.open115Test()
+      if (!result.success) throw new Error(result.message || '115 Open 连接失败')
+      testSuccess.value = true
+      testResult.value = '连接成功!'
+      showToast('success', '连接成功', '115 Open Token 可用。')
     }
-
-    testSuccess.value = true
-    testResult.value = '连接成功!'
-    showToast('success', '连接成功', 'WebDAV 已通过测试，可以继续下一步配置。')
   } catch (err: any) {
     if (handleAuthFailure(err)) return
     testSuccess.value = false
@@ -608,9 +721,7 @@ const finishSetup = async () => {
       window.location.replace('/dashboard')
       return
     }
-    if (isSettingsMode.value) {
-      showToast('success', '保存成功', '配置已保存并立即生效。')
-    }
+    if (isSettingsMode.value) showToast('success', '保存成功', '配置已保存并立即生效。')
     router.replace('/dashboard')
   } catch (err: any) {
     if (handleAuthFailure(err)) return
@@ -622,539 +733,71 @@ const finishSetup = async () => {
 </script>
 
 <style scoped>
-.wizard-container {
-  display: flex;
-  width: 100vw;
-  height: 100vh;
-  justify-content: center;
-  align-items: center;
-  background-color: var(--bg-primary);
-  padding: 64px;
-  gap: 120px;
-}
-
-.wizard-container.settings-mode {
-  width: 100%;
-  height: 100%;
-}
-
-.left-col {
-  display: flex;
-  flex-direction: column;
-  gap: 64px;
-  width: 360px;
-}
-
-.title-box {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.main-title {
-  color: var(--text-primary);
-  font-family: var(--font-primary);
-  font-size: 40px;
-  font-weight: 900;
-  letter-spacing: -1px;
-}
-
-.sub-title {
-  color: var(--text-secondary);
-  font-family: var(--font-secondary);
-  font-size: 20px;
-  font-weight: 400;
-}
-
-.step-list {
-  display: flex;
-  flex-direction: column;
-  gap: 32px;
-}
-
-.step-item {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.step-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 16px;
-  font-family: var(--font-primary);
-  font-weight: 700;
-  font-size: 14px;
-}
-
-.step-icon.completed {
-  background-color: var(--text-primary);
-  color: var(--text-inverted);
-}
-
-.step-icon.active {
-  background-color: var(--bg-dark);
-  color: var(--text-inverted);
-}
-
-.step-icon.pending {
-  background-color: var(--bg-card);
-  color: var(--text-secondary);
-}
-
-.step-text {
-  font-family: var(--font-primary);
-  font-size: 20px;
-}
-
-.active-text {
-  color: var(--text-primary);
-  font-weight: 800;
-}
-
-.pending-text {
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.right-col {
-  display: flex;
-  flex-direction: column;
-  width: 600px;
-  padding: 48px;
-  background-color: var(--bg-card);
-  border-radius: 24px;
-  gap: 32px;
-}
-
-.step-content {
-  display: flex;
-  flex-direction: column;
-  gap: 32px;
-  width: 100%;
-}
-
-.header-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.content-title {
-  color: var(--text-primary);
-  font-family: var(--font-primary);
-  font-size: 32px;
-  font-weight: 800;
-}
-
-.content-desc {
-  color: var(--text-secondary);
-  font-family: var(--font-secondary);
-  font-size: 16px;
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.input-field {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.input-label {
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.input-hint {
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.input-control {
-  height: 48px;
-  border-radius: 12px;
-  border: 1px solid var(--border-strong);
-  background-color: transparent;
-  padding: 0 16px;
-  color: var(--text-primary);
-  font-size: 16px;
-}
-
-.input-control::placeholder {
-  color: var(--text-tertiary);
-}
-
-.input-with-action {
-  display: flex;
-  height: 48px;
-  border-radius: 12px;
-  border: 1px solid var(--border-strong);
-  padding: 0 8px 0 16px;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.input-value {
-  color: var(--text-primary);
-  font-size: 16px;
-}
-
-.action-btn-small {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 6px;
-  background-color: var(--bg-dark);
-  color: var(--text-inverted);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.toggle-field {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.toggle-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.toggle-title {
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.toggle-desc {
-  color: var(--text-secondary);
-  font-size: 12px;
-  max-width: 80%;
-}
-
-.switch {
-  width: 44px;
-  height: 24px;
-  background-color: var(--border-strong);
-  border-radius: 12px;
-  position: relative;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.switch.active {
-  background-color: var(--text-primary);
-}
-
-.thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 20px;
-  height: 20px;
-  background-color: var(--text-inverted);
-  border-radius: 10px;
-  transition: all 0.2s ease;
-}
-
-.switch.active .thumb {
-  left: 22px;
-}
-
-.visual-selector {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-
-.visual-box {
-  display: flex;
-  height: 48px;
-  width: 240px;
-  border-radius: 12px;
-  border: 1px solid var(--border-strong);
-  padding: 0 16px;
-  align-items: center;
-  justify-content: space-between;
-  color: var(--text-primary);
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.visual-box.small {
-  width: 160px;
-}
-
-.advanced-toggle {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding-top: 8px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.buttons {
-  display: flex;
-  gap: 16px;
-  padding-top: 16px;
-  justify-content: flex-end;
-}
-
-.buttons.space-between {
-  justify-content: space-between;
-}
-
-/* .btn base styles inherited from global style.css */
-.btn.primary {
-  height: 48px;
-  border-radius: 12px;
-  font-size: 16px;
-  padding: 0 32px;
-}
-
-.btn.secondary {
-  height: 48px;
-  border-radius: 12px;
-  font-size: 16px;
-  padding: 0 24px;
-}
-
-.validation-error {
-  color: #EF4444;
-  font-size: 13px;
-  font-weight: 500;
-  align-self: center;
-  margin-right: auto;
-}
-
-.modal-overlay {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal {
-  background: var(--bg-card);
-  width: 520px;
-  border-radius: 16px;
-  padding: 24px;
-  border: 1px solid var(--border-strong);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-  color: var(--text-primary);
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.modal-body {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.modal-footer {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.modal-footer-btns {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.selected-path-preview {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  background-color: var(--bg-primary);
-  border-radius: 8px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-family: 'Consolas', 'Monaco', monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Breadcrumb Bar */
-.breadcrumb-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background-color: var(--bg-primary);
-  border-radius: 10px;
-  border: 1px solid var(--border-strong);
-  min-height: 40px;
-}
-
-.breadcrumb-inner {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: 1;
-  overflow-x: auto;
-  white-space: nowrap;
-}
-
-.breadcrumb-inner::-webkit-scrollbar {
-  display: none;
-}
-
-.breadcrumb-item {
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 4px 8px;
-  border-radius: 6px;
-  transition: all 0.15s ease;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.breadcrumb-item:hover {
-  background-color: var(--border-subtle);
-  color: var(--text-primary);
-}
-
-.breadcrumb-item.last {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.breadcrumb-sep {
-  color: var(--text-tertiary);
-  font-size: 12px;
-  flex-shrink: 0;
-}
-
-.breadcrumb-edit-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  color: var(--text-tertiary);
-  transition: all 0.15s ease;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.breadcrumb-edit-btn:hover {
-  background-color: var(--border-subtle);
-  color: var(--text-primary);
-}
-
-.path-manual-input {
-  width: 100%;
-  height: 36px !important;
-  font-size: 13px !important;
-  font-family: 'Consolas', 'Monaco', monospace;
-}
-
-/* Folder List */
-.folder-list {
-  max-height: 280px;
-  overflow-y: auto;
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-}
-
-.folder-scroll {
-  display: flex;
-  flex-direction: column;
-}
-
-.folder-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  cursor: pointer;
-  color: var(--text-primary);
-  font-size: 14px;
-  transition: background-color 0.12s ease;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.folder-item:last-child {
-  border-bottom: none;
-}
-
-.folder-item:hover {
-  background-color: var(--border-subtle);
-}
-
-.folder-item.go-up {
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.folder-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 32px 16px;
-  color: var(--text-tertiary);
-  font-size: 14px;
-}
-
-/* Browse button in path input row */
-.path-input-row {
-  display: flex;
-  gap: 8px;
-}
-
-.browse-btn {
-  padding: 0 16px !important;
-  gap: 6px;
-  white-space: nowrap;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.spin-icon {
-  animation: spin 1s linear infinite;
+.wizard-container { display:flex; width:100vw; height:100vh; justify-content:center; align-items:center; background-color:var(--bg-primary); padding:64px; gap:120px; }
+.wizard-container.settings-mode { width:100%; height:100%; }
+.left-col { display:flex; flex-direction:column; gap:64px; width:360px; }
+.title-box { display:flex; flex-direction:column; gap:12px; }
+.main-title { color:var(--text-primary); font-family:var(--font-primary); font-size:40px; font-weight:900; letter-spacing:-1px; }
+.sub-title { color:var(--text-secondary); font-family:var(--font-secondary); font-size:20px; font-weight:400; }
+.step-list { display:flex; flex-direction:column; gap:32px; }
+.step-item { display:flex; align-items:center; gap:16px; }
+.step-icon { width:32px; height:32px; border-radius:999px; display:flex; align-items:center; justify-content:center; font-weight:700; }
+.step-icon.active { background:#111827; color:#fff; }
+.step-icon.completed { background:#16a34a; color:#fff; }
+.step-icon.pending { background:#e5e7eb; color:#6b7280; }
+.step-text { font-size:15px; }
+.active-text { color:var(--text-primary); }
+.pending-text { color:var(--text-secondary); }
+.right-col { width:min(780px, 100%); background:#fff; border-radius:24px; box-shadow:0 20px 50px rgba(0,0,0,.08); padding:40px; }
+.step-content { display:flex; flex-direction:column; gap:28px; }
+.header-group { display:flex; flex-direction:column; gap:8px; }
+.content-title { font-size:28px; font-weight:800; color:var(--text-primary); }
+.content-desc { color:var(--text-secondary); }
+.form-group { display:flex; flex-direction:column; gap:18px; }
+.input-field { display:flex; flex-direction:column; gap:8px; }
+.input-label { font-size:14px; font-weight:700; color:var(--text-primary); }
+.input-control { width:100%; border:1px solid #d1d5db; border-radius:14px; padding:12px 14px; font-size:14px; }
+.input-hint { color:var(--text-secondary); font-size:13px; }
+.success-hint { color:#15803d; }
+.path-input-row, .buttons, .buttons.space-between, .settings-inline-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.buttons.space-between { justify-content:space-between; }
+.btn { border:none; border-radius:14px; padding:12px 18px; cursor:pointer; font-weight:700; }
+.btn.primary { background:#111827; color:#fff; }
+.btn.secondary { background:#eef2ff; color:#111827; }
+.validation-error { color:#dc2626; font-size:14px; }
+.radio-group { display:flex; flex-direction:column; gap:12px; }
+.radio-option { display:flex; gap:12px; border:1px solid #d1d5db; border-radius:16px; padding:14px; cursor:pointer; }
+.radio-option.active { border-color:#111827; background:#f9fafb; }
+.radio-option-text { display:flex; flex-direction:column; gap:4px; }
+.toggle-field { display:flex; align-items:center; justify-content:space-between; gap:18px; border:1px solid #e5e7eb; border-radius:18px; padding:16px; cursor:pointer; }
+.toggle-info { display:flex; flex-direction:column; gap:6px; }
+.switch { width:52px; height:30px; border-radius:999px; background:#d1d5db; position:relative; transition:.2s; }
+.switch.active { background:#111827; }
+.thumb { width:24px; height:24px; border-radius:999px; background:#fff; position:absolute; top:3px; left:3px; transition:.2s; }
+.switch.active .thumb { left:25px; }
+.modal-overlay { position:fixed; inset:0; background:rgba(17,24,39,.45); display:flex; align-items:center; justify-content:center; padding:24px; z-index:50; }
+.modal { width:min(760px, 100%); background:#fff; border-radius:24px; overflow:hidden; }
+.modal-header, .modal-footer { padding:20px 24px; border-bottom:1px solid #f3f4f6; }
+.modal-footer { border-top:1px solid #f3f4f6; border-bottom:none; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.modal-body { padding:20px 24px; display:flex; flex-direction:column; gap:16px; }
+.btn-icon, .breadcrumb-edit-btn { border:none; background:none; cursor:pointer; }
+.breadcrumb-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; background:#f9fafb; border-radius:14px; }
+.breadcrumb-inner { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.breadcrumb-item { border:none; background:none; cursor:pointer; color:#111827; display:flex; align-items:center; gap:6px; }
+.breadcrumb-sep { color:#9ca3af; }
+.folder-list { min-height:240px; border:1px solid #e5e7eb; border-radius:16px; padding:12px; }
+.folder-scroll { display:flex; flex-direction:column; gap:8px; max-height:320px; overflow:auto; }
+.folder-item { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; cursor:pointer; }
+.folder-item:hover { background:#f3f4f6; }
+.folder-empty { min-height:200px; display:flex; align-items:center; justify-content:center; gap:10px; color:#6b7280; }
+.selected-path-preview { display:flex; align-items:center; gap:8px; color:#111827; font-size:14px; }
+.modal-footer-btns { display:flex; gap:10px; }
+.spin-icon { animation:spin 1s linear infinite; }
+.qrcode-panel { display:flex; flex-direction:column; gap:10px; align-items:flex-start; }
+.qrcode-image { width:220px; height:220px; object-fit:contain; border:1px solid #e5e7eb; border-radius:16px; padding:12px; background:#fff; }
+@keyframes spin { from { transform:rotate(0deg) } to { transform:rotate(360deg) } }
+@media (max-width: 1100px) {
+  .wizard-container { flex-direction:column; height:auto; min-height:100vh; gap:32px; padding:24px; }
+  .left-col, .right-col { width:100%; }
 }
 </style>
