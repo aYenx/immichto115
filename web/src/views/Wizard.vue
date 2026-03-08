@@ -116,6 +116,9 @@
             </div>
 
             <div class="settings-inline-actions">
+              <button class="btn secondary" @click="openOpenListTokenPage">
+                获取 Token（OpenList）
+              </button>
               <button class="btn secondary" @click="startOpen115Auth" :disabled="isOpen115AuthLoading || !config.open115.client_id.trim()">
                 {{ isOpen115AuthLoading ? '生成中...' : '开始扫码授权（可选）' }}
               </button>
@@ -129,6 +132,9 @@
               <button class="btn secondary" @click="testConnection" :disabled="isTesting">
                 {{ isTesting ? '测试中...' : '测试连接' }}
               </button>
+            </div>
+            <div class="input-hint">
+              推荐：点击“获取 Token（OpenList）”，在打开的页面里选择 <strong>115 Network Disk Verification</strong>，勾选 <strong>Use parameters provided by OpenList</strong>，留空 Client ID / Secret，然后把获取到的 access_token / refresh_token 粘贴回来。
             </div>
 
             <div v-if="open115Auth.qrcode" class="qrcode-panel">
@@ -408,6 +414,14 @@ const open115Auth = reactive<Open115AuthStartResponse>({ uid: '', time: 0, sign:
 const open115AuthStatusText = ref('未开始')
 const open115Authorized = ref<boolean | null>(null)
 let authPollTimer: number | null = null
+
+const OPENLIST_TOKEN_URL = 'https://api.oplist.org/'
+
+const openOpenListTokenPage = () => {
+  if (typeof window !== 'undefined') {
+    window.open(OPENLIST_TOKEN_URL, '_blank', 'noopener,noreferrer')
+  }
+}
 
 const stopAuthPolling = () => {
   if (authPollTimer != null) {
