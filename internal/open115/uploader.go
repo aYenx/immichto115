@@ -27,9 +27,17 @@ func NewUploader(service *Service) *Uploader {
 }
 
 func normalizeUploadPath(remotePath string) string {
-	cleaned := path.Clean("/" + strings.TrimSpace(strings.ReplaceAll(remotePath, "\\", "/")))
+	normalized := strings.TrimSpace(strings.ReplaceAll(remotePath, "\\", "/"))
+	if normalized == "" || normalized == "/" {
+		return "/"
+	}
+	trailingSlash := strings.HasSuffix(normalized, "/")
+	cleaned := path.Clean("/" + normalized)
 	if cleaned == "." || cleaned == "" {
 		return "/"
+	}
+	if trailingSlash && cleaned != "/" {
+		return cleaned + "/"
 	}
 	return cleaned
 }
@@ -201,7 +209,8 @@ func (u *Uploader) ResolveDirID(ctx context.Context, remotePath string) (string,
 		return u.rootID(), nil
 	}
 	currentID := u.rootID()
-	for _, seg := range strings.Split(strings.TrimPrefix(cleaned, "/"), "/") {
+	trimmed := strings.Trim(strings.TrimPrefix(cleaned, "/"), "/")
+	for _, seg := range strings.Split(trimmed, "/") {
 		seg = strings.TrimSpace(seg)
 		if seg == "" {
 			continue
@@ -222,7 +231,8 @@ func (u *Uploader) ListRemote(ctx context.Context, remotePath string) ([]RemoteE
 	if u == nil || u.service == nil {
 		return nil, fmt.Errorf("open115 uploader not initialized")
 	}
-	dirID, err := u.ResolveDirID(ctx, remotePath)
+	cleaned := normalizeUploadPath(remotePath)
+	dirID, err := u.ResolveDirID(ctx, cleaned)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +240,10 @@ func (u *Uploader) ListRemote(ctx context.Context, remotePath string) ([]RemoteE
 	if err != nil {
 		return nil, err
 	}
-	base := normalizeUploadPath(remotePath)
+	base := strings.TrimSuffix(cleaned, "/")
+	if base == "" {
+		base = "/"
+	}
 	result := make([]RemoteEntry, 0, len(items))
 	for _, item := range items {
 		p := path.Join(base, item.Fn)
