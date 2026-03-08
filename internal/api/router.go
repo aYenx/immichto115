@@ -151,6 +151,7 @@ func (s *Server) triggerBackup(trigger string) {
 		detail := "Open115 copy 增量备份执行完成"
 		if summary != nil {
 			detail = fmt.Sprintf("Open115 copy 增量备份执行完成；扫描 %d，上传 %d，跳过 %d", summary.Scanned, summary.Uploaded, summary.Skipped)
+			log.Printf("[backup] %s", detail)
 		}
 		s.sendBackupNotify(cfg, notify.BackupNotification{
 			Success:    true,
