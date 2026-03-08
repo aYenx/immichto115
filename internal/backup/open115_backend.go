@@ -50,7 +50,5 @@ func (b *Open115Backend) ListRemote(ctx context.Context, remotePath string) ([]R
 }
 
 func (b *Open115Backend) DeleteRemote(ctx context.Context, remotePath string) error {
-	_ = ctx
-	_ = remotePath
-	return nil
+	return b.uploader.DeleteRemote(ctx, remotePath)
 }
