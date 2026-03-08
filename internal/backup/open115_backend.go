@@ -31,9 +31,22 @@ func (b *Open115Backend) UploadFile(ctx context.Context, localPath string, remot
 }
 
 func (b *Open115Backend) ListRemote(ctx context.Context, remotePath string) ([]RemoteEntry, error) {
-	_ = ctx
-	_ = remotePath
-	return nil, nil
+	items, err := b.uploader.ListRemote(ctx, remotePath)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]RemoteEntry, 0, len(items))
+	for _, item := range items {
+		result = append(result, RemoteEntry{
+			ID:      item.ID,
+			Name:    item.Name,
+			Path:    item.Path,
+			IsDir:   item.IsDir,
+			Size:    item.Size,
+			ModTime: item.ModTime.Unix(),
+		})
+	}
+	return result, nil
 }
 
 func (b *Open115Backend) DeleteRemote(ctx context.Context, remotePath string) error {

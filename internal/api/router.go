@@ -465,6 +465,7 @@ func isSetupWhitelisted(r *http.Request) bool {
 		"/api/v1/open115/auth/status": {"GET"},
 		"/api/v1/open115/auth/finish": {"POST"},
 		"/api/v1/open115/test":       {"POST"},
+		"/api/v1/open115/ls":         {"GET"},
 	}
 	methods, ok := setupPaths[path]
 	if !ok {
@@ -517,6 +518,7 @@ func (s *Server) SetupRouter() *gin.Engine {
 		v1.GET("/open115/auth/status", s.handleOpen115AuthStatus)
 		v1.POST("/open115/auth/finish", s.handleOpen115AuthFinish)
 		v1.POST("/open115/test", s.handleOpen115Test)
+		v1.GET("/open115/ls", s.handleOpen115List)
 
 		// 备份控制
 		v1.POST("/backup/start", s.handleBackupStart)
@@ -897,6 +899,30 @@ func (s *Server) handleOpen115Test(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "115 Open 连接成功"})
+}
+
+func (s *Server) handleOpen115List(c *gin.Context) {
+	backend := backup.NewOpen115Backend(s.Open115)
+	remotePath := strings.TrimSpace(c.Query("path"))
+	if remotePath == "" {
+		remotePath = "/"
+	}
+	items, err := backend.ListRemote(c.Request.Context(), remotePath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	entries := make([]gin.H, 0, len(items))
+	for _, item := range items {
+		entries = append(entries, gin.H{
+			"Name":    item.Name,
+			"Path":    item.Path,
+			"IsDir":   item.IsDir,
+			"Size":    item.Size,
+			"ModTime": time.Unix(item.ModTime, 0).Format(time.RFC3339),
+		})
+	}
+	c.JSON(http.StatusOK, entries)
 }
 
 func (s *Server) handleBackupStop(c *gin.Context) {
