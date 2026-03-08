@@ -145,7 +145,7 @@
             </div>
 
             <div class="input-field">
-              <span class="input-label">Remote Dir</span>
+              <span class="input-label">远端目录</span>
               <div class="path-input-row">
                 <button class="btn secondary browse-btn" @click="openRemoteFolderPicker">
                   <LucideFolderOpen :size="16" />
