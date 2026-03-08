@@ -530,13 +530,16 @@ const normalizeRemotePath = (path: string) => {
 }
 
 const openRemoteFolderPicker = () => {
-  if (config.provider !== 'webdav') {
-    showToast('info', '暂不支持', '115 Open 目录浏览后续补充，当前可直接填写逻辑目录。')
-    return
-  }
-  if (!config.webdav.url.trim() || !config.webdav.user.trim() || !config.webdav.password.trim()) {
-    showToast('warning', '请先完善连接信息', '需要先填写 WebDAV 地址、用户名和密码，才能浏览远端目录。')
-    return
+  if (config.provider === 'webdav') {
+    if (!config.webdav.url.trim() || !config.webdav.user.trim() || !config.webdav.password.trim()) {
+      showToast('warning', '请先完善连接信息', '需要先填写 WebDAV 地址、用户名和密码，才能浏览远端目录。')
+      return
+    }
+  } else {
+    if (!config.open115.access_token.trim() || !config.open115.refresh_token.trim()) {
+      showToast('warning', '请先完成授权', '需要先完成 115 Open 扫码授权，才能浏览远端目录。')
+      return
+    }
   }
   showRemoteFolderPicker.value = true
   currentRemotePath.value = normalizeRemotePath(config.backup.remote_dir)
@@ -563,17 +566,19 @@ const loadRemoteDir = async (path: string) => {
   isLoadingRemote.value = true
   try {
     const normalizedPath = normalizeRemotePath(path)
-    const items = await api.listWebDAV({
-      url: config.webdav.url,
-      user: config.webdav.user,
-      password: config.webdav.password,
-      path: normalizedPath,
-    })
+    const items = config.provider === 'open115'
+      ? await api.open115List(normalizedPath)
+      : await api.listWebDAV({
+          url: config.webdav.url,
+          user: config.webdav.user,
+          password: config.webdav.password,
+          path: normalizedPath,
+        })
     currentRemotePath.value = normalizedPath
     remoteDirs.value = items.filter(i => i.IsDir).sort((a, b) => a.Name.localeCompare(b.Name))
   } catch (err: any) {
     if (handleAuthFailure(err)) return
-    showToast('error', '加载 WebDAV 目录失败', getErrorMessage(err))
+    showToast('error', config.provider === 'open115' ? '加载 115 目录失败' : '加载 WebDAV 目录失败', getErrorMessage(err))
   } finally {
     isLoadingRemote.value = false
   }

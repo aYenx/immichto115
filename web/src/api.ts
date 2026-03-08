@@ -241,6 +241,10 @@ export const api = {
     return await requestJSON<Open115TestResponse>(`${BASE_URL}/open115/test`, { method: 'POST' })
   },
 
+  open115List: async (path: string): Promise<DirEntry[]> => {
+    return await requestJSON<DirEntry[]>(`${BASE_URL}/open115/ls?path=${encodeURIComponent(path)}`)
+  },
+
   startBackup: async (): Promise<{ message: string }> => {
     return await requestJSON<{ message: string }>(`${BASE_URL}/backup/start`, { method: 'POST' })
   },
