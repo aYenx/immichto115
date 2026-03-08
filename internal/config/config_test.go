@@ -4,6 +4,7 @@ import "testing"
 
 func TestIsSetupComplete(t *testing.T) {
 	base := &Manager{cfg: &AppConfig{
+		Provider: "webdav",
 		WebDAV: WebDAVConfig{
 			URL:      "https://dav.example.com",
 			User:     "user",
@@ -57,4 +58,38 @@ func TestIsSetupComplete(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("open115 minimal config", func(t *testing.T) {
+		mgr := &Manager{cfg: &AppConfig{
+			Provider: "open115",
+			Open115: Open115Config{
+				AccessToken:  "access-token",
+				RefreshToken: "refresh-token",
+				RootID:       "0",
+			},
+			Backup: BackupConfig{
+				RemoteDir:  "/immich-backup",
+				LibraryDir: "/data/library",
+			},
+		}}
+		if !mgr.IsSetupComplete() {
+			t.Fatalf("expected open115 setup to be complete for valid minimal config")
+		}
+	})
+
+	t.Run("open115 missing refresh token", func(t *testing.T) {
+		mgr := &Manager{cfg: &AppConfig{
+			Provider: "open115",
+			Open115: Open115Config{
+				AccessToken: "access-token",
+			},
+			Backup: BackupConfig{
+				RemoteDir:  "/immich-backup",
+				LibraryDir: "/data/library",
+			},
+		}}
+		if mgr.IsSetupComplete() {
+			t.Fatalf("expected open115 setup to be incomplete when refresh token is missing")
+		}
+	})
 }

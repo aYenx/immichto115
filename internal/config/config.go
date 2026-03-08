@@ -14,12 +14,14 @@ import (
 
 // AppConfig 应用全局配置结构。
 type AppConfig struct {
-	Server  ServerConfig  `mapstructure:"server"  json:"server"  yaml:"server"`
-	WebDAV  WebDAVConfig  `mapstructure:"webdav"  json:"webdav"  yaml:"webdav"`
-	Backup  BackupConfig  `mapstructure:"backup"  json:"backup"  yaml:"backup"`
-	Encrypt EncryptConfig `mapstructure:"encrypt" json:"encrypt" yaml:"encrypt"`
-	Cron    CronConfig    `mapstructure:"cron"    json:"cron"    yaml:"cron"`
-	Notify  NotifyConfig  `mapstructure:"notify"  json:"notify"  yaml:"notify"`
+	Provider string         `mapstructure:"provider" json:"provider" yaml:"provider"`
+	Server   ServerConfig   `mapstructure:"server"   json:"server"   yaml:"server"`
+	WebDAV   WebDAVConfig   `mapstructure:"webdav"   json:"webdav"   yaml:"webdav"`
+	Open115  Open115Config  `mapstructure:"open115"  json:"open115"  yaml:"open115"`
+	Backup   BackupConfig   `mapstructure:"backup"   json:"backup"   yaml:"backup"`
+	Encrypt  EncryptConfig  `mapstructure:"encrypt"  json:"encrypt"  yaml:"encrypt"`
+	Cron     CronConfig     `mapstructure:"cron"     json:"cron"     yaml:"cron"`
+	Notify   NotifyConfig   `mapstructure:"notify"   json:"notify"   yaml:"notify"`
 }
 
 // ServerConfig 服务器配置。
@@ -37,6 +39,17 @@ type WebDAVConfig struct {
 	User     string `mapstructure:"user"     json:"user"     yaml:"user"`
 	Password string `mapstructure:"password" json:"password" yaml:"password"`
 	Vendor   string `mapstructure:"vendor"   json:"vendor"   yaml:"vendor"` // 如 "other"
+}
+
+// Open115Config 115 Open 接入配置。
+type Open115Config struct {
+	Enabled        bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+	ClientID       string `mapstructure:"client_id" json:"client_id" yaml:"client_id"`
+	AccessToken    string `mapstructure:"access_token" json:"access_token" yaml:"access_token"`
+	RefreshToken   string `mapstructure:"refresh_token" json:"refresh_token" yaml:"refresh_token"`
+	RootID         string `mapstructure:"root_id" json:"root_id" yaml:"root_id"`
+	TokenExpiresAt int64  `mapstructure:"token_expires_at" json:"token_expires_at" yaml:"token_expires_at"`
+	UserID         string `mapstructure:"user_id" json:"user_id" yaml:"user_id"`
 }
 
 // BackupConfig 备份源和目标配置。
@@ -89,9 +102,13 @@ func NewManager(configPath string) (*Manager, error) {
 	viper.SetConfigType("yaml")
 
 	// 设置默认值
+	viper.SetDefault("provider", "webdav")
 	viper.SetDefault("server.port", 8096)
 	viper.SetDefault("server.auth_enabled", false)
 	viper.SetDefault("webdav.vendor", "other")
+	viper.SetDefault("open115.enabled", false)
+	viper.SetDefault("open115.root_id", "0")
+	viper.SetDefault("open115.token_expires_at", 0)
 	viper.SetDefault("backup.remote_dir", "/immich-backup")
 	viper.SetDefault("backup.mode", "copy")
 	viper.SetDefault("cron.expression", "0 2 * * *")
@@ -136,6 +153,7 @@ func (m *Manager) Update(cfg AppConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	viper.Set("provider", cfg.Provider)
 	viper.Set("server.port", cfg.Server.Port)
 	viper.Set("server.auth_enabled", cfg.Server.AuthEnabled)
 	viper.Set("server.auth_user", cfg.Server.AuthUser)
@@ -145,6 +163,14 @@ func (m *Manager) Update(cfg AppConfig) error {
 	viper.Set("webdav.user", cfg.WebDAV.User)
 	viper.Set("webdav.password", cfg.WebDAV.Password)
 	viper.Set("webdav.vendor", cfg.WebDAV.Vendor)
+
+	viper.Set("open115.enabled", cfg.Open115.Enabled)
+	viper.Set("open115.client_id", cfg.Open115.ClientID)
+	viper.Set("open115.access_token", cfg.Open115.AccessToken)
+	viper.Set("open115.refresh_token", cfg.Open115.RefreshToken)
+	viper.Set("open115.root_id", cfg.Open115.RootID)
+	viper.Set("open115.token_expires_at", cfg.Open115.TokenExpiresAt)
+	viper.Set("open115.user_id", cfg.Open115.UserID)
 
 	viper.Set("backup.library_dir", cfg.Backup.LibraryDir)
 	viper.Set("backup.backups_dir", cfg.Backup.BackupsDir)
@@ -190,7 +216,20 @@ func (m *Manager) IsSetupComplete() bool {
 	defer m.mu.RUnlock()
 
 	cfg := m.cfg
-	if strings.TrimSpace(cfg.WebDAV.URL) == "" || strings.TrimSpace(cfg.WebDAV.User) == "" || strings.TrimSpace(cfg.WebDAV.Password) == "" {
+	provider := strings.TrimSpace(cfg.Provider)
+	if provider == "" {
+		provider = "webdav"
+	}
+
+	if provider == "webdav" {
+		if strings.TrimSpace(cfg.WebDAV.URL) == "" || strings.TrimSpace(cfg.WebDAV.User) == "" || strings.TrimSpace(cfg.WebDAV.Password) == "" {
+			return false
+		}
+	} else if provider == "open115" {
+		if strings.TrimSpace(cfg.Open115.AccessToken) == "" || strings.TrimSpace(cfg.Open115.RefreshToken) == "" {
+			return false
+		}
+	} else {
 		return false
 	}
 	if strings.TrimSpace(cfg.Backup.RemoteDir) == "" {
