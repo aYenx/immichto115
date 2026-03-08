@@ -130,38 +130,98 @@
         <div class="settings-modal-body">
           <template v-if="activeSection === 'webdav'">
             <div class="input-field">
-              <span class="input-label">服务器地址</span>
-              <input class="input-control" v-model="draftConfig.webdav.url" type="text" placeholder="请输入 WebDAV 地址，例如 https://dav.example.com" />
-            </div>
-
-            <div class="input-field">
-              <span class="input-label">用户名</span>
-              <input class="input-control" v-model="draftConfig.webdav.user" type="text" placeholder="请输入 WebDAV 用户名" />
-            </div>
-
-            <div class="input-field">
-              <span class="input-label">密码或授权码</span>
-              <input class="input-control" v-model="draftConfig.webdav.password" type="password" placeholder="••••••••••••" autocomplete="off" />
-            </div>
-
-            <div class="input-field">
-              <span class="input-label">远端目录</span>
-              <div class="path-input-row">
-                <button class="btn secondary browse-btn" @click="openRemoteFolderPicker">
-                  <LucideFolderOpen :size="16" />
-                  WebDAV
-                </button>
+              <span class="input-label">接入方式</span>
+              <div class="radio-group">
+                <label class="radio-option" :class="{ active: draftConfig.provider === 'webdav' }">
+                  <input type="radio" v-model="draftConfig.provider" value="webdav" />
+                  <div class="radio-option-text">
+                    <strong>WebDAV</strong>
+                    <span>继续使用现有的 WebDAV + rclone 模式</span>
+                  </div>
+                </label>
+                <label class="radio-option" :class="{ active: draftConfig.provider === 'open115' }">
+                  <input type="radio" v-model="draftConfig.provider" value="open115" />
+                  <div class="radio-option-text">
+                    <strong>115 Open</strong>
+                    <span>通过二维码授权，后续走 115 Open API</span>
+                  </div>
+                </label>
               </div>
-              <span class="input-hint">备份会写入这里指定的 WebDAV 目录。</span>
             </div>
+
+            <template v-if="draftConfig.provider === 'webdav'">
+              <div class="input-field">
+                <span class="input-label">服务器地址</span>
+                <input class="input-control" v-model="draftConfig.webdav.url" type="text" placeholder="请输入 WebDAV 地址，例如 https://dav.example.com" />
+              </div>
+
+              <div class="input-field">
+                <span class="input-label">用户名</span>
+                <input class="input-control" v-model="draftConfig.webdav.user" type="text" placeholder="请输入 WebDAV 用户名" />
+              </div>
+
+              <div class="input-field">
+                <span class="input-label">密码或授权码</span>
+                <input class="input-control" v-model="draftConfig.webdav.password" type="password" placeholder="••••••••••••" autocomplete="off" />
+              </div>
+
+              <div class="input-field">
+                <span class="input-label">远端目录</span>
+                <div class="path-input-row">
+                  <button class="btn secondary browse-btn" @click="openRemoteFolderPicker">
+                    <LucideFolderOpen :size="16" />
+                    WebDAV
+                  </button>
+                </div>
+                <span class="input-hint">备份会写入这里指定的 WebDAV 目录。</span>
+              </div>
+            </template>
+
+            <template v-else>
+              <div class="input-field">
+                <span class="input-label">Client ID</span>
+                <input class="input-control" v-model="draftConfig.open115.client_id" type="text" placeholder="请输入 115 Open Client ID" />
+              </div>
+
+              <div class="input-field">
+                <span class="input-label">远端目录</span>
+                <input class="input-control" v-model="draftConfig.backup.remote_dir" type="text" placeholder="例如 /immich-backup（逻辑目录）" />
+                <span class="input-hint">Open115 目录浏览后续补充，当前先直接填写逻辑目录。</span>
+              </div>
+
+              <div class="input-field" v-if="draftConfig.open115.user_id">
+                <span class="input-label">当前授权用户</span>
+                <span class="input-hint">User ID: {{ draftConfig.open115.user_id }}</span>
+              </div>
+            </template>
 
             <div class="settings-inline-actions">
-              <button class="btn secondary" @click="testConnection" :disabled="isTesting">
-                {{ isTesting ? '测试中...' : '测试连接' }}
-              </button>
+              <template v-if="draftConfig.provider === 'webdav'">
+                <button class="btn secondary" @click="testConnection" :disabled="isTesting">
+                  {{ isTesting ? '测试中...' : '测试连接' }}
+                </button>
+              </template>
+              <template v-else>
+                <button class="btn secondary" @click="startOpen115Auth" :disabled="isOpen115AuthLoading">
+                  {{ isOpen115AuthLoading ? '生成中...' : '开始扫码授权' }}
+                </button>
+                <button class="btn secondary" @click="finishOpen115Auth" :disabled="isOpen115Finishing || !open115Auth.uid || open115Authorized !== true">
+                  {{ isOpen115Finishing ? '确认中...' : '完成授权' }}
+                </button>
+                <button class="btn secondary" @click="testConnection" :disabled="isTesting">
+                  {{ isTesting ? '测试中...' : '测试连接' }}
+                </button>
+              </template>
               <span v-if="testResult" :class="['settings-inline-message', testSuccess ? 'success' : 'error']">
                 {{ testResult }}
               </span>
+            </div>
+
+            <div v-if="draftConfig.provider === 'open115' && open115Auth.qrcode" class="qrcode-panel">
+              <p class="input-label">扫码二维码</p>
+              <img :src="open115Auth.qrcode" alt="115 QR Code" class="qrcode-image" />
+              <p class="input-hint">请使用 115 App 扫码并确认授权。</p>
+              <p class="input-hint">当前状态：{{ open115AuthStatusText }}</p>
             </div>
           </template>
 
@@ -423,8 +483,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { api, getErrorMessage, handleAuthFailure, type AppConfig, type DirEntry, type SystemStatus } from '../api'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { api, getErrorMessage, handleAuthFailure, type AppConfig, type DirEntry, type SystemStatus, type Open115AuthStartResponse } from '../api'
 import CronScheduler from '../components/CronScheduler.vue'
 import { showToast } from '../composables/toast'
 import {
@@ -459,9 +519,15 @@ const isRefreshing = ref(false)
 const isSaving = ref(false)
 const isTesting = ref(false)
 const isTestingNotify = ref(false)
+const isOpen115AuthLoading = ref(false)
+const isOpen115Finishing = ref(false)
 const testResult = ref('')
 const testSuccess = ref(false)
 const validationError = ref('')
+const open115Auth = reactive<Open115AuthStartResponse>({ uid: '', time: 0, sign: '', qrcode: '', created_at: '' })
+const open115AuthStatusText = ref('未开始')
+const open115Authorized = ref<boolean | null>(null)
+let authPollTimer: number | null = null
 
 const sectionMeta: Record<SectionKey, { title: string; kicker: string; description: string }> = {
   webdav: {
@@ -505,9 +571,81 @@ const refreshConfig = async () => {
   }
 }
 
+const stopAuthPolling = () => {
+  if (authPollTimer != null) {
+    window.clearInterval(authPollTimer)
+    authPollTimer = null
+  }
+}
+
+const pollOpen115Auth = async () => {
+  if (!open115Auth.uid) return
+  try {
+    const status = await api.open115AuthStatus(open115Auth.uid)
+    open115AuthStatusText.value = status.message || `status=${status.status}`
+    open115Authorized.value = status.authorized
+    if (status.authorized) {
+      stopAuthPolling()
+      showToast('success', '扫码已确认', '已收到 115 授权确认，请点击“完成授权”。')
+    }
+  } catch (error) {
+    if (handleAuthFailure(error)) return
+    open115AuthStatusText.value = '状态查询失败：' + getErrorMessage(error)
+    stopAuthPolling()
+  }
+}
+
+const startOpen115Auth = async () => {
+  if (!draftConfig.value.open115.client_id.trim()) {
+    validationError.value = '请输入 115 Open Client ID'
+    return
+  }
+  validationError.value = ''
+  isOpen115AuthLoading.value = true
+  open115Authorized.value = null
+  open115AuthStatusText.value = '正在生成二维码...'
+  try {
+    const result = await api.open115AuthStart({ client_id: draftConfig.value.open115.client_id.trim() })
+    Object.assign(open115Auth, result)
+    open115AuthStatusText.value = '等待扫码'
+    stopAuthPolling()
+    authPollTimer = window.setInterval(() => {
+      void pollOpen115Auth()
+    }, 2500)
+  } catch (error) {
+    if (handleAuthFailure(error)) return
+    showToast('error', '启动扫码失败', getErrorMessage(error))
+    open115AuthStatusText.value = '启动失败'
+  } finally {
+    isOpen115AuthLoading.value = false
+  }
+}
+
+const finishOpen115Auth = async () => {
+  if (!open115Auth.uid) {
+    validationError.value = '请先开始扫码授权'
+    return
+  }
+  isOpen115Finishing.value = true
+  try {
+    const result = await api.open115AuthFinish({ uid: open115Auth.uid })
+    draftConfig.value.open115 = { ...draftConfig.value.open115, ...result.state }
+    open115Authorized.value = true
+    open115AuthStatusText.value = '授权完成'
+    showToast('success', '授权成功', '115 Open token 已保存，可以点击保存设置。')
+  } catch (error) {
+    if (handleAuthFailure(error)) return
+    showToast('error', '完成授权失败', getErrorMessage(error))
+  } finally {
+    isOpen115Finishing.value = false
+  }
+}
+
 onMounted(async () => {
   await refreshConfig()
 })
+
+onUnmounted(() => stopAuthPolling())
 
 const openSection = (section: SectionKey) => {
   activeSection.value = section
@@ -524,6 +662,11 @@ const closeSection = () => {
 }
 
 const webdavSummary = computed(() => {
+  if (config.provider === 'open115') {
+    const user = config.open115.user_id.trim() || '未授权'
+    const remoteDir = config.backup.remote_dir.trim() || '/'
+    return `115 Open · 用户 ${user} · 远端目录 ${remoteDir}`
+  }
   const url = config.webdav.url.trim() || '未配置服务器地址'
   const remoteDir = config.backup.remote_dir.trim() || '/'
   return `${url} · 远端目录 ${remoteDir}`
@@ -549,6 +692,10 @@ const automationSummary = computed(() => {
 const createCardState = (label: string, tone: 'healthy' | 'warning' | 'info' | 'neutral') => ({ label, tone })
 
 const webdavCardState = computed(() => {
+  if (config.provider === 'open115') {
+    if (!config.open115.access_token.trim() || !config.open115.refresh_token.trim()) return createCardState('待授权', 'warning')
+    return createCardState('Open115 已连接', 'healthy')
+  }
   if (!config.webdav.url.trim() || !config.webdav.user.trim()) return createCardState('待配置', 'warning')
   if (systemStatus.value && !systemStatus.value.rclone_installed) return createCardState('需修复', 'warning')
   return createCardState('已连接', 'healthy')
@@ -575,6 +722,12 @@ const automationCardState = computed(() => {
 
 const webdavSignals = computed(() => {
   const signals: string[] = []
+  if (config.provider === 'open115') {
+    signals.push(config.open115.client_id.trim() ? `Client ID: ${config.open115.client_id.trim()}` : '尚未填写 115 Open Client ID')
+    signals.push(config.open115.user_id.trim() ? `用户: ${config.open115.user_id.trim()}` : '尚未完成扫码授权')
+    signals.push(config.backup.remote_dir.trim() ? `写入目录: ${config.backup.remote_dir.trim()}` : '尚未选择远端目录')
+    return signals
+  }
   signals.push(config.webdav.url.trim() ? `地址: ${config.webdav.url.trim()}` : '尚未填写 WebDAV 地址')
   signals.push(config.backup.remote_dir.trim() ? `写入目录: ${config.backup.remote_dir.trim()}` : '尚未选择远端目录')
   signals.push(systemStatus.value?.rclone_installed ? 'Rclone 可用，可直接执行同步' : 'Rclone 未就绪，备份无法启动')
@@ -617,10 +770,18 @@ const automationSignals = computed(() => {
 
 const validateSection = (section: SectionKey): string | null => {
   if (section === 'webdav') {
-    if (!draftConfig.value.webdav.url.trim()) return '请输入 WebDAV 服务器地址'
-    if (!draftConfig.value.webdav.user.trim()) return '请输入 WebDAV 用户名'
-    if (!draftConfig.value.webdav.password.trim()) return '请输入 WebDAV 密码或授权码'
-    if (!draftConfig.value.backup.remote_dir.trim()) return '请选择远端备份目录'
+    if (draftConfig.value.provider === 'open115') {
+      if (!draftConfig.value.open115.client_id.trim()) return '请输入 115 Open Client ID'
+      if (!draftConfig.value.open115.access_token.trim() || !draftConfig.value.open115.refresh_token.trim()) {
+        return '请先完成 115 Open 扫码授权'
+      }
+      if (!draftConfig.value.backup.remote_dir.trim()) return '请填写远端目录'
+    } else {
+      if (!draftConfig.value.webdav.url.trim()) return '请输入 WebDAV 服务器地址'
+      if (!draftConfig.value.webdav.user.trim()) return '请输入 WebDAV 用户名'
+      if (!draftConfig.value.webdav.password.trim()) return '请输入 WebDAV 密码或授权码'
+      if (!draftConfig.value.backup.remote_dir.trim()) return '请选择远端备份目录'
+    }
   }
 
   if (section === 'backup') {
@@ -707,19 +868,29 @@ const testConnection = async () => {
   testResult.value = '测试中...'
   testSuccess.value = false
   try {
-    const result = await api.testWebDAV({
-      url: draftConfig.value.webdav.url,
-      user: draftConfig.value.webdav.user,
-      password: draftConfig.value.webdav.password,
-    })
+    if (draftConfig.value.provider === 'open115') {
+      const result = await api.open115Test()
+      if (!result.success) {
+        throw new Error(result.message || '115 Open 连接失败')
+      }
+      testSuccess.value = true
+      testResult.value = '连接成功!'
+      showToast('success', '连接成功', '115 Open Token 可用。')
+    } else {
+      const result = await api.testWebDAV({
+        url: draftConfig.value.webdav.url,
+        user: draftConfig.value.webdav.user,
+        password: draftConfig.value.webdav.password,
+      })
 
-    if (!result.success) {
-      throw new Error(result.message || 'WebDAV 连接失败')
+      if (!result.success) {
+        throw new Error(result.message || 'WebDAV 连接失败')
+      }
+
+      testSuccess.value = true
+      testResult.value = '连接成功!'
+      showToast('success', '连接成功', 'WebDAV 可用，可以正常浏览并写入远端目录。')
     }
-
-    testSuccess.value = true
-    testResult.value = '连接成功!'
-    showToast('success', '连接成功', 'WebDAV 可用，可以正常浏览并写入远端目录。')
   } catch (error) {
     if (handleAuthFailure(error)) return
     testSuccess.value = false
