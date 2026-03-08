@@ -57,7 +57,7 @@
         <div class="form-group">
           <div class="input-field">
             <span class="input-label">服务器地址</span>
-            <input class="input-control" type="text" v-model="config.webdav.url" placeholder="https://dav.example.com" />
+            <input class="input-control" type="text" v-model="config.webdav.url" placeholder="请输入 WebDAV 地址，例如 https://dav.example.com" />
           </div>
 
           <div class="input-field">

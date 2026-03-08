@@ -131,7 +131,7 @@
           <template v-if="activeSection === 'webdav'">
             <div class="input-field">
               <span class="input-label">服务器地址</span>
-              <input class="input-control" v-model="draftConfig.webdav.url" type="text" placeholder="https://dav.example.com" />
+              <input class="input-control" v-model="draftConfig.webdav.url" type="text" placeholder="请输入 WebDAV 地址，例如 https://dav.example.com" />
             </div>
 
             <div class="input-field">
