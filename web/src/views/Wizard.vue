@@ -71,7 +71,7 @@
           </div>
 
           <div class="input-field">
-            <span class="input-label">Remote Dir</span>
+            <span class="input-label">远端目录</span>
             <div class="path-input-row">
               <input class="input-control" type="text" v-model="config.backup.remote_dir" placeholder="例如 /immich-backup（云端目录）" style="flex: 1;" />
               <button class="btn secondary browse-btn" @click="openRemoteFolderPicker">
