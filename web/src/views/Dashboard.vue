@@ -12,7 +12,7 @@
       <div v-if="!wsConnected || !apiReachable" class="connection-banner">
         <LucideWifiOff :size="16" />
         <span v-if="!apiReachable">后端连接失败，请检查服务是否运行</span>
-        <span v-else>日志连接已断开，正在重连...</span>
+        <span v-else>日志连接已断开，5 秒后自动重连...</span>
       </div>
       <div class="actions">
         <button class="btn secondary" @click="openSettings">
