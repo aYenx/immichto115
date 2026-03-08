@@ -32,6 +32,7 @@ export interface BackupConfig {
   remote_dir: string
   mode: 'copy' | 'sync'
   manifest_path?: string
+  allow_remote_delete?: boolean
 }
 
 export interface EncryptConfig {
