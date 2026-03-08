@@ -392,7 +392,9 @@ const connectWebSocket = () => {
       const data = JSON.parse(ev.data)
       const now = new Date()
       const text = data.Text || data.text || ''
-      suppressStatusDetail.value = false
+      if (!isWelcomeLog(text)) {
+        suppressStatusDetail.value = false
+      }
       logs.value.push({
         id: ++logIdCounter,
         time: now.toLocaleTimeString(),
