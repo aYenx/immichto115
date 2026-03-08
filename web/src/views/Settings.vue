@@ -169,7 +169,7 @@
             <div class="input-field">
               <span class="input-label">照片库路径</span>
               <div class="path-input-row">
-                <input class="input-control" v-model="draftConfig.backup.library_dir" type="text" placeholder="/path/to/library" style="flex: 1" />
+                <input class="input-control" v-model="draftConfig.backup.library_dir" type="text" placeholder="例如 /data/library 或 D:\\Immich\\library" style="flex: 1" />
                 <button class="btn secondary browse-btn" @click="openFolderPicker('library_dir')">
                   <LucideFolderOpen :size="16" />
                   浏览
@@ -180,7 +180,7 @@
             <div class="input-field">
               <span class="input-label">数据库备份路径</span>
               <div class="path-input-row">
-                <input class="input-control" v-model="draftConfig.backup.backups_dir" type="text" placeholder="/path/to/db_dumps" style="flex: 1" />
+                <input class="input-control" v-model="draftConfig.backup.backups_dir" type="text" placeholder="例如 /data/backups 或 D:\\Immich\\backups" style="flex: 1" />
                 <button class="btn secondary browse-btn" @click="openFolderPicker('backups_dir')">
                   <LucideFolderOpen :size="16" />
                   浏览
