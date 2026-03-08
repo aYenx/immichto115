@@ -48,22 +48,43 @@ curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uni
 
 ## ✨ 功能特性
 
-|     | 功能              | 说明                                                                  |
-| :-: | ----------------- | --------------------------------------------------------------------- |
-| 🧙  | **Setup Wizard**  | 4 步引导式配置 — WebDAV 连接、备份路径、加密、定时任务                |
-| 📡  | **实时日志**      | WebSocket 推送 Rclone 备份输出，秒级可观测                            |
-| ⏰  | **定时备份**      | 可视化 Cron 调度器：每日 / 每周 / 间隔 / 自定义表达式                 |
-| 🔄  | **备份模式**      | 增量备份 (copy) 或镜像同步 (sync)，可在设置页自由切换                 |
-| 🔔  | **Bark 推送通知** | 备份成功/失败时推送通知到 iPhone，支持在设置页一键测试                |
-| 🔐  | **加密传输**      | 可选 Rclone Crypt，数据在云端始终加密存储                             |
-| 🛡️  | **访问保护**      | 可选管理员账号密码，保护 Web UI / API / WebSocket；更改后自动刷新验证 |
-| 📂  | **云端文件浏览**  | 浏览云端备份目录结构，查看文件列表与元数据（恢复功能开发中）          |
-| 📦  | **单文件部署**    | 前端资源 `go:embed` 内嵌，零外部依赖                                  |
-| 🏗️  | **多架构**        | `linux/amd64` + `linux/arm64` 双架构构建                              |
+|     | 功能                  | 说明                                                                                   |
+| :-: | --------------------- | -------------------------------------------------------------------------------------- |
+| 🧙  | **Setup Wizard**      | 4 步引导式配置，支持 `WebDAV` 或 `115 Open` 两种接入方式                               |
+| 🔑  | **115 Open 授权**     | 支持直接填写 `access_token / refresh_token`，也支持一键跳转 OpenList 获取 Token         |
+| 📡  | **实时日志**          | WebSocket 推送备份输出，秒级可观测                                                     |
+| ⏰  | **定时备份**          | 可视化 Cron 调度器：每日 / 每周 / 间隔 / 自定义表达式                                  |
+| 🔄  | **备份模式**          | 增量备份 (`copy`) 或镜像同步 (`sync`)，`sync` 支持远端删除保护开关                      |
+| 🧠  | **增量索引**          | 内置 `manifest.db`（SQLite）记录上传状态，二次备份可跳过未变化文件                      |
+| ☁️  | **115 Open 上传**     | 支持目录浏览、目录创建、单文件上传，以及大文件 multipart 上传路径                        |
+| 🔔  | **Bark 推送通知**     | 备份成功/失败时推送通知到 iPhone，支持在设置页一键测试                                 |
+| 🔐  | **加密传输**          | WebDAV 模式下可选 Rclone Crypt，数据在云端始终加密存储                                  |
+| 🛡️  | **访问保护**          | 可选管理员账号密码，保护 Web UI / API / WebSocket；更改后自动刷新验证                  |
+| 📂  | **云端文件浏览**      | 支持浏览云端备份目录结构；`115 Open` 模式可直接浏览 115 目录树                          |
+| 📦  | **单文件部署**        | 前端资源 `go:embed` 内嵌，零外部依赖                                                   |
+| 🏗️  | **多架构**            | `linux/amd64` + `linux/arm64` 双架构构建                                               |
 
 ---
 
 ## 🚀 快速开始
+
+### 接入方式说明
+
+ImmichTo115 现在支持两种后端接入方式：
+
+1. **WebDAV 模式**
+   - 兼容原有方案
+   - 通过 `rclone + WebDAV` 上传到 115
+   - 支持 Rclone Crypt 加密
+
+2. **115 Open 模式（推荐）**
+   - 直接使用 `access_token / refresh_token`
+   - 支持目录浏览、增量上传、manifest 索引
+   - 支持一键跳转到 OpenList Token 页面获取 token
+   - 不强依赖你自己申请 `client_id`
+
+> [!TIP]
+> 如果你使用 `115 Open`，推荐优先走 **token 模式**：先在界面里点击“获取 Token（OpenList）”，拿到 `access_token / refresh_token` 后直接填写。项目内扫码授权保留为可选能力。
 
 ### 方式一：Docker Compose（推荐）
 
@@ -148,6 +169,19 @@ docker compose up -d --build
 
 ## ✅ 运行自检
 
+### 已验证能力（2026-03-08）
+
+当前版本已完成并验证以下 Open115 能力：
+
+- 使用真实 `access_token / refresh_token` 测试连接成功
+- 浏览 115 根目录与子目录成功
+- 真实上传测试文件到 115 成功
+- `manifest.db` 成功生成并记录上传状态
+- 第二次备份无变化时可全部跳过
+- 修改单个文件后仅上传变更文件
+
+> 详细记录见：`docs/open115-verification-2026-03-08.md`
+
 下面这组命令可以快速确认“项目是否可编译/可运行”：
 
 ```bash
@@ -172,23 +206,70 @@ CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=local-test" -o immichto11
 
 ## ⚙️ 配置说明
 
+### 关键配置示例
+
+#### 方案 A：WebDAV
+
+```yaml
+provider: webdav
+
+webdav:
+  url: https://dav.example.com
+  user: your_user
+  password: your_password
+  vendor: other
+
+backup:
+  library_dir: /data/library
+  backups_dir: /data/backups
+  remote_dir: /immich-backup
+  mode: copy
+```
+
+#### 方案 B：115 Open（推荐）
+
+```yaml
+provider: open115
+
+open115:
+  enabled: true
+  access_token: your_access_token
+  refresh_token: your_refresh_token
+  root_id: "0"
+
+backup:
+  library_dir: /data/library
+  backups_dir: /data/backups
+  remote_dir: /immich-backup
+  mode: copy
+  manifest_path: ./config/manifest.db
+  allow_remote_delete: false
+```
+
+> [!WARNING]
+> `sync` 模式下如果你打开 `allow_remote_delete: true`，系统会尝试删除远端存在但本地已删除的文件。默认建议保持关闭，确认无误后再开启。
+
 > 配置文件路径优先级：`--config` 参数 > `IMMICHTO115_CONFIG` 环境变量 > `{可执行文件目录}/config/config.yaml`
 >
 > 可通过 `--port` 参数覆盖配置中的监听端口。运行 `immichto115 --version` 可查看当前版本号。
 
 首次访问 Web UI 会进入 **Setup Wizard**，配置完成后自动生成 `config.yaml`。
 
-| 配置项               | 说明                                                          | 必填 |
+| 配置项 | 说明 | 必填 |
 | -------------------- | ------------------------------------------------------------- | :--: |
-| WebDAV URL           | 115 网盘 WebDAV 地址                                          |  ✅  |
-| WebDAV 用户名 / 密码 | 登录凭据                                                      |  ✅  |
-| 照片库路径           | Immich 照片存储目录                                           |  ✅  |
-| 数据库备份路径       | Immich DB dump 目录                                           |  ✅  |
-| 备份模式             | `copy`（增量，默认）或 `sync`（镜像同步，会删除远端多余文件） |  ⬜  |
-| Cron 表达式          | 定时备份周期（如 `0 3 * * *` = 每天凌晨 3 点）                |  ✅  |
-| 加密密码             | Rclone Crypt 加密口令                                         |  ⬜  |
-| 管理员账号 / 密码    | HTTP Basic Auth 保护界面与 API                                |  ⬜  |
-| Bark 推送地址        | 如 `https://api.day.app/YOUR_KEY`，备份结果推送到 iPhone      |  ⬜  |
+| Provider | `webdav` 或 `open115` | ✅ |
+| WebDAV URL / 用户名 / 密码 | WebDAV 模式所需登录凭据 | WebDAV 模式必填 |
+| Open115 Access / Refresh Token | 115 Open 模式所需 token | Open115 模式必填 |
+| Open115 Root ID | Open115 根目录 ID，默认 `0` | ⬜ |
+| 照片库路径 | Immich 照片存储目录 | ✅ |
+| 数据库备份路径 | Immich DB dump 目录 | ✅ |
+| 备份模式 | `copy`（增量，默认）或 `sync`（镜像同步） | ⬜ |
+| Manifest Path | Open115 模式下本地增量索引库路径 | ⬜ |
+| Allow Remote Delete | `sync` 模式下是否允许删除远端多余文件 | ⬜ |
+| Cron 表达式 | 定时备份周期（如 `0 3 * * *` = 每天凌晨 3 点） | ✅ |
+| 加密密码 | WebDAV 模式下 Rclone Crypt 加密口令 | ⬜ |
+| 管理员账号 / 密码 | HTTP Basic Auth 保护界面与 API | ⬜ |
+| Bark 推送地址 | 如 `https://api.day.app/YOUR_KEY`，备份结果推送到 iPhone | ⬜ |
 
 > [!IMPORTANT]
 > 建议限制 `config/` 目录访问权限（`chmod 700`），避免敏感配置被其他用户读取。
@@ -224,21 +305,26 @@ curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uni
 <details>
 <summary>📡 完整 API 列表</summary>
 
-|  方法  | 路径                    | 说明                                    | 鉴权 |
-| :----: | ----------------------- | --------------------------------------- | :--: |
-| `GET`  | `/api/health`           | 健康检查                                |  ⬜  |
-| `GET`  | `/api/v1/ping`          | 连通测试                                |  ✅  |
-| `GET`  | `/api/v1/system/status` | 系统状态（Rclone 版本、备份状态、Cron） |  ✅  |
-| `GET`  | `/api/v1/config`        | 获取配置（敏感信息已脱敏）              |  ✅  |
-| `POST` | `/api/v1/config`        | 保存配置                                |  ✅  |
-| `POST` | `/api/v1/webdav/test`   | 测试 WebDAV 连接                        |  ✅  |
-| `POST` | `/api/v1/webdav/ls`     | 浏览 WebDAV 目录                        |  ✅  |
-| `POST` | `/api/v1/backup/start`  | 手动触发备份                            |  ✅  |
-| `POST` | `/api/v1/backup/stop`   | 停止备份                                |  ✅  |
-| `GET`  | `/api/v1/remote/ls`     | 浏览云端文件                            |  ✅  |
-| `GET`  | `/api/v1/local/ls`      | 浏览本地目录                            |  ✅  |
-| `POST` | `/api/v1/notify/test`   | 测试 Bark 推送通知                      |  ✅  |
-|  `WS`  | `/ws/logs`              | 实时备份日志流                          |  ✅  |
+|  方法  | 路径 | 说明 | 鉴权 |
+| :----: | ----------------------------- | --------------------------------------------- | :--: |
+| `GET`  | `/api/health`                 | 健康检查 | ⬜ |
+| `GET`  | `/api/v1/ping`                | 连通测试 | ✅ |
+| `GET`  | `/api/v1/system/status`       | 系统状态（Rclone 版本、备份状态、Cron） | ✅ |
+| `GET`  | `/api/v1/config`              | 获取配置（敏感信息已脱敏） | ✅ |
+| `POST` | `/api/v1/config`              | 保存配置 | ✅ |
+| `POST` | `/api/v1/webdav/test`         | 测试 WebDAV 连接 | ✅ |
+| `POST` | `/api/v1/webdav/ls`           | 浏览 WebDAV 目录 | ✅ |
+| `POST` | `/api/v1/open115/auth/start`  | 启动 115 Open 扫码授权 | ✅ |
+| `GET`  | `/api/v1/open115/auth/status` | 查询 115 Open 扫码状态 | ✅ |
+| `POST` | `/api/v1/open115/auth/finish` | 完成扫码授权并保存 token | ✅ |
+| `POST` | `/api/v1/open115/test`        | 测试 115 Open token 可用性 | ✅ |
+| `GET`  | `/api/v1/open115/ls`          | 浏览 115 Open 目录 | ✅ |
+| `POST` | `/api/v1/backup/start`        | 手动触发备份 | ✅ |
+| `POST` | `/api/v1/backup/stop`         | 停止备份 | ✅ |
+| `GET`  | `/api/v1/remote/ls`           | 浏览云端文件（旧接口） | ✅ |
+| `GET`  | `/api/v1/local/ls`            | 浏览本地目录 | ✅ |
+| `POST` | `/api/v1/notify/test`         | 测试 Bark 推送通知 | ✅ |
+|  `WS`  | `/ws/logs`                    | 实时备份日志流 | ✅ |
 
 > 开启访问保护后，除 `/api/health` 外均需管理员账号密码（HTTP Basic Auth）。
 
@@ -253,9 +339,12 @@ immichto115/
 ├── cmd/server/              # Go 入口
 ├── internal/
 │   ├── api/                 # Gin 路由 + WebSocket Hub
+│   ├── backup/              # 备份后端抽象 + Open115 copy/sync runner
 │   ├── config/              # Viper 配置管理 + rclone.conf 生成
 │   ├── cron/                # 定时任务调度 (robfig/cron)
+│   ├── manifest/            # Open115 增量索引（SQLite）
 │   ├── notify/              # Bark 推送通知
+│   ├── open115/             # 115 Open client / auth / upload / list / delete
 │   └── rclone/              # Rclone CLI 封装 (os/exec)
 ├── web/                     # Vue 3 前端
 │   └── src/
@@ -277,7 +366,7 @@ immichto115/
 <table>
 <tr><td><b>后端</b></td><td>Go 1.22 · Gin · Viper · gorilla/websocket · robfig/cron</td></tr>
 <tr><td><b>前端</b></td><td>Vue 3 · Vue Router · Lucide Icons · CSS Variables (Dark&nbsp;Mode)</td></tr>
-<tr><td><b>备份引擎</b></td><td>Rclone CLI（通过 os/exec 调用）</td></tr>
+<tr><td><b>备份引擎</b></td><td>WebDAV 模式：Rclone CLI；Open115 模式：115 Open API + 内置 manifest 增量索引</td></tr>
 <tr><td><b>构建</b></td><td>go:embed 内嵌前端 · 多阶段 Docker · GitHub Actions CI/CD</td></tr>
 </table>
 
