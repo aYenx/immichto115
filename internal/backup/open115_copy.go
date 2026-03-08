@@ -155,6 +155,40 @@ func (r *Open115CopyRunner) uploadChangedFiles(ctx context.Context, files []loca
 	return uploaded, skipped, nil
 }
 
+func (r *Open115CopyRunner) syncDeleteRemoved(ctx context.Context, currentFiles []localFile, remoteRoot string) error {
+	if r == nil || r.manifest == nil {
+		return nil
+	}
+	existing := make(map[string]struct{}, len(currentFiles))
+	for _, file := range currentFiles {
+		existing[file.RelPath] = struct{}{}
+	}
+	records, err := r.manifest.List(ctx, 100000, 0)
+	if err != nil {
+		return err
+	}
+	for _, rec := range records {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if rec.Deleted {
+			continue
+		}
+		if _, ok := existing[rec.Path]; ok {
+			continue
+		}
+		remotePath := path.Join(remoteRoot, rec.Path)
+		r.log("stdout", fmt.Sprintf("[immichto115] Open115 sync 删除远端文件: %s", remotePath))
+		if err := r.backend.DeleteRemote(ctx, remotePath); err != nil {
+			return err
+		}
+		if err := r.manifest.MarkDeleted(ctx, rec.Path, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *Open115CopyRunner) Run(ctx context.Context) (*Open115CopySummary, error) {
 	if r == nil || r.cfgMgr == nil || r.service == nil || r.backend == nil {
 		return nil, fmt.Errorf("open115 copy runner 未正确初始化")
@@ -193,6 +227,12 @@ func (r *Open115CopyRunner) Run(ctx context.Context) (*Open115CopySummary, error
 	uploaded, skipped, err := r.uploadChangedFiles(ctx, allFiles, remoteRoot)
 	if err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(cfg.Backup.Mode) == "sync" {
+		if err := r.syncDeleteRemoved(ctx, allFiles, remoteRoot); err != nil {
+			return nil, err
+		}
+		r.log("stdout", "[immichto115] Open115 sync 删除阶段执行完成")
 	}
 	r.log("stdout", fmt.Sprintf("[immichto115] Open115 copy 完成：上传 %d，跳过 %d", uploaded, skipped))
 	return &Open115CopySummary{Scanned: len(allFiles), Uploaded: uploaded, Skipped: skipped}, nil
