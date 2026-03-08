@@ -229,10 +229,14 @@ func (r *Open115CopyRunner) Run(ctx context.Context) (*Open115CopySummary, error
 		return nil, err
 	}
 	if strings.TrimSpace(cfg.Backup.Mode) == "sync" {
-		if err := r.syncDeleteRemoved(ctx, allFiles, remoteRoot); err != nil {
-			return nil, err
+		if !cfg.Backup.AllowRemoteDelete {
+			r.log("stderr", "[immichto115] 当前为 sync 模式，但未启用 allow_remote_delete，已跳过远端删除阶段")
+		} else {
+			if err := r.syncDeleteRemoved(ctx, allFiles, remoteRoot); err != nil {
+				return nil, err
+			}
+			r.log("stdout", "[immichto115] Open115 sync 删除阶段执行完成")
 		}
-		r.log("stdout", "[immichto115] Open115 sync 删除阶段执行完成")
 	}
 	r.log("stdout", fmt.Sprintf("[immichto115] Open115 copy 完成：上传 %d，跳过 %d", uploaded, skipped))
 	return &Open115CopySummary{Scanned: len(allFiles), Uploaded: uploaded, Skipped: skipped}, nil

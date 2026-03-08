@@ -54,11 +54,12 @@ type Open115Config struct {
 
 // BackupConfig 备份源和目标配置。
 type BackupConfig struct {
-	LibraryDir   string `mapstructure:"library_dir" json:"library_dir" yaml:"library_dir"`
-	BackupsDir   string `mapstructure:"backups_dir" json:"backups_dir" yaml:"backups_dir"`
-	RemoteDir    string `mapstructure:"remote_dir"  json:"remote_dir"  yaml:"remote_dir"`
-	Mode         string `mapstructure:"mode"        json:"mode"        yaml:"mode"` // "copy" (增量) 或 "sync" (镜像)
-	ManifestPath string `mapstructure:"manifest_path" json:"manifest_path" yaml:"manifest_path"`
+	LibraryDir        string `mapstructure:"library_dir" json:"library_dir" yaml:"library_dir"`
+	BackupsDir        string `mapstructure:"backups_dir" json:"backups_dir" yaml:"backups_dir"`
+	RemoteDir         string `mapstructure:"remote_dir"  json:"remote_dir"  yaml:"remote_dir"`
+	Mode              string `mapstructure:"mode"        json:"mode"        yaml:"mode"` // "copy" (增量) 或 "sync" (镜像)
+	ManifestPath      string `mapstructure:"manifest_path" json:"manifest_path" yaml:"manifest_path"`
+	AllowRemoteDelete bool   `mapstructure:"allow_remote_delete" json:"allow_remote_delete" yaml:"allow_remote_delete"`
 }
 
 // EncryptConfig Rclone Crypt 加密配置。
@@ -113,6 +114,7 @@ func NewManager(configPath string) (*Manager, error) {
 	viper.SetDefault("backup.remote_dir", "/immich-backup")
 	viper.SetDefault("backup.mode", "copy")
 	viper.SetDefault("backup.manifest_path", "")
+	viper.SetDefault("backup.allow_remote_delete", false)
 	viper.SetDefault("cron.expression", "0 2 * * *")
 	viper.SetDefault("cron.enabled", false)
 	viper.SetDefault("encrypt.enabled", false)
@@ -186,6 +188,7 @@ func (m *Manager) Update(cfg AppConfig) error {
 	viper.Set("backup.remote_dir", cfg.Backup.RemoteDir)
 	viper.Set("backup.mode", cfg.Backup.Mode)
 	viper.Set("backup.manifest_path", cfg.Backup.ManifestPath)
+	viper.Set("backup.allow_remote_delete", cfg.Backup.AllowRemoteDelete)
 
 	viper.Set("encrypt.enabled", cfg.Encrypt.Enabled)
 	viper.Set("encrypt.password", cfg.Encrypt.Password)

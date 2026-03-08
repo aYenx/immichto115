@@ -33,6 +33,7 @@ export function createDefaultConfig(): AppConfig {
       remote_dir: '/immich-backup',
       mode: 'copy' as 'copy' | 'sync',
       manifest_path: '',
+      allow_remote_delete: false,
     },
     encrypt: {
       enabled: false,
