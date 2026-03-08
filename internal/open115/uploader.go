@@ -44,10 +44,10 @@ func (u *Uploader) rootID() string {
 	return strings.TrimSpace(cfg.RootID)
 }
 
-func (u *Uploader) findDirByName(ctx context.Context, parentID, name string) (string, error) {
+func (u *Uploader) listDirItems(ctx context.Context, parentID string) ([]sdk.GetFilesResp_File, error) {
 	client, err := u.service.Client()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	resp, err := client.GetFiles(ctx, &sdk.GetFilesReq{
 		CID:     parentID,
@@ -58,9 +58,17 @@ func (u *Uploader) findDirByName(ctx context.Context, parentID, name string) (st
 		ShowDir: true,
 	})
 	if err != nil {
+		return nil, err
+	}
+	return resp.Data, nil
+}
+
+func (u *Uploader) findDirByName(ctx context.Context, parentID, name string) (string, error) {
+	items, err := u.listDirItems(ctx, parentID)
+	if err != nil {
 		return "", err
 	}
-	for _, item := range resp.Data {
+	for _, item := range items {
 		if item.Fc == "0" && item.Fn == name {
 			return item.Fid, nil
 		}
@@ -181,6 +189,61 @@ func putObject(localPath string, tokenResp *sdk.UploadGetTokenResp, initResp *sd
 		oss.Callback(base64.StdEncoding.EncodeToString([]byte(initResp.Callback.Value.Callback))),
 		oss.CallbackVar(base64.StdEncoding.EncodeToString([]byte(initResp.Callback.Value.CallbackVar))),
 	)
+}
+
+func (u *Uploader) ResolveDirID(ctx context.Context, remotePath string) (string, error) {
+	if u == nil || u.service == nil {
+		return "", fmt.Errorf("open115 uploader not initialized")
+	}
+	cleaned := normalizeUploadPath(remotePath)
+	if cleaned == "/" {
+		return u.rootID(), nil
+	}
+	currentID := u.rootID()
+	for _, seg := range strings.Split(strings.TrimPrefix(cleaned, "/"), "/") {
+		seg = strings.TrimSpace(seg)
+		if seg == "" {
+			continue
+		}
+		existingID, err := u.findDirByName(ctx, currentID, seg)
+		if err != nil {
+			return "", err
+		}
+		if existingID == "" {
+			return "", fmt.Errorf("目录不存在: %s", cleaned)
+		}
+		currentID = existingID
+	}
+	return currentID, nil
+}
+
+func (u *Uploader) ListRemote(ctx context.Context, remotePath string) ([]RemoteEntry, error) {
+	if u == nil || u.service == nil {
+		return nil, fmt.Errorf("open115 uploader not initialized")
+	}
+	dirID, err := u.ResolveDirID(ctx, remotePath)
+	if err != nil {
+		return nil, err
+	}
+	items, err := u.listDirItems(ctx, dirID)
+	if err != nil {
+		return nil, err
+	}
+	base := normalizeUploadPath(remotePath)
+	result := make([]RemoteEntry, 0, len(items))
+	for _, item := range items {
+		p := path.Join(base, item.Fn)
+		result = append(result, RemoteEntry{
+			ID:       item.Fid,
+			Name:     item.Fn,
+			Path:     p,
+			IsDir:    item.Fc == "0",
+			Size:     item.FS,
+			ModTime:  time.Unix(item.Upt, 0),
+			PickCode: item.Pc,
+		})
+	}
+	return result, nil
 }
 
 // UploadFile 上传一个本地文件到指定逻辑远端路径（包含文件名）。
