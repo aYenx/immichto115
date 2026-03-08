@@ -31,6 +31,7 @@ export interface BackupConfig {
   backups_dir: string
   remote_dir: string
   mode: 'copy' | 'sync'
+  manifest_path?: string
 }
 
 export interface EncryptConfig {
