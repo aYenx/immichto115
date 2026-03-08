@@ -17,6 +17,12 @@ import (
 
 type LogEmitter func(stream string, text string)
 
+type Open115CopySummary struct {
+	Scanned  int
+	Uploaded int
+	Skipped  int
+}
+
 type Open115CopyRunner struct {
 	cfgMgr   *config.Manager
 	service  *open115.Service
@@ -24,7 +30,6 @@ type Open115CopyRunner struct {
 	emit     LogEmitter
 	manifest manifest.Store
 }
-
 func defaultManifestPath(cfg config.AppConfig, cfgPath string) string {
 	if strings.TrimSpace(cfg.Backup.ManifestPath) != "" {
 		return strings.TrimSpace(cfg.Backup.ManifestPath)
@@ -150,13 +155,13 @@ func (r *Open115CopyRunner) uploadChangedFiles(ctx context.Context, files []loca
 	return uploaded, skipped, nil
 }
 
-func (r *Open115CopyRunner) Run(ctx context.Context) error {
+func (r *Open115CopyRunner) Run(ctx context.Context) (*Open115CopySummary, error) {
 	if r == nil || r.cfgMgr == nil || r.service == nil || r.backend == nil {
-		return fmt.Errorf("open115 copy runner 未正确初始化")
+		return nil, fmt.Errorf("open115 copy runner 未正确初始化")
 	}
 	cfg := r.cfgMgr.Get()
 	if err := r.backend.TestConnection(ctx); err != nil {
-		return err
+		return nil, err
 	}
 	remoteRoot := cfg.Backup.RemoteDir
 	if strings.TrimSpace(remoteRoot) == "" {
@@ -164,22 +169,22 @@ func (r *Open115CopyRunner) Run(ctx context.Context) error {
 	}
 	libraryFiles, err := scanLocalFiles(cfg.Backup.LibraryDir, "library")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	backupFiles, err := scanLocalFiles(cfg.Backup.BackupsDir, "backups")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	allFiles := append(libraryFiles, backupFiles...)
 	if len(allFiles) == 0 {
 		r.log("stderr", "[immichto115] Open115 未发现可备份文件")
-		return nil
+		return &Open115CopySummary{}, nil
 	}
 	r.log("stdout", fmt.Sprintf("[immichto115] Open115 增量扫描完成，共 %d 个文件待检查", len(allFiles)))
 	uploaded, skipped, err := r.uploadChangedFiles(ctx, allFiles, remoteRoot)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	r.log("stdout", fmt.Sprintf("[immichto115] Open115 copy 完成：上传 %d，跳过 %d", uploaded, skipped))
-	return nil
+	return &Open115CopySummary{Scanned: len(allFiles), Uploaded: uploaded, Skipped: skipped}, nil
 }
