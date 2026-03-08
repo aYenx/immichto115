@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aYenx/immichto115/internal/config"
 	sdk "github.com/xhofe/115-sdk-go"
 )
 
