@@ -7,6 +7,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/viper v1.19.0
+	github.com/xhofe/115-sdk-go v0.0.0-20250113061607-b25d3aafdf3a
 )
 
 require (

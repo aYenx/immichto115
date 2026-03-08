@@ -3,22 +3,20 @@ package open115
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/aYenx/immichto115/internal/config"
+	sdk "github.com/xhofe/115-sdk-go"
 )
 
-// Service 封装 115 Open 的配置读取与基础状态判断。
-//
-// 当前阶段先提供最小骨架，后续再接入 115-sdk-go：
-// - 初始化真实 client
-// - 自动刷新 token
-// - 回写 access/refresh token
-// - 用户信息查询 / 目录浏览 / 上传
-//
-// 这样做的目的是先把项目结构稳定下来，避免后面 API、授权、上传逻辑散落到 router 中。
+// Service 封装 115 Open 的配置读取、客户端初始化与 token 刷新回写。
 type Service struct {
 	cfg *config.Manager
+
+	mu     sync.Mutex
+	client *sdk.Client
 }
 
 func NewService(cfg *config.Manager) *Service {
@@ -50,15 +48,85 @@ func (s *Service) HasUsableToken() bool {
 	return strings.TrimSpace(cfg.AccessToken) != "" && strings.TrimSpace(cfg.RefreshToken) != ""
 }
 
-// TestConnection 先做最小校验：检查 token 是否已配置。
-// 后续接入 115-sdk-go 后，这里会改成实际调用用户信息接口验证 token 可用性。
-func (s *Service) TestConnection(ctx context.Context) error {
-	_ = ctx
+func (s *Service) buildClient() (*sdk.Client, error) {
+	if s == nil || s.cfg == nil {
+		return nil, fmt.Errorf("open115 service not initialized")
+	}
+	cfg := s.cfg.Get()
+	openCfg := cfg.Open115
+	if strings.TrimSpace(openCfg.AccessToken) == "" || strings.TrimSpace(openCfg.RefreshToken) == "" {
+		return nil, fmt.Errorf("open115 access_token / refresh_token 未配置")
+	}
+
+	client := sdk.New(
+		sdk.WithAccessToken(openCfg.AccessToken),
+		sdk.WithRefreshToken(openCfg.RefreshToken),
+		sdk.WithOnRefreshToken(func(accessToken string, refreshToken string) {
+			updated := s.cfg.Get()
+			updated.Open115.AccessToken = accessToken
+			updated.Open115.RefreshToken = refreshToken
+			updated.Open115.Enabled = true
+			if err := s.cfg.Update(updated); err != nil {
+				// 当前阶段保持静默失败，避免在 SDK 回调里引发连锁错误。
+				// 后续可替换为结构化日志。
+			}
+		}),
+	)
+
+	return client, nil
+}
+
+func (s *Service) Client() (*sdk.Client, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.client != nil {
+		return s.client, nil
+	}
+	client, err := s.buildClient()
+	if err != nil {
+		return nil, err
+	}
+	s.client = client
+	return s.client, nil
+}
+
+func (s *Service) ResetClient() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.client = nil
+}
+
+func (s *Service) updateUserState(userID int64) error {
 	if s == nil || s.cfg == nil {
 		return fmt.Errorf("open115 service not initialized")
 	}
-	if !s.HasUsableToken() {
-		return fmt.Errorf("open115 access_token / refresh_token 未配置")
+	updated := s.cfg.Get()
+	updated.Open115.Enabled = true
+	if userID > 0 {
+		updated.Open115.UserID = strconv.FormatInt(userID, 10)
+	}
+	return s.cfg.Update(updated)
+}
+
+// TestConnection 使用 115 用户信息接口验证当前 token 是否可用。
+func (s *Service) TestConnection(ctx context.Context) error {
+	if s == nil || s.cfg == nil {
+		return fmt.Errorf("open115 service not initialized")
+	}
+	client, err := s.Client()
+	if err != nil {
+		return err
+	}
+	user, err := client.UserInfo(ctx)
+	if err != nil {
+		return err
+	}
+	if user == nil || user.UserID <= 0 {
+		return fmt.Errorf("open115 用户信息为空")
+	}
+	if err := s.updateUserState(user.UserID); err != nil {
+		return err
 	}
 	return nil
 }
