@@ -6,6 +6,7 @@ import type { AppConfig } from './api'
  */
 export function createDefaultConfig(): AppConfig {
   return {
+    provider: 'webdav',
     server: {
       port: 8096,
       auth_enabled: false,
@@ -16,6 +17,15 @@ export function createDefaultConfig(): AppConfig {
       url: '',
       user: '',
       password: '',
+    },
+    open115: {
+      enabled: false,
+      client_id: '',
+      access_token: '',
+      refresh_token: '',
+      root_id: '0',
+      token_expires_at: 0,
+      user_id: '',
     },
     backup: {
       library_dir: '',

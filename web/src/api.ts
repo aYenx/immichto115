@@ -44,9 +44,21 @@ export interface CronConfig {
   expression: string
 }
 
+export interface Open115Config {
+  enabled: boolean
+  client_id: string
+  access_token: string
+  refresh_token: string
+  root_id: string
+  token_expires_at: number
+  user_id: string
+}
+
 export interface AppConfig {
+  provider: 'webdav' | 'open115'
   server: ServerConfig
   webdav: WebDAVConfig
+  open115: Open115Config
   backup: BackupConfig
   encrypt: EncryptConfig
   cron: CronConfig
