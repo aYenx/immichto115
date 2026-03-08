@@ -135,7 +135,8 @@ func (s *Server) triggerBackup(trigger string) {
 			return
 		}
 		defer func() { _ = runner.Close() }()
-		if err := runner.Run(jobCtx); err != nil {
+		summary, err := runner.Run(jobCtx)
+		if err != nil {
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] Open115 备份失败：" + err.Error()})
 			s.sendBackupNotify(cfg, notify.BackupNotification{
 				Success:    false,
@@ -147,13 +148,17 @@ func (s *Server) triggerBackup(trigger string) {
 			})
 			return
 		}
+		detail := "Open115 copy 增量备份执行完成"
+		if summary != nil {
+			detail = fmt.Sprintf("Open115 copy 增量备份执行完成；扫描 %d，上传 %d，跳过 %d", summary.Scanned, summary.Uploaded, summary.Skipped)
+		}
 		s.sendBackupNotify(cfg, notify.BackupNotification{
 			Success:    true,
 			Trigger:    trigger,
 			Mode:       modeLabel,
 			Stage:      "Open115 备份",
 			RemotePath: cfg.Backup.RemoteDir,
-			Detail:     "Open115 copy 增量备份执行完成",
+			Detail:     detail,
 		})
 		return
 	}
