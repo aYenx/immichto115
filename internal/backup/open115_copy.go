@@ -163,6 +163,9 @@ func (r *Open115CopyRunner) Run(ctx context.Context) (*Open115CopySummary, error
 	if err := r.backend.TestConnection(ctx); err != nil {
 		return nil, err
 	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	remoteRoot := cfg.Backup.RemoteDir
 	if strings.TrimSpace(remoteRoot) == "" {
 		remoteRoot = "/immich-backup"
@@ -171,9 +174,15 @@ func (r *Open115CopyRunner) Run(ctx context.Context) (*Open115CopySummary, error
 	if err != nil {
 		return nil, err
 	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	backupFiles, err := scanLocalFiles(cfg.Backup.BackupsDir, "backups")
 	if err != nil {
 		return nil, err
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 	allFiles := append(libraryFiles, backupFiles...)
 	if len(allFiles) == 0 {
