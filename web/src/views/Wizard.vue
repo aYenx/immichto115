@@ -94,22 +94,37 @@
 
           <template v-else>
             <div class="input-field">
-              <span class="input-label">Client ID</span>
-              <input class="input-control" type="text" v-model="config.open115.client_id" placeholder="请输入 115 Open Client ID" />
+              <span class="input-label">Access Token</span>
+              <input class="input-control" type="password" v-model="config.open115.access_token" placeholder="直接填写 OpenList / 115 Open 获取到的 access_token" autocomplete="off" />
+            </div>
+
+            <div class="input-field">
+              <span class="input-label">Refresh Token</span>
+              <input class="input-control" type="password" v-model="config.open115.refresh_token" placeholder="直接填写 OpenList / 115 Open 获取到的 refresh_token" autocomplete="off" />
+            </div>
+
+            <div class="input-field">
+              <span class="input-label">Client ID（可选）</span>
+              <input class="input-control" type="text" v-model="config.open115.client_id" placeholder="只有你要在项目内扫码授权时才需要填写" />
+              <span class="input-hint">推荐直接填写 token；如果你后面要走项目内扫码授权，再填写 client_id。</span>
             </div>
 
             <div class="input-field">
               <span class="input-label">远端目录</span>
               <input class="input-control" type="text" v-model="config.backup.remote_dir" placeholder="例如 /immich-backup（逻辑目录）" />
-              <span class="input-hint">115 Open 模式下先使用逻辑路径；远端浏览功能后续补齐。</span>
+              <span class="input-hint">115 Open 模式下可直接手填，也可以点击下方按钮浏览目录。</span>
             </div>
 
             <div class="settings-inline-actions">
-              <button class="btn secondary" @click="startOpen115Auth" :disabled="isOpen115AuthLoading">
-                {{ isOpen115AuthLoading ? '生成中...' : '开始扫码授权' }}
+              <button class="btn secondary" @click="startOpen115Auth" :disabled="isOpen115AuthLoading || !config.open115.client_id.trim()">
+                {{ isOpen115AuthLoading ? '生成中...' : '开始扫码授权（可选）' }}
               </button>
               <button class="btn secondary" @click="finishOpen115Auth" :disabled="isOpen115Finishing || !open115Auth.uid || open115Authorized !== true">
                 {{ isOpen115Finishing ? '确认中...' : '完成授权' }}
+              </button>
+              <button class="btn secondary browse-btn" @click="openRemoteFolderPicker">
+                <LucideFolderOpen :size="16" />
+                选择 115 目录
               </button>
               <button class="btn secondary" @click="testConnection" :disabled="isTesting">
                 {{ isTesting ? '测试中...' : '测试连接' }}
@@ -655,8 +670,9 @@ const validateCurrentStep = (): string | null => {
       if (!config.webdav.user.trim()) return '请输入用户名'
       if (!config.webdav.password.trim()) return '请输入密码'
     } else {
-      if (!config.open115.client_id.trim()) return '请输入 115 Open Client ID'
-      if (!config.open115.access_token.trim() || !config.open115.refresh_token.trim()) return '请先完成 115 Open 扫码授权'
+      if (!config.open115.access_token.trim() || !config.open115.refresh_token.trim()) {
+        return '请填写 access_token 和 refresh_token，或先完成扫码授权'
+      }
     }
     if (!config.backup.remote_dir.trim()) return '请选择远端备份目录'
   } else if (step.value === 2) {
