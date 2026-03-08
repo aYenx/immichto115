@@ -62,7 +62,7 @@
 
           <div class="input-field">
             <span class="input-label">用户名</span>
-            <input class="input-control" type="text" v-model="config.webdav.user" placeholder="admin" />
+            <input class="input-control" type="text" v-model="config.webdav.user" placeholder="请输入 WebDAV 用户名" />
           </div>
 
           <div class="input-field">
@@ -185,7 +185,7 @@
 
           <div v-if="config.server.auth_enabled" class="input-field">
             <span class="input-label">管理员用户名</span>
-            <input class="input-control" type="text" v-model="config.server.auth_user" placeholder="admin" />
+            <input class="input-control" type="text" v-model="config.server.auth_user" placeholder="例如：admin" />
           </div>
 
           <div v-if="config.server.auth_enabled" class="input-field">
