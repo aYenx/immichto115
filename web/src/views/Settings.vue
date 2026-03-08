@@ -212,6 +212,9 @@
                 </button>
               </template>
               <template v-else>
+                <button class="btn secondary" @click="openOpenListTokenPage">
+                  获取 Token（OpenList）
+                </button>
                 <button class="btn secondary" @click="startOpen115Auth" :disabled="isOpen115AuthLoading || !draftConfig.open115.client_id.trim()">
                   {{ isOpen115AuthLoading ? '生成中...' : '开始扫码授权（可选）' }}
                 </button>
@@ -582,6 +585,14 @@ const refreshConfig = async () => {
     showToast('error', '刷新失败', getErrorMessage(error))
   } finally {
     isRefreshing.value = false
+  }
+}
+
+const OPENLIST_TOKEN_URL = 'https://api.oplist.org/'
+
+const openOpenListTokenPage = () => {
+  if (typeof window !== 'undefined') {
+    window.open(OPENLIST_TOKEN_URL, '_blank', 'noopener,noreferrer')
   }
 }
 
