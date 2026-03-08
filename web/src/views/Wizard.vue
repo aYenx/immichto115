@@ -73,7 +73,7 @@
           <div class="input-field">
             <span class="input-label">Remote Dir</span>
             <div class="path-input-row">
-              <input class="input-control" type="text" v-model="config.backup.remote_dir" placeholder="/immich-backup" style="flex: 1;" />
+              <input class="input-control" type="text" v-model="config.backup.remote_dir" placeholder="例如 /immich-backup（云端目录）" style="flex: 1;" />
               <button class="btn secondary browse-btn" @click="openRemoteFolderPicker">
                 <LucideFolderOpen :size="16" />
                 WebDAV
