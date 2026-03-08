@@ -604,7 +604,7 @@ const encryptSignals = computed(() => {
 const automationSignals = computed(() => {
   const signals: string[] = []
   signals.push(config.cron.enabled ? `自动备份: ${config.cron.expression}` : '自动备份当前关闭')
-  signals.push(config.server.auth_enabled ? `访问保护: ${config.server.auth_user || 'admin'}` : '访问保护未开启')
+  signals.push(config.server.auth_enabled ? `访问保护: ${config.server.auth_user || '已启用（默认账号）'}` : '访问保护未开启')
   if (systemStatus.value?.backup_status === 'running') {
     signals.push('当前有备份任务在运行，修改配置后建议下次任务生效')
   } else if (systemStatus.value?.next_run) {
