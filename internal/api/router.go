@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aYenx/immichto115/internal/backup"
+	"github.com/aYenx/immichto115/internal/backup"
 	"github.com/aYenx/immichto115/internal/config"
 	appCron "github.com/aYenx/immichto115/internal/cron"
 	"github.com/aYenx/immichto115/internal/notify"
@@ -118,6 +120,44 @@ func (s *Server) triggerBackup(trigger string) {
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 备份任务已启动，正在检查配置与目标路径..."})
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 触发方式: " + trigger})
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 备份模式: " + modeLabel})
+
+	provider := strings.TrimSpace(cfg.Provider)
+	if provider == "" {
+		provider = "webdav"
+	}
+	if provider == "open115" {
+		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 当前使用 115 Open 模式，开始执行增量 copy 备份"})
+		runner, err := backup.NewOpen115CopyRunner(s.Config, s.Open115, func(stream string, text string) {
+			s.Hub.Broadcast(rclone.LogLine{Stream: stream, Text: text})
+		})
+		if err != nil {
+			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 初始化 Open115 备份执行器失败：" + err.Error()})
+			return
+		}
+		defer func() { _ = runner.Close() }()
+		if err := runner.Run(jobCtx); err != nil {
+			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] Open115 备份失败：" + err.Error()})
+			s.sendBackupNotify(cfg, notify.BackupNotification{
+				Success:    false,
+				Trigger:    trigger,
+				Mode:       modeLabel,
+				Stage:      "Open115 备份",
+				RemotePath: cfg.Backup.RemoteDir,
+				Detail:     err.Error(),
+			})
+			return
+		}
+		s.sendBackupNotify(cfg, notify.BackupNotification{
+			Success:    true,
+			Trigger:    trigger,
+			Mode:       modeLabel,
+			Stage:      "Open115 备份",
+			RemotePath: cfg.Backup.RemoteDir,
+			Detail:     "Open115 copy 增量备份执行完成",
+		})
+		return
+	}
+
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 正在生成临时 rclone 配置..."})
 
 	// 生成临时 rclone.conf

@@ -32,6 +32,7 @@ export function createDefaultConfig(): AppConfig {
       backups_dir: '',
       remote_dir: '/immich-backup',
       mode: 'copy' as 'copy' | 'sync',
+      manifest_path: '',
     },
     encrypt: {
       enabled: false,
