@@ -279,9 +279,19 @@
                   <input type="radio" v-model="draftConfig.backup.mode" value="sync" />
                   <div class="radio-option-text">
                     <strong>镜像同步 (sync)</strong>
-                    <span>保持远端与本地完全一致，会删除远端多余文件</span>
+                    <span>保持远端与本地完全一致，可删除远端多余文件</span>
                   </div>
                 </label>
+              </div>
+            </div>
+
+            <div v-if="draftConfig.backup.mode === 'sync'" class="toggle-field" @click="draftConfig.backup.allow_remote_delete = !draftConfig.backup.allow_remote_delete">
+              <div class="toggle-info">
+                <span class="toggle-title">允许删除远端多余文件</span>
+                <span class="toggle-desc">默认关闭。开启后，sync 模式会尝试删除远端存在但本地已删除的文件。</span>
+              </div>
+              <div :class="['switch', draftConfig.backup.allow_remote_delete ? 'active' : '']">
+                <div class="thumb"></div>
               </div>
             </div>
           </template>
@@ -764,6 +774,9 @@ const backupSignals = computed(() => {
   signals.push(config.backup.library_dir.trim() ? `照片库: ${config.backup.library_dir.trim()}` : '照片库路径未设置')
   signals.push(config.backup.backups_dir.trim() ? `数据库备份: ${config.backup.backups_dir.trim()}` : '数据库备份路径未设置')
   signals.push(config.backup.library_dir.trim() && config.backup.backups_dir.trim() ? '两类数据都会进入备份任务' : '建议同时配置两类路径，避免备份不完整')
+  if (config.backup.mode === 'sync') {
+    signals.push(config.backup.allow_remote_delete ? 'sync 删除已开启' : 'sync 删除未开启（更安全）')
+  }
   return signals
 })
 

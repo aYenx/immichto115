@@ -185,6 +185,36 @@
               </button>
             </div>
           </div>
+
+          <div class="input-field">
+            <span class="input-label">备份模式</span>
+            <div class="radio-group provider-group">
+              <label class="radio-option" :class="{ active: config.backup.mode === 'copy' }">
+                <input type="radio" v-model="config.backup.mode" value="copy" />
+                <div class="radio-option-text">
+                  <strong>增量备份 (copy)</strong>
+                  <span>只上传新增或修改的文件，不删除远端已有文件</span>
+                </div>
+              </label>
+              <label class="radio-option" :class="{ active: config.backup.mode === 'sync' }">
+                <input type="radio" v-model="config.backup.mode" value="sync" />
+                <div class="radio-option-text">
+                  <strong>镜像同步 (sync)</strong>
+                  <span>保持远端与本地一致，可删除远端多余文件</span>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div v-if="config.backup.mode === 'sync'" class="toggle-field" @click="config.backup.allow_remote_delete = !config.backup.allow_remote_delete">
+            <div class="toggle-info">
+              <span class="toggle-title">允许删除远端多余文件</span>
+              <span class="toggle-desc">默认关闭。开启后，sync 模式会尝试删除远端存在但本地已删除的文件。</span>
+            </div>
+            <div :class="['switch', config.backup.allow_remote_delete ? 'active' : '']">
+              <div class="thumb"></div>
+            </div>
+          </div>
         </div>
 
         <div class="buttons space-between">
