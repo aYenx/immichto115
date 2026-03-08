@@ -16,6 +16,7 @@ import (
 	"github.com/aYenx/immichto115/internal/config"
 	appCron "github.com/aYenx/immichto115/internal/cron"
 	"github.com/aYenx/immichto115/internal/notify"
+	"github.com/aYenx/immichto115/internal/open115"
 	"github.com/aYenx/immichto115/internal/rclone"
 	"github.com/gin-gonic/gin"
 )
@@ -44,10 +45,14 @@ func normalizeCronExpression(expr string) string {
 
 // Server 持有所有 API 依赖。
 type Server struct {
-	Runner    *rclone.Runner
-	Hub       *Hub
-	Config    *config.Manager
-	Scheduler *appCron.Scheduler
+	Runner     *rclone.Runner
+	Hub        *Hub
+	Config     *config.Manager
+	Open115    *open115.Service
+	Scheduler  *appCron.Scheduler
+
+	authSessionMu sync.RWMutex
+	authSessions  map[string]*open115.AuthSession
 
 	backupMu      sync.Mutex
 	backupCancel  context.CancelFunc
@@ -58,9 +63,11 @@ type Server struct {
 // NewServer 创建 API Server 实例。
 func NewServer(cfgMgr *config.Manager) *Server {
 	s := &Server{
-		Runner: rclone.NewRunner(),
-		Hub:    NewHub(),
-		Config: cfgMgr,
+		Runner:       rclone.NewRunner(),
+		Hub:          NewHub(),
+		Config:       cfgMgr,
+		Open115:      open115.NewService(cfgMgr),
+		authSessions: make(map[string]*open115.AuthSession),
 	}
 
 	// 定时任务：触发时执行备份
@@ -404,11 +411,15 @@ func isSetupWhitelisted(r *http.Request) bool {
 	}
 	// Setup 阶段允许的接口
 	setupPaths := map[string][]string{
-		"/api/v1/system/status": {"GET"},
-		"/api/v1/config":        {"GET", "POST"},
-		"/api/v1/webdav/test":   {"POST"},
-		"/api/v1/webdav/ls":     {"POST"},
-		"/api/v1/local/ls":      {"GET"},
+		"/api/v1/system/status":      {"GET"},
+		"/api/v1/config":             {"GET", "POST"},
+		"/api/v1/webdav/test":        {"POST"},
+		"/api/v1/webdav/ls":          {"POST"},
+		"/api/v1/local/ls":           {"GET"},
+		"/api/v1/open115/auth/start": {"POST"},
+		"/api/v1/open115/auth/status": {"GET"},
+		"/api/v1/open115/auth/finish": {"POST"},
+		"/api/v1/open115/test":       {"POST"},
 	}
 	methods, ok := setupPaths[path]
 	if !ok {
@@ -455,6 +466,12 @@ func (s *Server) SetupRouter() *gin.Engine {
 		// WebDAV 测试
 		v1.POST("/webdav/test", s.handleWebDAVTest)
 		v1.POST("/webdav/ls", s.handleWebDAVList)
+
+		// 115 Open 授权 / 连接测试
+		v1.POST("/open115/auth/start", s.handleOpen115AuthStart)
+		v1.GET("/open115/auth/status", s.handleOpen115AuthStatus)
+		v1.POST("/open115/auth/finish", s.handleOpen115AuthFinish)
+		v1.POST("/open115/test", s.handleOpen115Test)
 
 		// 备份控制
 		v1.POST("/backup/start", s.handleBackupStart)
@@ -715,6 +732,126 @@ func (s *Server) handleBackupStart(c *gin.Context) {
 	go s.triggerBackup("手动")
 
 	c.JSON(http.StatusOK, gin.H{"message": "备份已开始，正在检查配置并准备同步任务"})
+}
+
+type open115AuthStartRequest struct {
+	ClientID string `json:"client_id" binding:"required"`
+}
+
+type open115AuthFinishRequest struct {
+	UID string `json:"uid" binding:"required"`
+}
+
+func (s *Server) storeAuthSession(session *open115.AuthSession) {
+	if s == nil || session == nil || strings.TrimSpace(session.UID) == "" {
+		return
+	}
+	s.authSessionMu.Lock()
+	defer s.authSessionMu.Unlock()
+	s.authSessions[session.UID] = session
+}
+
+func (s *Server) loadAuthSession(uid string) (*open115.AuthSession, bool) {
+	s.authSessionMu.RLock()
+	defer s.authSessionMu.RUnlock()
+	session, ok := s.authSessions[strings.TrimSpace(uid)]
+	return session, ok
+}
+
+func (s *Server) deleteAuthSession(uid string) {
+	s.authSessionMu.Lock()
+	defer s.authSessionMu.Unlock()
+	delete(s.authSessions, strings.TrimSpace(uid))
+}
+
+func (s *Server) cleanupExpiredAuthSessions() {
+	s.authSessionMu.Lock()
+	defer s.authSessionMu.Unlock()
+	deadline := time.Now().Add(-10 * time.Minute)
+	for uid, session := range s.authSessions {
+		if session == nil || session.CreatedAt.Before(deadline) {
+			delete(s.authSessions, uid)
+		}
+	}
+}
+
+func (s *Server) handleOpen115AuthStart(c *gin.Context) {
+	var req open115AuthStartRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	s.cleanupExpiredAuthSessions()
+	session, err := s.Open115.StartAuth(c.Request.Context(), req.ClientID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	updated := s.Config.Get()
+	updated.Open115.ClientID = strings.TrimSpace(req.ClientID)
+	if err := s.Config.Update(updated); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	s.storeAuthSession(session)
+	c.JSON(http.StatusOK, gin.H{
+		"uid":       session.UID,
+		"time":      session.Time,
+		"sign":      session.Sign,
+		"qrcode":    session.QRCode,
+		"created_at": session.CreatedAt,
+	})
+}
+
+func (s *Server) handleOpen115AuthStatus(c *gin.Context) {
+	uid := strings.TrimSpace(c.Query("uid"))
+	if uid == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "uid 不能为空"})
+		return
+	}
+	s.cleanupExpiredAuthSessions()
+	session, ok := s.loadAuthSession(uid)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "auth session 不存在或已过期"})
+		return
+	}
+	status, err := s.Open115.CheckAuthStatus(c.Request.Context(), session)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, status)
+}
+
+func (s *Server) handleOpen115AuthFinish(c *gin.Context) {
+	var req open115AuthFinishRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	session, ok := s.loadAuthSession(req.UID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "auth session 不存在或已过期"})
+		return
+	}
+	state, err := s.Open115.FinishAuth(c.Request.Context(), session)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	s.deleteAuthSession(req.UID)
+	c.JSON(http.StatusOK, gin.H{
+		"message": "authorized",
+		"state":   state,
+	})
+}
+
+func (s *Server) handleOpen115Test(c *gin.Context) {
+	if err := s.Open115.TestConnection(c.Request.Context()); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "115 Open 连接成功"})
 }
 
 func (s *Server) handleBackupStop(c *gin.Context) {
