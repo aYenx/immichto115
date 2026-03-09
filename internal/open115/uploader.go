@@ -103,20 +103,33 @@ func (u *Uploader) listDirItems(ctx context.Context, parentID string) ([]sdk.Get
 	if err != nil {
 		return nil, err
 	}
-	resp, err := retryOpen115(ctx, "GetFiles", func() (*sdk.GetFilesResp, error) {
-		return client.GetFiles(ctx, &sdk.GetFilesReq{
-			CID:     parentID,
-			Limit:   200,
-			Offset:  0,
-			ASC:     true,
-			O:       "file_name",
-			ShowDir: true,
+
+	const pageSize int64 = 200
+	var offset int64 = 0
+	items := make([]sdk.GetFilesResp_File, 0, pageSize)
+
+	for {
+		resp, err := retryOpen115(ctx, "GetFiles", func() (*sdk.GetFilesResp, error) {
+			return client.GetFiles(ctx, &sdk.GetFilesReq{
+				CID:     parentID,
+				Limit:   pageSize,
+				Offset:  offset,
+				ASC:     true,
+				O:       "file_name",
+				ShowDir: true,
+			})
 		})
-	})
-	if err != nil {
-		return nil, err
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, resp.Data...)
+		if len(resp.Data) == 0 || int64(len(items)) >= resp.Count || int64(len(resp.Data)) < pageSize {
+			break
+		}
+		offset += pageSize
 	}
-	return resp.Data, nil
+
+	return items, nil
 }
 
 func (u *Uploader) findDirByName(ctx context.Context, parentID, name string) (string, error) {
