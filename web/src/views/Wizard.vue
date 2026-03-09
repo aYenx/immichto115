@@ -111,8 +111,14 @@
 
             <div class="input-field">
               <span class="input-label">远端目录</span>
-              <input class="input-control" type="text" v-model="config.backup.remote_dir" placeholder="例如 /immich-backup（逻辑目录）" />
-              <span class="input-hint">115 Open 模式下可直接手填，也可以点击下方按钮浏览目录。</span>
+              <div class="path-input-row">
+                <input class="input-control" type="text" v-model="config.backup.remote_dir" placeholder="例如 /immich-backup（逻辑目录）" style="flex: 1;" />
+                <button class="btn secondary browse-btn" @click="openRemoteFolderPicker">
+                  <LucideFolderOpen :size="16" />
+                  115 目录
+                </button>
+              </div>
+              <span class="input-hint">可以手动输入路径，或点击"115 目录"按钮浏览选择。</span>
             </div>
 
             <div class="settings-inline-actions">
@@ -124,10 +130,6 @@
               </button>
               <button class="btn secondary" @click="finishOpen115Auth" :disabled="isOpen115Finishing || !open115Auth.uid || open115Authorized !== true">
                 {{ isOpen115Finishing ? '确认中...' : '完成授权' }}
-              </button>
-              <button class="btn secondary browse-btn" @click="openRemoteFolderPicker">
-                <LucideFolderOpen :size="16" />
-                选择 115 目录
               </button>
               <button class="btn secondary" @click="testConnection" :disabled="isTesting">
                 {{ isTesting ? '测试中...' : '测试连接' }}

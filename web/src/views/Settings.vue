@@ -168,9 +168,10 @@
               <div class="input-field">
                 <span class="input-label">远端目录</span>
                 <div class="path-input-row">
+                  <input class="input-control" v-model="draftConfig.backup.remote_dir" type="text" placeholder="/immich-backup" style="flex: 1" />
                   <button class="btn secondary browse-btn" @click="openRemoteFolderPicker">
                     <LucideFolderOpen :size="16" />
-                    WebDAV
+                    浏览
                   </button>
                 </div>
                 <span class="input-hint">备份会写入这里指定的 WebDAV 目录。</span>
@@ -195,8 +196,14 @@
 
               <div class="input-field">
                 <span class="input-label">远端目录</span>
-                <input class="input-control" v-model="draftConfig.backup.remote_dir" type="text" placeholder="例如 /immich-backup（逻辑目录）" />
-                <span class="input-hint">可直接手填，也可以点击下方按钮浏览 115 目录。</span>
+                <div class="path-input-row">
+                  <input class="input-control" v-model="draftConfig.backup.remote_dir" type="text" placeholder="/immich-backup" style="flex: 1" />
+                  <button class="btn secondary browse-btn" @click="openRemoteFolderPicker">
+                    <LucideFolderOpen :size="16" />
+                    浏览
+                  </button>
+                </div>
+                <span class="input-hint">可以手动输入路径，或点击"浏览"按钮选择目录。</span>
               </div>
 
               <div class="input-field" v-if="draftConfig.open115.user_id">
@@ -220,10 +227,6 @@
                 </button>
                 <button class="btn secondary" @click="finishOpen115Auth" :disabled="isOpen115Finishing || !open115Auth.uid || open115Authorized !== true">
                   {{ isOpen115Finishing ? '确认中...' : '完成授权' }}
-                </button>
-                <button class="btn secondary browse-btn" @click="openRemoteFolderPicker">
-                  <LucideFolderOpen :size="16" />
-                  选择 115 目录
                 </button>
                 <button class="btn secondary" @click="testConnection" :disabled="isTesting">
                   {{ isTesting ? '测试中...' : '测试连接' }}
