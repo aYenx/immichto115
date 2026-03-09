@@ -900,10 +900,10 @@ const finishSetup = async () => {
 .thumb { width:24px; height:24px; border-radius:999px; background:#fff; position:absolute; top:3px; left:3px; transition:.2s; }
 .switch.active .thumb { left:25px; }
 .modal-overlay { position:fixed; inset:0; background:rgba(17,24,39,.45); display:flex; align-items:center; justify-content:center; padding:24px; z-index:50; }
-.modal { width:min(760px, 100%); background:#fff; border-radius:24px; overflow:hidden; }
+.modal { width:min(760px, 100%); max-height:min(88vh, 920px); background:#fff; border-radius:24px; overflow:hidden; display:flex; flex-direction:column; }
 .modal-header, .modal-footer { padding:20px 24px; border-bottom:1px solid #f3f4f6; }
 .modal-footer { border-top:1px solid #f3f4f6; border-bottom:none; display:flex; align-items:center; justify-content:space-between; gap:16px; }
-.modal-body { padding:20px 24px; display:flex; flex-direction:column; gap:16px; }
+.modal-body { padding:20px 24px; display:flex; flex-direction:column; gap:16px; overflow:auto; flex:1; min-height:0; }
 .btn-icon, .breadcrumb-edit-btn { border:none; background:none; cursor:pointer; }
 .breadcrumb-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; background:#f9fafb; border-radius:14px; }
 .breadcrumb-inner { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
