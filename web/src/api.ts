@@ -23,6 +23,7 @@ export interface WebDAVListRequest {
   url: string
   user: string
   password: string
+  vendor?: string
   path: string
 }
 
@@ -215,7 +216,7 @@ export const api = {
     })
   },
 
-  testWebDAV: async (data: { url: string; user: string; password: string }): Promise<WebDAVTestResponse> => {
+  testWebDAV: async (data: { url: string; user: string; password: string; vendor?: string }): Promise<WebDAVTestResponse> => {
     return await requestJSON<WebDAVTestResponse>(`${BASE_URL}/webdav/test`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

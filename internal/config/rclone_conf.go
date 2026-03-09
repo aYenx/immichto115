@@ -57,9 +57,24 @@ func GenerateRcloneConf(cfg AppConfig) (string, error) {
 		return "", fmt.Errorf("failed to obscure webdav password: %w", err)
 	}
 
+	vendor := strings.TrimSpace(cfg.WebDAV.Vendor)
+	if vendor == "" {
+		vendor = "other"
+	}
+	webdavCfg := cfg.WebDAV
+	webdavCfg.URL = strings.TrimSpace(webdavCfg.URL)
+	webdavCfg.User = strings.TrimSpace(webdavCfg.User)
+	webdavCfg.Vendor = vendor
+
+	backupCfg := cfg.Backup
+	backupCfg.RemoteDir = path.Clean("/" + strings.TrimSpace(backupCfg.RemoteDir))
+	if backupCfg.RemoteDir == "." || backupCfg.RemoteDir == "" {
+		backupCfg.RemoteDir = "/"
+	}
+
 	data := rcloneConfData{
-		WebDAV:             cfg.WebDAV,
-		Backup:             cfg.Backup,
+		WebDAV:             webdavCfg,
+		Backup:             backupCfg,
 		Encrypt:            cfg.Encrypt,
 		WebDAVObscuredPass: webdavPass,
 	}

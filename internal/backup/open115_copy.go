@@ -44,6 +44,12 @@ func defaultManifestPath(cfg config.AppConfig, cfgPath string) string {
 }
 
 func NewOpen115CopyRunner(cfgMgr *config.Manager, service *open115.Service, emit LogEmitter) (*Open115CopyRunner, error) {
+	if cfgMgr == nil {
+		return nil, fmt.Errorf("open115 copy runner 初始化失败: cfgMgr 为空")
+	}
+	if service == nil {
+		return nil, fmt.Errorf("open115 copy runner 初始化失败: service 为空")
+	}
 	cfg := cfgMgr.Get()
 	manifestPath := defaultManifestPath(cfg, cfgMgr.FilePath())
 	store, err := manifest.NewSQLiteStore(manifestPath)
@@ -89,6 +95,9 @@ func scanLocalFiles(baseDir string, prefix string) ([]localFile, error) {
 	}
 	info, err := os.Stat(baseDir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	if !info.IsDir() {
@@ -191,6 +200,25 @@ func (r *Open115CopyRunner) uploadChangedFiles(ctx context.Context, files []loca
 	return uploaded, skipped, nil
 }
 
+func (r *Open115CopyRunner) listAllManifestRecords(ctx context.Context) ([]manifest.FileRecord, error) {
+	if r == nil || r.manifest == nil {
+		return nil, nil
+	}
+	const pageSize = 1000
+	all := make([]manifest.FileRecord, 0, pageSize)
+	for offset := 0; ; offset += pageSize {
+		items, err := r.manifest.List(ctx, pageSize, offset)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, items...)
+		if len(items) < pageSize {
+			break
+		}
+	}
+	return all, nil
+}
+
 func (r *Open115CopyRunner) syncDeleteRemoved(ctx context.Context, currentFiles []localFile, remoteRoot string) error {
 	if r == nil || r.manifest == nil {
 		return nil
@@ -199,7 +227,7 @@ func (r *Open115CopyRunner) syncDeleteRemoved(ctx context.Context, currentFiles 
 	for _, file := range currentFiles {
 		existing[file.RelPath] = struct{}{}
 	}
-	records, err := r.manifest.List(ctx, 100000, 0)
+	records, err := r.listAllManifestRecords(ctx)
 	if err != nil {
 		return err
 	}
@@ -219,7 +247,11 @@ func (r *Open115CopyRunner) syncDeleteRemoved(ctx context.Context, currentFiles 
 		}
 		r.log("stdout", fmt.Sprintf("[immichto115] Open115 sync 删除远端文件: %s", remotePath))
 		if err := r.backend.DeleteRemote(ctx, remotePath); err != nil {
-			return err
+			if strings.Contains(err.Error(), "远端条目不存在") {
+				r.log("stderr", fmt.Sprintf("[immichto115] Open115 sync 删除跳过：远端文件不存在，按已删除处理: %s", remotePath))
+			} else {
+				return err
+			}
 		}
 		if err := r.manifest.MarkDeleted(ctx, rec.Path, true); err != nil {
 			return err
@@ -260,12 +292,16 @@ func (r *Open115CopyRunner) Run(ctx context.Context) (*Open115CopySummary, error
 	allFiles := append(libraryFiles, backupFiles...)
 	if len(allFiles) == 0 {
 		r.log("stderr", "[immichto115] Open115 未发现可备份文件")
-		return &Open115CopySummary{}, nil
+	} else {
+		r.log("stdout", fmt.Sprintf("[immichto115] Open115 增量扫描完成，共 %d 个文件待检查", len(allFiles)))
 	}
-	r.log("stdout", fmt.Sprintf("[immichto115] Open115 增量扫描完成，共 %d 个文件待检查", len(allFiles)))
-	uploaded, skipped, err := r.uploadChangedFiles(ctx, allFiles, remoteRoot)
-	if err != nil {
-		return nil, err
+	uploaded, skipped := 0, 0
+	if len(allFiles) > 0 {
+		var err error
+		uploaded, skipped, err = r.uploadChangedFiles(ctx, allFiles, remoteRoot)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if strings.TrimSpace(cfg.Backup.Mode) == "sync" {
 		if !cfg.Backup.AllowRemoteDelete {

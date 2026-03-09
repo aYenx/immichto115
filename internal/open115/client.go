@@ -118,7 +118,10 @@ func (s *Service) TestConnection(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	user, err := client.UserInfo(ctx)
+	pacer := NewPacer()
+	user, err := Call(ctx, pacer, "UserInfo", defaultMaxRetries, func() (*sdk.UserInfoResp, error) {
+		return client.UserInfo(ctx)
+	})
 	if err != nil {
 		return err
 	}

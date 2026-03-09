@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -216,8 +218,11 @@ func (s *Server) runBackupBody(jobCtx context.Context) {
 
 	hasSyncTarget := false
 
+	libraryDir := strings.TrimSpace(cfg.Backup.LibraryDir)
+	backupsDir := strings.TrimSpace(cfg.Backup.BackupsDir)
+
 	// 备份 Library 目录
-	if cfg.Backup.LibraryDir != "" {
+	if libraryDir != "" {
 		plannedStages = append(plannedStages, "照片库备份")
 		hasSyncTarget = true
 		if jobCtx.Err() != nil {
@@ -228,9 +233,9 @@ func (s *Server) runBackupBody(jobCtx context.Context) {
 		if !cfg.Encrypt.Enabled {
 			dest = remote + "/library"
 		}
-		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 开始备份照片库目录: " + cfg.Backup.LibraryDir})
+		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 开始备份照片库目录: " + libraryDir})
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 目标位置: " + dest})
-		logCh, errCh, err := s.Runner.Run(backupMode, cfg.Backup.LibraryDir, dest, nil, confPath)
+		logCh, errCh, err := s.Runner.Run(backupMode, libraryDir, dest, nil, confPath)
 		if err != nil {
 			log.Printf("[backup] failed to start library backup: %v", err)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 无法启动照片库备份: " + err.Error()})
@@ -282,7 +287,7 @@ func (s *Server) runBackupBody(jobCtx context.Context) {
 	}
 
 	// 备份 Database Dumps 目录
-	if cfg.Backup.BackupsDir != "" {
+	if backupsDir != "" {
 		plannedStages = append(plannedStages, "数据库备份")
 		hasSyncTarget = true
 		if jobCtx.Err() != nil {
@@ -293,9 +298,9 @@ func (s *Server) runBackupBody(jobCtx context.Context) {
 		if !cfg.Encrypt.Enabled {
 			dest = remote + "/backups"
 		}
-		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 开始备份数据库备份目录: " + cfg.Backup.BackupsDir})
+		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 开始备份数据库备份目录: " + backupsDir})
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 目标位置: " + dest})
-		logCh, errCh, err := s.Runner.Run(backupMode, cfg.Backup.BackupsDir, dest, nil, confPath)
+		logCh, errCh, err := s.Runner.Run(backupMode, backupsDir, dest, nil, confPath)
 		if err != nil {
 			log.Printf("[backup] failed to start backups backup: %v", err)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 无法启动数据库备份目录同步: " + err.Error()})
@@ -643,27 +648,47 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 		return
 	}
 
-	// 如果前端传了 "********" 则保留旧密码
+	newCfg.Provider = strings.ToLower(strings.TrimSpace(newCfg.Provider))
+	newCfg.WebDAV.URL = strings.TrimSpace(newCfg.WebDAV.URL)
+	newCfg.WebDAV.User = strings.TrimSpace(newCfg.WebDAV.User)
+	newCfg.WebDAV.Vendor = strings.TrimSpace(newCfg.WebDAV.Vendor)
+	newCfg.Open115.ClientID = strings.TrimSpace(newCfg.Open115.ClientID)
+	newCfg.Open115.AccessToken = strings.TrimSpace(newCfg.Open115.AccessToken)
+	newCfg.Open115.RefreshToken = strings.TrimSpace(newCfg.Open115.RefreshToken)
+	newCfg.Open115.RootID = strings.TrimSpace(newCfg.Open115.RootID)
+	newCfg.Backup.LibraryDir = strings.TrimSpace(newCfg.Backup.LibraryDir)
+	newCfg.Backup.BackupsDir = strings.TrimSpace(newCfg.Backup.BackupsDir)
+	newCfg.Backup.RemoteDir = normalizeRemoteDir(newCfg.Backup.RemoteDir)
+	newCfg.Backup.Mode = strings.ToLower(strings.TrimSpace(newCfg.Backup.Mode))
+	newCfg.Backup.ManifestPath = strings.TrimSpace(newCfg.Backup.ManifestPath)
+	newCfg.Open115Encrypt.Mode = strings.ToLower(strings.TrimSpace(newCfg.Open115Encrypt.Mode))
+	newCfg.Open115Encrypt.FilenameMode = strings.ToLower(strings.TrimSpace(newCfg.Open115Encrypt.FilenameMode))
+	newCfg.Open115Encrypt.Algorithm = strings.TrimSpace(newCfg.Open115Encrypt.Algorithm)
+	newCfg.Open115Encrypt.TempDir = strings.TrimSpace(newCfg.Open115Encrypt.TempDir)
+	newCfg.Cron.Expression = normalizeCronExpression(newCfg.Cron.Expression)
+	newCfg.Notify.BarkURL = strings.TrimSpace(newCfg.Notify.BarkURL)
+
+	// 如果前端传了 "********" 则保留旧密钥；显式清空字符串则视为用户要清除该值。
 	oldCfg := s.Config.Get()
-	if newCfg.WebDAV.Password == maskedSecret || newCfg.WebDAV.Password == "" {
+	if newCfg.WebDAV.Password == maskedSecret {
 		newCfg.WebDAV.Password = oldCfg.WebDAV.Password
 	}
-	if newCfg.Open115.AccessToken == maskedSecret || newCfg.Open115.AccessToken == "" {
+	if newCfg.Open115.AccessToken == maskedSecret {
 		newCfg.Open115.AccessToken = oldCfg.Open115.AccessToken
 	}
-	if newCfg.Open115.RefreshToken == maskedSecret || newCfg.Open115.RefreshToken == "" {
+	if newCfg.Open115.RefreshToken == maskedSecret {
 		newCfg.Open115.RefreshToken = oldCfg.Open115.RefreshToken
 	}
-	if newCfg.Encrypt.Password == maskedSecret || newCfg.Encrypt.Password == "" {
+	if newCfg.Encrypt.Password == maskedSecret {
 		newCfg.Encrypt.Password = oldCfg.Encrypt.Password
 	}
-	if newCfg.Encrypt.Salt == maskedSecret || newCfg.Encrypt.Salt == "" {
+	if newCfg.Encrypt.Salt == maskedSecret {
 		newCfg.Encrypt.Salt = oldCfg.Encrypt.Salt
 	}
-	if newCfg.Open115Encrypt.Password == maskedSecret || newCfg.Open115Encrypt.Password == "" {
+	if newCfg.Open115Encrypt.Password == maskedSecret {
 		newCfg.Open115Encrypt.Password = oldCfg.Open115Encrypt.Password
 	}
-	if newCfg.Open115Encrypt.Salt == maskedSecret || newCfg.Open115Encrypt.Salt == "" {
+	if newCfg.Open115Encrypt.Salt == maskedSecret {
 		newCfg.Open115Encrypt.Salt = oldCfg.Open115Encrypt.Salt
 	}
 
@@ -717,12 +742,14 @@ type WebDAVTestRequest struct {
 	URL      string `json:"url" binding:"required"`
 	User     string `json:"user" binding:"required"`
 	Password string `json:"password" binding:"required"`
+	Vendor   string `json:"vendor"`
 }
 
 type WebDAVListRequest struct {
 	URL      string `json:"url" binding:"required"`
 	User     string `json:"user" binding:"required"`
 	Password string `json:"password" binding:"required"`
+	Vendor   string `json:"vendor"`
 	Path     string `json:"path"`
 }
 
@@ -739,6 +766,10 @@ func (s *Server) handleWebDAVTest(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	req.URL = strings.TrimSpace(req.URL)
+	req.User = strings.TrimSpace(req.User)
+	req.Vendor = strings.TrimSpace(req.Vendor)
 
 	// 如果密码是遮蔽的，使用已保存的密码
 	password := s.resolveWebDAVPassword(req.Password)
@@ -757,15 +788,25 @@ func (s *Server) handleWebDAVTest(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
+	vendor := req.Vendor
+	if vendor == "" {
+		vendor = "other"
+	}
+
 	cmd := exec.CommandContext(ctx, "rclone", "lsd", ":webdav:", "--webdav-url", req.URL,
 		"--webdav-user", req.User, "--webdav-pass", obscured,
+		"--webdav-vendor", vendor,
 		"--max-depth", "1", "--contimeout", "10s")
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		detail := strings.TrimSpace(string(out))
+		if detail == "" {
+			detail = err.Error()
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "WebDAV 连接失败：" + strings.TrimSpace(string(out)),
+			"message": "WebDAV 连接失败：" + detail,
 		})
 		return
 	}
@@ -783,8 +824,16 @@ func (s *Server) handleWebDAVList(c *gin.Context) {
 		return
 	}
 
+	req.URL = strings.TrimSpace(req.URL)
+	req.User = strings.TrimSpace(req.User)
+	req.Path = strings.TrimSpace(req.Path)
+	req.Vendor = strings.TrimSpace(req.Vendor)
+
 	password := s.resolveWebDAVPassword(req.Password)
-	vendor := s.Config.Get().WebDAV.Vendor
+	vendor := req.Vendor
+	if vendor == "" {
+		vendor = strings.TrimSpace(s.Config.Get().WebDAV.Vendor)
+	}
 	if vendor == "" {
 		vendor = "other"
 	}
@@ -817,7 +866,11 @@ func (s *Server) handleWebDAVList(c *gin.Context) {
 	cmd := exec.CommandContext(ctx, "rclone", "lsjson", remotePath, "--config", confPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取 WebDAV 目录失败：" + strings.TrimSpace(string(out))})
+		detail := strings.TrimSpace(string(out))
+		if detail == "" {
+			detail = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取 WebDAV 目录失败：" + detail})
 		return
 	}
 
@@ -1010,6 +1063,10 @@ func (s *Server) handleOpen115DebugStreamMeasure(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "open115_encrypt 未启用"})
 		return
 	}
+	if strings.TrimSpace(encCfg.Mode) != "stream" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "当前 open115_encrypt.mode 不是 stream，不能使用流式测量 debug 接口"})
+		return
+	}
 	info, err := open115crypt.DebugMeasure(strings.TrimSpace(req.LocalPath), encCfg)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -1028,6 +1085,10 @@ func (s *Server) handleOpen115DebugStreamUpload(c *gin.Context) {
 	encCfg := open115crypt.FromAppConfig(cfg)
 	if !encCfg.Enabled {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "open115_encrypt 未启用"})
+		return
+	}
+	if strings.TrimSpace(encCfg.Mode) != "stream" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "当前 open115_encrypt.mode 不是 stream，不能使用流式上传 debug 接口"})
 		return
 	}
 	uploader := open115.NewUploader(s.Open115)
@@ -1094,7 +1155,11 @@ func (s *Server) handleRemoteList(c *gin.Context) {
 	cmd := exec.CommandContext(ctx, "rclone", "lsjson", remotePath, "--config", confPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取远端目录失败：" + strings.TrimSpace(string(out))})
+		detail := strings.TrimSpace(string(out))
+		if detail == "" {
+			detail = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取远端目录失败：" + detail})
 		return
 	}
 
@@ -1122,23 +1187,49 @@ func (s *Server) handleLocalList(c *gin.Context) {
 		}
 	}
 
-	// 安全校验：禁止路径遍历
-	if strings.Contains(localPath, "..") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "路径中不允许包含 '..'"})
-		return
+	// 安全校验：禁止使用父级路径段进行路径遍历，但允许合法名称中包含 '..'。
+	normalizedLocalPath := strings.ReplaceAll(localPath, "\\", "/")
+	for _, segment := range strings.Split(normalizedLocalPath, "/") {
+		if segment == ".." {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "路径中不允许包含父级路径段 '..'"})
+			return
+		}
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "rclone", "lsjson", localPath)
-	out, err := cmd.CombinedOutput()
+	entries, err := os.ReadDir(localPath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取本地目录失败：" + strings.TrimSpace(string(out))})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取本地目录失败：" + err.Error()})
 		return
 	}
 
-	c.Data(http.StatusOK, "application/json", out)
+	type localEntry struct {
+		Path    string `json:"Path"`
+		Name    string `json:"Name"`
+		IsDir   bool   `json:"IsDir"`
+		Size    int64  `json:"Size,omitempty"`
+		ModTime string `json:"ModTime,omitempty"`
+	}
+
+	result := make([]localEntry, 0, len(entries))
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		fullPath := filepath.Join(localPath, entry.Name())
+		item := localEntry{
+			Path:    fullPath,
+			Name:    entry.Name(),
+			IsDir:   entry.IsDir(),
+			ModTime: info.ModTime().Format(time.RFC3339),
+		}
+		if !entry.IsDir() {
+			item.Size = info.Size()
+		}
+		result = append(result, item)
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 // sendBackupNotify 在备份完成时发送 Bark 推送通知。
