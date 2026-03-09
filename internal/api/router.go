@@ -250,6 +250,11 @@ func (s *Server) runBackupBody(jobCtx context.Context) {
 		}
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 开始备份照片库目录: " + libraryDir})
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 目标位置: " + dest})
+		// 预创建远端目录，避免某些 WebDAV 服务器返回 404
+		if err := rclone.Mkdir(dest, confPath); err != nil {
+			log.Printf("[backup] mkdir warning (non-fatal): %v", err)
+			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 预创建远端目录失败（非致命，继续尝试备份）: " + err.Error()})
+		}
 		logCh, errCh, err := s.Runner.Run(backupMode, libraryDir, dest, nil, confPath)
 		if err != nil {
 			log.Printf("[backup] failed to start library backup: %v", err)
@@ -315,6 +320,11 @@ func (s *Server) runBackupBody(jobCtx context.Context) {
 		}
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 开始备份数据库备份目录: " + backupsDir})
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 目标位置: " + dest})
+		// 预创建远端目录，避免某些 WebDAV 服务器返回 404
+		if err := rclone.Mkdir(dest, confPath); err != nil {
+			log.Printf("[backup] mkdir warning (non-fatal): %v", err)
+			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 预创建远端目录失败（非致命，继续尝试备份）: " + err.Error()})
+		}
 		logCh, errCh, err := s.Runner.Run(backupMode, backupsDir, dest, nil, confPath)
 		if err != nil {
 			log.Printf("[backup] failed to start backups backup: %v", err)

@@ -171,6 +171,21 @@ func (r *Runner) Run(mode, source, dest string, flags []string, configPath strin
 	return logCh, errCh, nil
 }
 
+// Mkdir 在远端创建目录（如果不存在）。
+// 用于在 copy/sync 前确保 WebDAV 等后端的目标目录已存在，
+// 避免 "404 Not Found" 错误。
+func Mkdir(remotePath string, configPath string) error {
+	args := []string{"mkdir", remotePath}
+	if configPath != "" {
+		args = append([]string{"--config", configPath}, args...)
+	}
+	out, err := exec.Command("rclone", args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("rclone mkdir %s failed: %w\nOutput: %s", remotePath, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // 缓存 rclone 版本信息，避免每次请求都启动子进程
 var (
 	versionOnce   sync.Once
