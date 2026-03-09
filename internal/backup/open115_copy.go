@@ -125,17 +125,14 @@ func scanLocalFiles(baseDir string, prefix string) ([]localFile, error) {
 func (r *Open115CopyRunner) uploadChangedFiles(ctx context.Context, files []localFile, remoteRoot string) (int, int, error) {
 	uploaded := 0
 	skipped := 0
-	for i, file := range files {
+	pacer := r.backend.Uploader().Pacer
+	for _, file := range files {
 		if ctx.Err() != nil {
 			return uploaded, skipped, ctx.Err()
 		}
-		// 非首个上传文件时，加入节流延迟以避免触发 115 API 限速
-		if i > 0 && uploaded > 0 {
-			select {
-			case <-ctx.Done():
-				return uploaded, skipped, ctx.Err()
-			case <-time.After(800 * time.Millisecond):
-			}
+		// 通过 pacer 自适应节流，代替固定延迟
+		if err := pacer.Wait(ctx); err != nil {
+			return uploaded, skipped, err
 		}
 		existingRec, err := r.manifest.Get(ctx, file.RelPath)
 		if err != nil {
@@ -175,11 +172,38 @@ func (r *Open115CopyRunner) uploadChangedFiles(ctx context.Context, files []loca
 			}
 		}
 		r.log("stdout", fmt.Sprintf("[immichto115] Open115 上传文件: %s -> %s", uploadPath, remotePath))
+
+		// 单文件上传，带限速重试（由 pacer 自适应控制退避间隔）
 		var uploadErr error
-		if encCfg.Enabled && strings.TrimSpace(encCfg.Mode) == "stream" {
-			uploadErr = r.backend.UploadEncryptedStream(ctx, file.AbsPath, remotePath, encCfg)
-		} else {
-			uploadErr = r.backend.UploadFile(ctx, uploadPath, remotePath)
+		const maxFileRetries = 3
+		for attempt := 0; attempt <= maxFileRetries; attempt++ {
+			if ctx.Err() != nil {
+				if cleanupPath != "" {
+					_ = open115crypt.CleanupTempFile(cleanupPath)
+				}
+				return uploaded, skipped, ctx.Err()
+			}
+			if attempt > 0 {
+				r.log("stderr", fmt.Sprintf("[immichto115] 文件上传被限速，等待 pacer 退避后重试 (%d/%d): %s", attempt, maxFileRetries, file.RelPath))
+				if err := pacer.Wait(ctx); err != nil {
+					if cleanupPath != "" {
+						_ = open115crypt.CleanupTempFile(cleanupPath)
+					}
+					return uploaded, skipped, err
+				}
+			}
+			if encCfg.Enabled && strings.TrimSpace(encCfg.Mode) == "stream" {
+				uploadErr = r.backend.UploadEncryptedStream(ctx, file.AbsPath, remotePath, encCfg)
+			} else {
+				uploadErr = r.backend.UploadFile(ctx, uploadPath, remotePath)
+			}
+			pacer.EndCall(uploadErr) // 通知 pacer 调用结果，自动调整间隔
+			if uploadErr == nil {
+				break
+			}
+			if !open115.IsRateLimitedError(uploadErr) {
+				break // 非限速错误，不重试
+			}
 		}
 		if uploadErr != nil {
 			if cleanupPath != "" {
