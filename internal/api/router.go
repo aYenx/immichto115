@@ -48,16 +48,16 @@ func normalizeCronExpression(expr string) string {
 
 // Server 持有所有 API 依赖。
 type Server struct {
-	Runner     *rclone.Runner
-	Hub        *Hub
-	Config     *config.Manager
-	Open115    *open115.Service
-	Scheduler  *appCron.Scheduler
+	Runner    *rclone.Runner
+	Hub       *Hub
+	Config    *config.Manager
+	Open115   *open115.Service
+	Scheduler *appCron.Scheduler
 
 	authSessionMu sync.RWMutex
 	authSessions  map[string]*open115.AuthSession
 
-	backupMu      sync.Mutex
+	backupMu      sync.RWMutex
 	backupCancel  context.CancelFunc
 	backupActive  bool
 	backupTrigger string
@@ -90,9 +90,15 @@ func (s *Server) triggerBackup(trigger string) {
 		return
 	}
 	defer s.finishBackupJob()
+	s.runBackupBody(jobCtx)
+}
+
+// runBackupBody 是备份的实际执行体，供 triggerBackup 和 handleBackupStart 共用。
+// 调用前必须已通过 beginBackupJob 成功占位。
+func (s *Server) runBackupBody(jobCtx context.Context) {
 
 	cfg := s.Config.Get()
-	trigger = s.currentBackupTrigger()
+	trigger := s.currentBackupTrigger()
 	backupMode := cfg.Backup.Mode
 	if backupMode != "sync" {
 		backupMode = "copy" // 默认增量备份
@@ -362,6 +368,7 @@ func (s *Server) triggerBackup(trigger string) {
 		RemotePath: remote,
 		Detail:     summarizeProgress("") + "；照片库与数据库备份阶段都已执行完成",
 	})
+
 }
 
 func (s *Server) beginBackupJob(trigger string) (context.Context, bool) {
@@ -388,8 +395,8 @@ func fallbackBackupTrigger(trigger string) string {
 }
 
 func (s *Server) currentBackupTrigger() string {
-	s.backupMu.Lock()
-	defer s.backupMu.Unlock()
+	s.backupMu.RLock()
+	defer s.backupMu.RUnlock()
 	return fallbackBackupTrigger(s.backupTrigger)
 }
 
@@ -415,8 +422,8 @@ func (s *Server) stopBackupJob() bool {
 }
 
 func (s *Server) IsBackupActive() bool {
-	s.backupMu.Lock()
-	defer s.backupMu.Unlock()
+	s.backupMu.RLock()
+	defer s.backupMu.RUnlock()
 	return s.backupActive
 }
 
@@ -818,12 +825,17 @@ func (s *Server) handleWebDAVList(c *gin.Context) {
 }
 
 func (s *Server) handleBackupStart(c *gin.Context) {
-	if s.IsBackupActive() {
+	// 使用 beginBackupJob 原子地检查并占位，避免 TOCTOU 竞态
+	jobCtx, ok := s.beginBackupJob("手动")
+	if !ok {
 		c.JSON(http.StatusConflict, gin.H{"error": "已有备份任务正在运行"})
 		return
 	}
 
-	go s.triggerBackup("手动")
+	go func() {
+		defer s.finishBackupJob()
+		s.runBackupBody(jobCtx)
+	}()
 
 	c.JSON(http.StatusOK, gin.H{"message": "备份已开始，正在检查配置并准备同步任务"})
 }
@@ -889,10 +901,10 @@ func (s *Server) handleOpen115AuthStart(c *gin.Context) {
 	}
 	s.storeAuthSession(session)
 	c.JSON(http.StatusOK, gin.H{
-		"uid":       session.UID,
-		"time":      session.Time,
-		"sign":      session.Sign,
-		"qrcode":    session.QRCode,
+		"uid":        session.UID,
+		"time":       session.Time,
+		"sign":       session.Sign,
+		"qrcode":     session.QRCode,
 		"created_at": session.CreatedAt,
 	})
 }
@@ -949,11 +961,16 @@ func (s *Server) handleOpen115Test(c *gin.Context) {
 }
 
 func (s *Server) handleOpen115List(c *gin.Context) {
-	backend := backup.NewOpen115Backend(s.Open115)
 	remotePath := strings.TrimSpace(c.Query("path"))
 	if remotePath == "" {
 		remotePath = "/"
 	}
+	s.listOpen115Entries(c, remotePath)
+}
+
+// listOpen115Entries 是 handleOpen115List 和 handleRemoteList(open115分支) 的共用逻辑。
+func (s *Server) listOpen115Entries(c *gin.Context, remotePath string) {
+	backend := backup.NewOpen115Backend(s.Open115)
 	items, err := backend.ListRemote(c.Request.Context(), remotePath)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -1054,27 +1071,11 @@ func (s *Server) handleRemoteList(c *gin.Context) {
 		provider = "webdav"
 	}
 	if provider == "open115" {
-		backend := backup.NewOpen115Backend(s.Open115)
 		remotePath := strings.TrimSpace(req.Path)
 		if remotePath == "" {
 			remotePath = "/"
 		}
-		items, err := backend.ListRemote(c.Request.Context(), remotePath)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		entries := make([]gin.H, 0, len(items))
-		for _, item := range items {
-			entries = append(entries, gin.H{
-				"Name":    item.Name,
-				"Path":    item.Path,
-				"IsDir":   item.IsDir,
-				"Size":    item.Size,
-				"ModTime": time.Unix(item.ModTime, 0).Format(time.RFC3339),
-			})
-		}
-		c.JSON(http.StatusOK, entries)
+		s.listOpen115Entries(c, remotePath)
 		return
 	}
 
@@ -1119,6 +1120,12 @@ func (s *Server) handleLocalList(c *gin.Context) {
 		} else {
 			localPath = "/"
 		}
+	}
+
+	// 安全校验：禁止路径遍历
+	if strings.Contains(localPath, "..") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "路径中不允许包含 '..'"})
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)

@@ -31,6 +31,7 @@ type Open115CopyRunner struct {
 	emit     LogEmitter
 	manifest manifest.Store
 }
+
 func defaultManifestPath(cfg config.AppConfig, cfgPath string) string {
 	if strings.TrimSpace(cfg.Backup.ManifestPath) != "" {
 		return strings.TrimSpace(cfg.Backup.ManifestPath)
@@ -124,9 +125,17 @@ func scanLocalFiles(baseDir string, prefix string) ([]localFile, error) {
 func (r *Open115CopyRunner) uploadChangedFiles(ctx context.Context, files []localFile, remoteRoot string) (int, int, error) {
 	uploaded := 0
 	skipped := 0
-	for _, file := range files {
+	for i, file := range files {
 		if ctx.Err() != nil {
 			return uploaded, skipped, ctx.Err()
+		}
+		// 非首个上传文件时，加入节流延迟以避免触发 115 API 限速
+		if i > 0 && uploaded > 0 {
+			select {
+			case <-ctx.Done():
+				return uploaded, skipped, ctx.Err()
+			case <-time.After(800 * time.Millisecond):
+			}
 		}
 		existingRec, err := r.manifest.Get(ctx, file.RelPath)
 		if err != nil {

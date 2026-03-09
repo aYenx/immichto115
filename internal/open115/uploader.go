@@ -61,7 +61,15 @@ func isRateLimitedError(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "refresh frequently") || strings.Contains(msg, "40140117")
+	// 已知的限速错误关键词
+	if strings.Contains(msg, "refresh frequently") || strings.Contains(msg, "40140117") {
+		return true
+	}
+	// 115 API 有时返回 code:0 + 空 message 作为隐式限速响应
+	if strings.Contains(msg, "code: 0, message:") && strings.TrimSpace(strings.TrimPrefix(msg, "code: 0, message:")) == "" {
+		return true
+	}
+	return false
 }
 
 func retryOpen115[T any](ctx context.Context, label string, fn func() (T, error)) (T, error) {
@@ -432,9 +440,6 @@ func (u *Uploader) UploadReaderWithInit(ctx context.Context, reader io.Reader, r
 			PreID:    preID,
 		})
 	})
-	if err != nil {
-		return err
-	}
 	if err != nil {
 		return err
 	}

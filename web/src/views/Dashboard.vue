@@ -279,9 +279,11 @@ const disconnectRealtime = () => {
 
 const fetchStatus = async () => {
   try {
-    const [status, cfg] = await Promise.all([api.getSystemStatus(), api.getConfig()])
+    const status = await api.getSystemStatus()
     systemStatus.value = status
-    provider.value = cfg.provider
+    if (status.provider) {
+      provider.value = status.provider as 'webdav' | 'open115'
+    }
     apiReachable.value = true
   } catch (err) {
     if (handleAuthFailure(err)) {
