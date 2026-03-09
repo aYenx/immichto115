@@ -72,7 +72,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
+          go build -tags embedfront -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
             -o immichto115-${{ matrix.goos }}-${{ matrix.goarch }} \
             ./cmd/server/
 

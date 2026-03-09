@@ -131,7 +131,7 @@ cd web && npm ci --include=dev && npm run build && cd ..
 
 # 编译后端（go:embed 内嵌前端资源，注入版本号）
 VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
-CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${VERSION}" -o immichto115 ./cmd/server/
+CGO_ENABLED=0 go build -tags embedfront -ldflags="-s -w -X main.version=${VERSION}" -o immichto115 ./cmd/server/
 
 # 运行
 ./immichto115 --config /path/to/config.yaml --port 8096

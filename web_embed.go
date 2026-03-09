@@ -1,8 +1,10 @@
+//go:build !embedfront
+
 package immichto115
 
 import "embed"
 
-// WebDistFS embeds frontend build artifacts under web/dist.
-// Build with: cd web && npm ci && npm run build
-//go:embed all:web/dist
+// WebDistFS 在不使用 embedfront 标签时为空 FS。
+// 此时 serveFrontend 会检测到 "web/dist" 不存在并跳过前端静态资源。
+// 生产构建请使用: go build -tags embedfront ./cmd/server/
 var WebDistFS embed.FS
