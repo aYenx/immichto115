@@ -1674,7 +1674,8 @@ const confirmRemoteFolder = () => {
 }
 
 .folder-scroll {
-  overflow: auto;
+  max-height: calc(48vh - 24px);
+  overflow-y: auto;
 }
 
 .folder-item,

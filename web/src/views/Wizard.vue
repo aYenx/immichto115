@@ -909,8 +909,8 @@ const finishSetup = async () => {
 .breadcrumb-inner { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .breadcrumb-item { border:none; background:none; cursor:pointer; color:#111827; display:flex; align-items:center; gap:6px; }
 .breadcrumb-sep { color:#9ca3af; }
-.folder-list { min-height:240px; border:1px solid #e5e7eb; border-radius:16px; padding:12px; }
-.folder-scroll { display:flex; flex-direction:column; gap:8px; max-height:320px; overflow:auto; }
+.folder-list { min-height:240px; max-height:48vh; border:1px solid #e5e7eb; border-radius:16px; padding:12px; overflow:hidden; }
+.folder-scroll { display:flex; flex-direction:column; gap:8px; max-height:calc(48vh - 24px); overflow-y:auto; }
 .folder-item { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; cursor:pointer; }
 .folder-item:hover { background:#f3f4f6; }
 .folder-empty { min-height:200px; display:flex; align-items:center; justify-content:center; gap:10px; color:#6b7280; }
