@@ -14,15 +14,15 @@ import (
 
 // AppConfig 应用全局配置结构。
 type AppConfig struct {
-	Provider       string                `mapstructure:"provider" json:"provider" yaml:"provider"`
-	Server         ServerConfig          `mapstructure:"server"   json:"server"   yaml:"server"`
-	WebDAV         WebDAVConfig          `mapstructure:"webdav"   json:"webdav"   yaml:"webdav"`
-	Open115        Open115Config         `mapstructure:"open115"  json:"open115"  yaml:"open115"`
-	Open115Encrypt Open115EncryptConfig  `mapstructure:"open115_encrypt" json:"open115_encrypt" yaml:"open115_encrypt"`
-	Backup         BackupConfig          `mapstructure:"backup"   json:"backup"   yaml:"backup"`
-	Encrypt        EncryptConfig         `mapstructure:"encrypt"  json:"encrypt"  yaml:"encrypt"`
-	Cron           CronConfig            `mapstructure:"cron"     json:"cron"     yaml:"cron"`
-	Notify         NotifyConfig          `mapstructure:"notify"   json:"notify"   yaml:"notify"`
+	Provider       string               `mapstructure:"provider" json:"provider" yaml:"provider"`
+	Server         ServerConfig         `mapstructure:"server"   json:"server"   yaml:"server"`
+	WebDAV         WebDAVConfig         `mapstructure:"webdav"   json:"webdav"   yaml:"webdav"`
+	Open115        Open115Config        `mapstructure:"open115"  json:"open115"  yaml:"open115"`
+	Open115Encrypt Open115EncryptConfig `mapstructure:"open115_encrypt" json:"open115_encrypt" yaml:"open115_encrypt"`
+	Backup         BackupConfig         `mapstructure:"backup"   json:"backup"   yaml:"backup"`
+	Encrypt        EncryptConfig        `mapstructure:"encrypt"  json:"encrypt"  yaml:"encrypt"`
+	Cron           CronConfig           `mapstructure:"cron"     json:"cron"     yaml:"cron"`
+	Notify         NotifyConfig         `mapstructure:"notify"   json:"notify"   yaml:"notify"`
 }
 
 // ServerConfig 服务器配置。
@@ -280,6 +280,9 @@ func (m *Manager) IsSetupComplete() bool {
 		return false
 	}
 	if cfg.Encrypt.Enabled && strings.TrimSpace(cfg.Encrypt.Password) == "" {
+		return false
+	}
+	if provider == "open115" && cfg.Open115Encrypt.Enabled && strings.TrimSpace(cfg.Open115Encrypt.Password) == "" {
 		return false
 	}
 	return true
