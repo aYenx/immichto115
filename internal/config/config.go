@@ -58,6 +58,7 @@ type Open115EncryptConfig struct {
 	Enabled        bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
 	Password       string `mapstructure:"password" json:"password" yaml:"password"`
 	Salt           string `mapstructure:"salt" json:"salt" yaml:"salt"`
+	Mode           string `mapstructure:"mode" json:"mode" yaml:"mode"`
 	FilenameMode   string `mapstructure:"filename_mode" json:"filename_mode" yaml:"filename_mode"`
 	Algorithm      string `mapstructure:"algorithm" json:"algorithm" yaml:"algorithm"`
 	TempDir        string `mapstructure:"temp_dir" json:"temp_dir" yaml:"temp_dir"`
@@ -124,6 +125,7 @@ func NewManager(configPath string) (*Manager, error) {
 	viper.SetDefault("open115.root_id", "0")
 	viper.SetDefault("open115.token_expires_at", 0)
 	viper.SetDefault("open115_encrypt.enabled", false)
+	viper.SetDefault("open115_encrypt.mode", "temp")
 	viper.SetDefault("open115_encrypt.filename_mode", "plain")
 	viper.SetDefault("open115_encrypt.algorithm", "aes256gcm-v1")
 	viper.SetDefault("open115_encrypt.temp_dir", "")
@@ -203,6 +205,7 @@ func (m *Manager) Update(cfg AppConfig) error {
 	viper.Set("open115_encrypt.enabled", cfg.Open115Encrypt.Enabled)
 	viper.Set("open115_encrypt.password", cfg.Open115Encrypt.Password)
 	viper.Set("open115_encrypt.salt", cfg.Open115Encrypt.Salt)
+	viper.Set("open115_encrypt.mode", cfg.Open115Encrypt.Mode)
 	viper.Set("open115_encrypt.filename_mode", cfg.Open115Encrypt.FilenameMode)
 	viper.Set("open115_encrypt.algorithm", cfg.Open115Encrypt.Algorithm)
 	viper.Set("open115_encrypt.temp_dir", cfg.Open115Encrypt.TempDir)

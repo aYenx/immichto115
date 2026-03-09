@@ -149,24 +149,34 @@ func (r *Open115CopyRunner) uploadChangedFiles(ctx context.Context, files []loca
 		encCfg := open115crypt.FromAppConfig(r.cfgMgr.Get())
 		var cleanupPath string
 		if encCfg.Enabled {
-			encFile, err := open115crypt.EncryptFileToTemp(file.AbsPath, encCfg)
-			if err != nil {
-				return uploaded, skipped, err
-			}
-			uploadPath = encFile.TempPath
-			cleanupPath = encFile.TempPath
 			remotePath = remotePath + ".enc"
 			record.Encrypted = true
-			record.EncryptedSize = encFile.EncryptedSize
-			record.EncryptionVersion = encFile.Version
 			record.RemotePath = remotePath
+			if strings.TrimSpace(encCfg.Mode) == "stream" {
+				record.EncryptionVersion = "v2-stream"
+			} else {
+				encFile, err := open115crypt.EncryptFileToTemp(file.AbsPath, encCfg)
+				if err != nil {
+					return uploaded, skipped, err
+				}
+				uploadPath = encFile.TempPath
+				cleanupPath = encFile.TempPath
+				record.EncryptedSize = encFile.EncryptedSize
+				record.EncryptionVersion = encFile.Version
+			}
 		}
 		r.log("stdout", fmt.Sprintf("[immichto115] Open115 上传文件: %s -> %s", uploadPath, remotePath))
-		if err := r.backend.UploadFile(ctx, uploadPath, remotePath); err != nil {
+		var uploadErr error
+		if encCfg.Enabled && strings.TrimSpace(encCfg.Mode) == "stream" {
+			uploadErr = r.backend.UploadEncryptedStream(ctx, file.AbsPath, remotePath, encCfg)
+		} else {
+			uploadErr = r.backend.UploadFile(ctx, uploadPath, remotePath)
+		}
+		if uploadErr != nil {
 			if cleanupPath != "" {
 				_ = open115crypt.CleanupTempFile(cleanupPath)
 			}
-			return uploaded, skipped, err
+			return uploaded, skipped, uploadErr
 		}
 		if cleanupPath != "" {
 			_ = open115crypt.CleanupTempFile(cleanupPath)
