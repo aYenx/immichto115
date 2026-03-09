@@ -686,6 +686,7 @@ const loadRemoteDir = async (path: string) => {
           url: config.webdav.url,
           user: config.webdav.user,
           password: config.webdav.password,
+          vendor: config.webdav.vendor,
           path: normalizedPath,
         })
     currentRemotePath.value = normalizedPath
@@ -816,6 +817,7 @@ const testConnection = async () => {
         url: config.webdav.url,
         user: config.webdav.user,
         password: config.webdav.password,
+        vendor: config.webdav.vendor,
       })
       if (!result.success) throw new Error(result.message || 'WebDAV 连接失败')
       testSuccess.value = true

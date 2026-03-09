@@ -74,8 +74,10 @@ func (u *Uploader) DeleteRemote(ctx context.Context, remotePath string) error {
 	if err != nil {
 		return err
 	}
-	_, err = client.DelFile(ctx, &sdk.DelFileReq{FileIDs: entry.ID, ParentID: entry.ParentID})
-	return err
+	return CallNoReturn(ctx, u.Pacer, "DelFile", defaultMaxRetries, func() error {
+		_, err := client.DelFile(ctx, &sdk.DelFileReq{FileIDs: entry.ID, ParentID: entry.ParentID})
+		return err
+	})
 }
 
 func joinRemote(root string, rel string) string {

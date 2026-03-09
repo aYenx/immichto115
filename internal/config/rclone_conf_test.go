@@ -1,6 +1,33 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
+
+func TestGenerateRcloneConfDefaultsVendorToOther(t *testing.T) {
+	confPath, err := GenerateRcloneConf(AppConfig{
+		WebDAV: WebDAVConfig{
+			URL:      "https://dav.example.com",
+			User:     "user",
+			Password: "secret",
+			Vendor:   "",
+		},
+	})
+	if err != nil {
+		t.Fatalf("GenerateRcloneConf error: %v", err)
+	}
+	defer CleanupRcloneConf(confPath)
+
+	content, err := os.ReadFile(confPath)
+	if err != nil {
+		t.Fatalf("ReadFile error: %v", err)
+	}
+	if !strings.Contains(string(content), "vendor = other") {
+		t.Fatalf("expected generated config to default vendor to other, got:\n%s", string(content))
+	}
+}
 
 func TestBuildRemotePath(t *testing.T) {
 	tests := []struct {

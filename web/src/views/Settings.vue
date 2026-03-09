@@ -796,7 +796,6 @@ const webdavCardState = computed(() => {
 
 const backupCardState = computed(() => {
   if (!config.backup.library_dir.trim() && !config.backup.backups_dir.trim()) return createCardState('待配置', 'warning')
-  if (!config.backup.library_dir.trim() || !config.backup.backups_dir.trim()) return createCardState('待完善', 'warning')
   return createCardState('已配置', 'healthy')
 })
 
@@ -836,7 +835,7 @@ const backupSignals = computed(() => {
   const signals: string[] = []
   signals.push(config.backup.library_dir.trim() ? `照片库: ${config.backup.library_dir.trim()}` : '照片库路径未设置')
   signals.push(config.backup.backups_dir.trim() ? `数据库备份: ${config.backup.backups_dir.trim()}` : '数据库备份路径未设置')
-  signals.push(config.backup.library_dir.trim() && config.backup.backups_dir.trim() ? '两类数据都会进入备份任务' : '建议同时配置两类路径，避免备份不完整')
+  signals.push(config.backup.library_dir.trim() && config.backup.backups_dir.trim() ? '两类数据都会进入备份任务' : '当前只配置了一类路径，任务会仅同步已配置的那一类数据')
   if (config.provider === 'open115' && config.backup.manifest_path?.trim()) {
     signals.push(`索引库: ${config.backup.manifest_path.trim()}`)
   }
@@ -1000,6 +999,7 @@ const testConnection = async () => {
         url: draftConfig.value.webdav.url,
         user: draftConfig.value.webdav.user,
         password: draftConfig.value.webdav.password,
+        vendor: draftConfig.value.webdav.vendor,
       })
 
       if (!result.success) {
@@ -1104,6 +1104,7 @@ const loadRemoteDir = async (path: string) => {
           url: draftConfig.value.webdav.url,
           user: draftConfig.value.webdav.user,
           password: draftConfig.value.webdav.password,
+          vendor: draftConfig.value.webdav.vendor,
           path: normalizedPath,
         })
     currentRemotePath.value = normalizedPath

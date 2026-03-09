@@ -33,7 +33,10 @@ func (s *Service) StartAuth(ctx context.Context, clientID string) (*AuthSession,
 		return nil, err
 	}
 	client := newAuthClient()
-	resp, err := client.AuthDeviceCode(ctx, strings.TrimSpace(clientID), codeVerifier)
+	pacer := NewPacer()
+	resp, err := Call(ctx, pacer, "AuthDeviceCode", defaultMaxRetries, func() (*sdk.AuthDeviceCodeResp, error) {
+		return client.AuthDeviceCode(ctx, strings.TrimSpace(clientID), codeVerifier)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +59,10 @@ func (s *Service) CheckAuthStatus(ctx context.Context, session *AuthSession) (*A
 		return nil, fmt.Errorf("auth session 缺少必要字段")
 	}
 	client := newAuthClient()
-	resp, err := client.QrCodeStatus(ctx, session.UID, fmt.Sprintf("%d", session.Time), session.Sign)
+	pacer := NewPacer()
+	resp, err := Call(ctx, pacer, "QrCodeStatus", defaultMaxRetries, func() (*sdk.QrCodeStatusResp, error) {
+		return client.QrCodeStatus(ctx, session.UID, fmt.Sprintf("%d", session.Time), session.Sign)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +96,10 @@ func (s *Service) FinishAuth(ctx context.Context, session *AuthSession) (*TokenS
 	}
 
 	client := newAuthClient()
-	tokenResp, err := client.CodeToToken(ctx, session.UID, session.CodeVerifier)
+	pacer := NewPacer()
+	tokenResp, err := Call(ctx, pacer, "CodeToToken", defaultMaxRetries, func() (*sdk.CodeToTokenResp, error) {
+		return client.CodeToToken(ctx, session.UID, session.CodeVerifier)
+	})
 	if err != nil {
 		return nil, err
 	}
