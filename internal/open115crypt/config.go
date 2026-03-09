@@ -6,6 +6,7 @@ type Config struct {
 	Enabled        bool
 	Password       string
 	Salt           string
+	Mode           string
 	FilenameMode   string
 	Algorithm      string
 	TempDir        string
@@ -17,6 +18,7 @@ func FromAppConfig(cfg config.AppConfig) Config {
 		Enabled:        cfg.Open115Encrypt.Enabled,
 		Password:       cfg.Open115Encrypt.Password,
 		Salt:           cfg.Open115Encrypt.Salt,
+		Mode:           cfg.Open115Encrypt.Mode,
 		FilenameMode:   cfg.Open115Encrypt.FilenameMode,
 		Algorithm:      cfg.Open115Encrypt.Algorithm,
 		TempDir:        cfg.Open115Encrypt.TempDir,

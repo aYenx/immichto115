@@ -19,6 +19,7 @@ import (
 	appCron "github.com/aYenx/immichto115/internal/cron"
 	"github.com/aYenx/immichto115/internal/notify"
 	"github.com/aYenx/immichto115/internal/open115"
+	"github.com/aYenx/immichto115/internal/open115crypt"
 	"github.com/aYenx/immichto115/internal/rclone"
 	"github.com/gin-gonic/gin"
 )
@@ -533,6 +534,8 @@ func (s *Server) SetupRouter() *gin.Engine {
 		v1.POST("/open115/auth/finish", s.handleOpen115AuthFinish)
 		v1.POST("/open115/test", s.handleOpen115Test)
 		v1.GET("/open115/ls", s.handleOpen115List)
+		v1.POST("/open115/debug/stream-measure", s.handleOpen115DebugStreamMeasure)
+		v1.POST("/open115/debug/stream-upload", s.handleOpen115DebugStreamUpload)
 
 		// 备份控制
 		v1.POST("/backup/start", s.handleBackupStart)
@@ -937,6 +940,56 @@ func (s *Server) handleOpen115List(c *gin.Context) {
 		})
 	}
 	c.JSON(http.StatusOK, entries)
+}
+
+type open115DebugStreamMeasureRequest struct {
+	LocalPath string `json:"local_path" binding:"required"`
+}
+
+type open115DebugStreamUploadRequest struct {
+	LocalPath  string `json:"local_path" binding:"required"`
+	RemotePath string `json:"remote_path" binding:"required"`
+}
+
+func (s *Server) handleOpen115DebugStreamMeasure(c *gin.Context) {
+	var req open115DebugStreamMeasureRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	cfg := s.Config.Get()
+	encCfg := open115crypt.FromAppConfig(cfg)
+	if !encCfg.Enabled {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "open115_encrypt 未启用"})
+		return
+	}
+	info, err := open115crypt.DebugMeasure(strings.TrimSpace(req.LocalPath), encCfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, info)
+}
+
+func (s *Server) handleOpen115DebugStreamUpload(c *gin.Context) {
+	var req open115DebugStreamUploadRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	cfg := s.Config.Get()
+	encCfg := open115crypt.FromAppConfig(cfg)
+	if !encCfg.Enabled {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "open115_encrypt 未启用"})
+		return
+	}
+	uploader := open115.NewUploader(s.Open115)
+	result, err := uploader.DebugStreamUpload(c.Request.Context(), strings.TrimSpace(req.LocalPath), strings.TrimSpace(req.RemotePath), encCfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "result": result})
+		return
+	}
+	c.JSON(http.StatusOK, result)
 }
 
 func (s *Server) handleBackupStop(c *gin.Context) {

@@ -57,6 +57,7 @@ curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uni
 | 🔄  | **备份模式**          | 增量备份 (`copy`) 或镜像同步 (`sync`)，`sync` 支持远端删除保护开关                      |
 | 🧠  | **增量索引**          | 内置 `manifest.db`（SQLite）记录上传状态，二次备份可跳过未变化文件                      |
 | ☁️  | **115 Open 上传**     | 支持目录浏览、目录创建、单文件上传，以及大文件 multipart 上传路径                        |
+| 🔐  | **Open115 本地加密**  | 支持 `temp`（临时文件）与 `stream`（流式）两种实验性加密上传模式                        |
 | 🔔  | **Bark 推送通知**     | 备份成功/失败时推送通知到 iPhone，支持在设置页一键测试                                 |
 | 🔐  | **加密传输**          | WebDAV 模式下可选 Rclone Crypt，数据在云端始终加密存储                                  |
 | 🛡️  | **访问保护**          | 可选管理员账号密码，保护 Web UI / API / WebSocket；更改后自动刷新验证                  |
@@ -82,6 +83,9 @@ ImmichTo115 现在支持两种后端接入方式：
    - 支持目录浏览、增量上传、manifest 索引
    - 支持一键跳转到 OpenList Token 页面获取 token
    - 不强依赖你自己申请 `client_id`
+   - 支持实验性的本地加密上传：
+     - `temp`：先生成临时 `.enc` 文件再上传
+     - `stream`：流式加密上传（已验证最小上传闭环）
 
 > [!TIP]
 > 如果你使用 `115 Open`，推荐优先走 **token 模式**：先在界面里点击“获取 Token（OpenList）”，拿到 `access_token / refresh_token` 后直接填写。项目内扫码授权保留为可选能力。
@@ -179,6 +183,8 @@ docker compose up -d --build
 - `manifest.db` 成功生成并记录上传状态
 - 第二次备份无变化时可全部跳过
 - 修改单个文件后仅上传变更文件
+- `open115_encrypt.mode = temp` 已完成真实加密上传验证
+- `open115_encrypt.mode = stream` 已完成 `stream-upload` debug 闭环验证
 
 > 详细记录见：`docs/open115-verification-2026-03-08.md`
 
@@ -237,6 +243,16 @@ open115:
   refresh_token: your_refresh_token
   root_id: "0"
 
+open115_encrypt:
+  enabled: false
+  password: ""
+  salt: ""
+  mode: temp          # temp | stream
+  filename_mode: plain
+  algorithm: aes256gcm-v1
+  temp_dir: /tmp/immichto115-open115-encrypt
+  min_free_space_mb: 1024
+
 backup:
   library_dir: /data/library
   backups_dir: /data/backups
@@ -261,6 +277,10 @@ backup:
 | WebDAV URL / 用户名 / 密码 | WebDAV 模式所需登录凭据 | WebDAV 模式必填 |
 | Open115 Access / Refresh Token | 115 Open 模式所需 token | Open115 模式必填 |
 | Open115 Root ID | Open115 根目录 ID，默认 `0` | ⬜ |
+| Open115 Encrypt Enabled | 是否启用 Open115 本地加密上传 | ⬜ |
+| Open115 Encrypt Mode | `temp` 或 `stream` | ⬜ |
+| Open115 Encrypt Password / Salt | Open115 本地加密参数 | 启用时必填/推荐填 |
+| Open115 Encrypt Temp Dir | `temp` 模式下临时加密文件目录 | ⬜ |
 | 照片库路径 | Immich 照片存储目录 | ✅ |
 | 数据库备份路径 | Immich DB dump 目录 | ✅ |
 | 备份模式 | `copy`（增量，默认）或 `sync`（镜像同步） | ⬜ |
