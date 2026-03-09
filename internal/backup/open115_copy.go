@@ -13,6 +13,7 @@ import (
 	"github.com/aYenx/immichto115/internal/config"
 	"github.com/aYenx/immichto115/internal/manifest"
 	"github.com/aYenx/immichto115/internal/open115"
+	"github.com/aYenx/immichto115/internal/open115crypt"
 )
 
 type LogEmitter func(stream string, text string)
@@ -127,27 +128,50 @@ func (r *Open115CopyRunner) uploadChangedFiles(ctx context.Context, files []loca
 		if ctx.Err() != nil {
 			return uploaded, skipped, ctx.Err()
 		}
-		record, err := r.manifest.Get(ctx, file.RelPath)
+		existingRec, err := r.manifest.Get(ctx, file.RelPath)
 		if err != nil {
 			return uploaded, skipped, err
 		}
-		if record != nil && !record.Deleted && record.Size == file.Size && record.MTime == file.MTime {
+		if existingRec != nil && !existingRec.Deleted && existingRec.Size == file.Size && existingRec.MTime == file.MTime {
 			skipped++
 			continue
 		}
 		remotePath := path.Join(remoteRoot, file.RelPath)
-		r.log("stdout", fmt.Sprintf("[immichto115] Open115 上传文件: %s -> %s", file.AbsPath, remotePath))
-		if err := r.backend.UploadFile(ctx, file.AbsPath, remotePath); err != nil {
-			return uploaded, skipped, err
-		}
-		now := time.Now().Unix()
-		if err := r.manifest.Put(ctx, &manifest.FileRecord{
+		uploadPath := file.AbsPath
+		record := &manifest.FileRecord{
 			Path:           file.RelPath,
 			Size:           file.Size,
 			MTime:          file.MTime,
-			LastUploadedAt: now,
+			LastUploadedAt: time.Now().Unix(),
 			Deleted:        false,
-		}); err != nil {
+			RemotePath:     remotePath,
+		}
+		encCfg := open115crypt.FromAppConfig(r.cfgMgr.Get())
+		var cleanupPath string
+		if encCfg.Enabled {
+			encFile, err := open115crypt.EncryptFileToTemp(file.AbsPath, encCfg)
+			if err != nil {
+				return uploaded, skipped, err
+			}
+			uploadPath = encFile.TempPath
+			cleanupPath = encFile.TempPath
+			remotePath = remotePath + ".enc"
+			record.Encrypted = true
+			record.EncryptedSize = encFile.EncryptedSize
+			record.EncryptionVersion = encFile.Version
+			record.RemotePath = remotePath
+		}
+		r.log("stdout", fmt.Sprintf("[immichto115] Open115 上传文件: %s -> %s", uploadPath, remotePath))
+		if err := r.backend.UploadFile(ctx, uploadPath, remotePath); err != nil {
+			if cleanupPath != "" {
+				_ = open115crypt.CleanupTempFile(cleanupPath)
+			}
+			return uploaded, skipped, err
+		}
+		if cleanupPath != "" {
+			_ = open115crypt.CleanupTempFile(cleanupPath)
+		}
+		if err := r.manifest.Put(ctx, record); err != nil {
 			return uploaded, skipped, err
 		}
 		uploaded++
@@ -177,7 +201,10 @@ func (r *Open115CopyRunner) syncDeleteRemoved(ctx context.Context, currentFiles 
 		if _, ok := existing[rec.Path]; ok {
 			continue
 		}
-		remotePath := path.Join(remoteRoot, rec.Path)
+		remotePath := rec.RemotePath
+		if strings.TrimSpace(remotePath) == "" {
+			remotePath = path.Join(remoteRoot, rec.Path)
+		}
 		r.log("stdout", fmt.Sprintf("[immichto115] Open115 sync 删除远端文件: %s", remotePath))
 		if err := r.backend.DeleteRemote(ctx, remotePath); err != nil {
 			return err

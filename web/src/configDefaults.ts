@@ -27,6 +27,15 @@ export function createDefaultConfig(): AppConfig {
       token_expires_at: 0,
       user_id: '',
     },
+    open115_encrypt: {
+      enabled: false,
+      password: '',
+      salt: '',
+      filename_mode: 'plain',
+      algorithm: 'aes256gcm-v1',
+      temp_dir: '',
+      min_free_space_mb: 1024,
+    },
     backup: {
       library_dir: '',
       backups_dir: '',

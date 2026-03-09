@@ -56,11 +56,22 @@ export interface Open115Config {
   user_id: string
 }
 
+export interface Open115EncryptConfig {
+  enabled: boolean
+  password: string
+  salt: string
+  filename_mode: string
+  algorithm: string
+  temp_dir: string
+  min_free_space_mb: number
+}
+
 export interface AppConfig {
   provider: 'webdav' | 'open115'
   server: ServerConfig
   webdav: WebDAVConfig
   open115: Open115Config
+  open115_encrypt: Open115EncryptConfig
   backup: BackupConfig
   encrypt: EncryptConfig
   cron: CronConfig

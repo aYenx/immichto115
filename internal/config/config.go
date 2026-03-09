@@ -14,14 +14,15 @@ import (
 
 // AppConfig 应用全局配置结构。
 type AppConfig struct {
-	Provider string         `mapstructure:"provider" json:"provider" yaml:"provider"`
-	Server   ServerConfig   `mapstructure:"server"   json:"server"   yaml:"server"`
-	WebDAV   WebDAVConfig   `mapstructure:"webdav"   json:"webdav"   yaml:"webdav"`
-	Open115  Open115Config  `mapstructure:"open115"  json:"open115"  yaml:"open115"`
-	Backup   BackupConfig   `mapstructure:"backup"   json:"backup"   yaml:"backup"`
-	Encrypt  EncryptConfig  `mapstructure:"encrypt"  json:"encrypt"  yaml:"encrypt"`
-	Cron     CronConfig     `mapstructure:"cron"     json:"cron"     yaml:"cron"`
-	Notify   NotifyConfig   `mapstructure:"notify"   json:"notify"   yaml:"notify"`
+	Provider       string                `mapstructure:"provider" json:"provider" yaml:"provider"`
+	Server         ServerConfig          `mapstructure:"server"   json:"server"   yaml:"server"`
+	WebDAV         WebDAVConfig          `mapstructure:"webdav"   json:"webdav"   yaml:"webdav"`
+	Open115        Open115Config         `mapstructure:"open115"  json:"open115"  yaml:"open115"`
+	Open115Encrypt Open115EncryptConfig  `mapstructure:"open115_encrypt" json:"open115_encrypt" yaml:"open115_encrypt"`
+	Backup         BackupConfig          `mapstructure:"backup"   json:"backup"   yaml:"backup"`
+	Encrypt        EncryptConfig         `mapstructure:"encrypt"  json:"encrypt"  yaml:"encrypt"`
+	Cron           CronConfig            `mapstructure:"cron"     json:"cron"     yaml:"cron"`
+	Notify         NotifyConfig          `mapstructure:"notify"   json:"notify"   yaml:"notify"`
 }
 
 // ServerConfig 服务器配置。
@@ -50,6 +51,17 @@ type Open115Config struct {
 	RootID         string `mapstructure:"root_id" json:"root_id" yaml:"root_id"`
 	TokenExpiresAt int64  `mapstructure:"token_expires_at" json:"token_expires_at" yaml:"token_expires_at"`
 	UserID         string `mapstructure:"user_id" json:"user_id" yaml:"user_id"`
+}
+
+// Open115EncryptConfig Open115 模式本地加密配置。
+type Open115EncryptConfig struct {
+	Enabled        bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+	Password       string `mapstructure:"password" json:"password" yaml:"password"`
+	Salt           string `mapstructure:"salt" json:"salt" yaml:"salt"`
+	FilenameMode   string `mapstructure:"filename_mode" json:"filename_mode" yaml:"filename_mode"`
+	Algorithm      string `mapstructure:"algorithm" json:"algorithm" yaml:"algorithm"`
+	TempDir        string `mapstructure:"temp_dir" json:"temp_dir" yaml:"temp_dir"`
+	MinFreeSpaceMB int64  `mapstructure:"min_free_space_mb" json:"min_free_space_mb" yaml:"min_free_space_mb"`
 }
 
 // BackupConfig 备份源和目标配置。
@@ -111,6 +123,11 @@ func NewManager(configPath string) (*Manager, error) {
 	viper.SetDefault("open115.enabled", false)
 	viper.SetDefault("open115.root_id", "0")
 	viper.SetDefault("open115.token_expires_at", 0)
+	viper.SetDefault("open115_encrypt.enabled", false)
+	viper.SetDefault("open115_encrypt.filename_mode", "plain")
+	viper.SetDefault("open115_encrypt.algorithm", "aes256gcm-v1")
+	viper.SetDefault("open115_encrypt.temp_dir", "")
+	viper.SetDefault("open115_encrypt.min_free_space_mb", 1024)
 	viper.SetDefault("backup.remote_dir", "/immich-backup")
 	viper.SetDefault("backup.mode", "copy")
 	viper.SetDefault("backup.manifest_path", "")
@@ -182,6 +199,14 @@ func (m *Manager) Update(cfg AppConfig) error {
 	viper.Set("open115.root_id", cfg.Open115.RootID)
 	viper.Set("open115.token_expires_at", cfg.Open115.TokenExpiresAt)
 	viper.Set("open115.user_id", cfg.Open115.UserID)
+
+	viper.Set("open115_encrypt.enabled", cfg.Open115Encrypt.Enabled)
+	viper.Set("open115_encrypt.password", cfg.Open115Encrypt.Password)
+	viper.Set("open115_encrypt.salt", cfg.Open115Encrypt.Salt)
+	viper.Set("open115_encrypt.filename_mode", cfg.Open115Encrypt.FilenameMode)
+	viper.Set("open115_encrypt.algorithm", cfg.Open115Encrypt.Algorithm)
+	viper.Set("open115_encrypt.temp_dir", cfg.Open115Encrypt.TempDir)
+	viper.Set("open115_encrypt.min_free_space_mb", cfg.Open115Encrypt.MinFreeSpaceMB)
 
 	viper.Set("backup.library_dir", cfg.Backup.LibraryDir)
 	viper.Set("backup.backups_dir", cfg.Backup.BackupsDir)
