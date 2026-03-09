@@ -23,10 +23,14 @@ const multipartChunkSize int64 = 20 * 1024 * 1024
 // Uploader 负责承载 Open115 上传相关能力。
 type Uploader struct {
 	service *Service
+	Pacer   *Pacer
 }
 
 func NewUploader(service *Service) *Uploader {
-	return &Uploader{service: service}
+	return &Uploader{
+		service: service,
+		Pacer:   NewPacer(),
+	}
 }
 
 func normalizeUploadPath(remotePath string) string {
@@ -56,7 +60,7 @@ func (u *Uploader) rootID() string {
 	return strings.TrimSpace(cfg.RootID)
 }
 
-func isRateLimitedError(err error) bool {
+func IsRateLimitedError(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -66,45 +70,18 @@ func isRateLimitedError(err error) bool {
 		return true
 	}
 	// 115 API 有时返回 code:0 + 空 message 作为隐式限速响应
-	if strings.Contains(msg, "code: 0, message:") && strings.TrimSpace(strings.TrimPrefix(msg, "code: 0, message:")) == "" {
-		return true
+	// 注意：SDK 可能将错误包装成 "someprefix: code: 0, message:"，所以不能用 TrimPrefix
+	const marker = "code: 0, message:"
+	if idx := strings.Index(msg, marker); idx >= 0 {
+		after := strings.TrimSpace(msg[idx+len(marker):])
+		if after == "" {
+			return true
+		}
 	}
 	return false
 }
 
-func retryOpen115[T any](ctx context.Context, label string, fn func() (T, error)) (T, error) {
-	var zero T
-	var lastErr error
-	for i := 0; i < 6; i++ {
-		if ctx.Err() != nil {
-			return zero, ctx.Err()
-		}
-		if i > 0 {
-			// 非首次尝试也做轻微节流，降低连续请求频率
-			select {
-			case <-ctx.Done():
-				return zero, ctx.Err()
-			case <-time.After(1200 * time.Millisecond):
-			}
-		}
-		value, err := fn()
-		if err == nil {
-			return value, nil
-		}
-		lastErr = err
-		if !isRateLimitedError(err) || i == 5 {
-			return zero, err
-		}
-		delay := time.Duration(i+1) * 3 * time.Second
-		log.Printf("[open115] %s rate limited, retry in %s: %v", label, delay, err)
-		select {
-		case <-ctx.Done():
-			return zero, ctx.Err()
-		case <-time.After(delay):
-		}
-	}
-	return zero, lastErr
-}
+const defaultMaxRetries = 6
 
 func (u *Uploader) listDirItems(ctx context.Context, parentID string) ([]sdk.GetFilesResp_File, error) {
 	client, err := u.service.Client()
@@ -117,7 +94,7 @@ func (u *Uploader) listDirItems(ctx context.Context, parentID string) ([]sdk.Get
 	items := make([]sdk.GetFilesResp_File, 0, pageSize)
 
 	for {
-		resp, err := retryOpen115(ctx, "GetFiles", func() (*sdk.GetFilesResp, error) {
+		resp, err := Call(ctx, u.Pacer, "GetFiles", defaultMaxRetries, func() (*sdk.GetFilesResp, error) {
 			return client.GetFiles(ctx, &sdk.GetFilesReq{
 				CID:     parentID,
 				Limit:   pageSize,
@@ -180,7 +157,7 @@ func (u *Uploader) EnsureDir(ctx context.Context, remotePath string) (string, er
 			currentID = existingID
 			continue
 		}
-		created, err := retryOpen115(ctx, "Mkdir", func() (*sdk.MkdirResp, error) {
+		created, err := Call(ctx, u.Pacer, "Mkdir", defaultMaxRetries, func() (*sdk.MkdirResp, error) {
 			return client.Mkdir(ctx, currentID, seg)
 		})
 		if err != nil {
@@ -431,7 +408,7 @@ func (u *Uploader) UploadReaderWithInit(ctx context.Context, reader io.Reader, r
 		preID = strings.Repeat("0", 40)
 	}
 	log.Printf("[open115-reader] UploadInitReader start: remote=%s size=%d", remotePath, size)
-	initResp, err := retryOpen115(ctx, "UploadInitReader", func() (*sdk.UploadInitResp, error) {
+	initResp, err := Call(ctx, u.Pacer, "UploadInitReader", defaultMaxRetries, func() (*sdk.UploadInitResp, error) {
 		return client.UploadInit(ctx, &sdk.UploadInitReq{
 			FileName: fileName,
 			FileSize: size,
@@ -444,7 +421,7 @@ func (u *Uploader) UploadReaderWithInit(ctx context.Context, reader io.Reader, r
 		return err
 	}
 	log.Printf("[open115-reader] UploadInitReader done: remote=%s object=%s status=%d", remotePath, initResp.Object, initResp.Status)
-	tokenResp, err := retryOpen115(ctx, "UploadGetTokenReader", func() (*sdk.UploadGetTokenResp, error) {
+	tokenResp, err := Call(ctx, u.Pacer, "UploadGetTokenReader", defaultMaxRetries, func() (*sdk.UploadGetTokenResp, error) {
 		return client.UploadGetToken(ctx)
 	})
 	if err != nil {
@@ -487,7 +464,7 @@ func (u *Uploader) UploadFile(ctx context.Context, localPath string, remotePath 
 	if err != nil {
 		return err
 	}
-	initResp, err := retryOpen115(ctx, "UploadInit", func() (*sdk.UploadInitResp, error) {
+	initResp, err := Call(ctx, u.Pacer, "UploadInit", defaultMaxRetries, func() (*sdk.UploadInitResp, error) {
 		return client.UploadInit(ctx, &sdk.UploadInitReq{
 			FileName: fileName,
 			FileSize: size,
@@ -507,7 +484,7 @@ func (u *Uploader) UploadFile(ctx context.Context, localPath string, remotePath 
 		if err != nil {
 			return err
 		}
-		initResp, err = retryOpen115(ctx, "UploadInitSign", func() (*sdk.UploadInitResp, error) {
+		initResp, err = Call(ctx, u.Pacer, "UploadInitSign", defaultMaxRetries, func() (*sdk.UploadInitResp, error) {
 			return client.UploadInit(ctx, &sdk.UploadInitReq{
 				FileName: fileName,
 				FileSize: size,
@@ -525,7 +502,9 @@ func (u *Uploader) UploadFile(ctx context.Context, localPath string, remotePath 
 			return nil
 		}
 	}
-	tokenResp, err := client.UploadGetToken(ctx)
+	tokenResp, err := Call(ctx, u.Pacer, "UploadGetToken", defaultMaxRetries, func() (*sdk.UploadGetTokenResp, error) {
+		return client.UploadGetToken(ctx)
+	})
 	if err != nil {
 		return err
 	}

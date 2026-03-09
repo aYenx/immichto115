@@ -18,6 +18,10 @@ func NewOpen115Backend(service *open115.Service) *Open115Backend {
 	}
 }
 
+func (b *Open115Backend) Uploader() *open115.Uploader {
+	return b.uploader
+}
+
 func (b *Open115Backend) TestConnection(ctx context.Context) error {
 	return b.service.TestConnection(ctx)
 }
