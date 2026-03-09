@@ -130,10 +130,6 @@ func (r *Open115CopyRunner) uploadChangedFiles(ctx context.Context, files []loca
 		if ctx.Err() != nil {
 			return uploaded, skipped, ctx.Err()
 		}
-		// 通过 pacer 自适应节流，代替固定延迟
-		if err := pacer.Wait(ctx); err != nil {
-			return uploaded, skipped, err
-		}
 		existingRec, err := r.manifest.Get(ctx, file.RelPath)
 		if err != nil {
 			return uploaded, skipped, err
