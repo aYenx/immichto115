@@ -22,6 +22,15 @@ Go 后端 + Vue 3 前端，编译为**单个二进制文件**，开箱即用。
 
 ## ✨ 功能特性
 
+### 适合谁用？
+
+如果你只是想把自托管 Immich 的照片库和数据库备份到 115，这个项目现在有两条推荐路径：
+
+- **最省心**：`115 Open + token 模式`
+- **更传统**：`WebDAV + rclone`
+
+如果你已经有 OpenList / OpenList Token 页面能拿到 token，优先推荐 `115 Open`。如果你已经长期在用 WebDAV，继续用 WebDAV 也没问题。
+
 |     | 功能              | 说明                                                                            |
 | :-: | ----------------- | ------------------------------------------------------------------------------- |
 | 🧙  | **Setup Wizard**  | 4 步引导式配置，支持 `WebDAV` 或 `115 Open` 两种接入方式                        |
@@ -49,14 +58,14 @@ ImmichTo115 支持两种后端接入方式：
 
 | 对比项   | WebDAV 模式            | 115 Open 模式 ⭐ 推荐                        |
 | -------- | ---------------------- | -------------------------------------------- |
-| 接入方式 | `rclone` + WebDAV 协议 | 115 Open API（access_token / refresh_token） |
+| 接入方式 | `rclone` + WebDAV 协议 | 115 Open API（`access_token / refresh_token`） |
 | 增量索引 | 依赖 rclone 本身       | 内置 `manifest.db` SQLite 索引               |
 | 加密     | Rclone Crypt           | 本地加密上传（`temp` / `stream`）            |
 | 目录浏览 | WebDAV 目录            | 直接浏览 115 目录树                          |
 | 依赖     | 需安装 rclone          | 无额外依赖                                   |
 
 > [!TIP]
-> 推荐使用 **115 Open 模式**：在界面中点击"获取 Token（OpenList）"，拿到 `access_token / refresh_token` 后直接填写即可，无需自行申请 `client_id`。
+> **大多数用户直接选 115 Open 就行。** 在界面中点击“获取 Token（OpenList）”，拿到 `access_token / refresh_token` 后直接填写即可，不需要自己申请 `client_id`。
 
 ### 方式一：Docker Compose（推荐）
 
@@ -118,7 +127,7 @@ git clone https://github.com/aYenx/immichto115.git
 cd immichto115
 
 # 编译前端
-cd web && npm ci && npm run build && cd ..
+cd web && npm ci --include=dev && npm run build && cd ..
 
 # 编译后端（go:embed 内嵌前端资源，注入版本号）
 VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")

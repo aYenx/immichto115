@@ -6,8 +6,8 @@
         <h1 class="settings-title">配置中心</h1>
         <p class="settings-subtitle">把常用配置拆成四个模块，按需打开弹窗编辑，避免沿用首次引导流程。</p>
         <div class="settings-status-strip">
-          <span :class="['status-chip', systemStatus?.rclone_installed ? 'healthy' : 'warning']">
-            {{ systemStatus?.rclone_installed ? 'Rclone 已就绪' : 'Rclone 未安装' }}
+          <span :class="['status-chip', (systemStatus?.provider || config.provider) === 'open115' || systemStatus?.rclone_installed ? 'healthy' : 'warning']">
+            {{ (systemStatus?.provider || config.provider) === 'open115' ? 'Open115 已启用' : (systemStatus?.rclone_installed ? 'Rclone 已就绪' : 'Rclone 未安装') }}
           </span>
           <span :class="['status-chip', systemStatus?.backup_status === 'running' ? 'info' : 'neutral']">
             {{ systemStatus?.backup_status === 'running' ? '备份进行中' : '当前空闲' }}
@@ -30,7 +30,7 @@
         <div class="settings-card-body">
           <div class="settings-card-head">
             <div>
-              <h2>WebDAV 与远端目录</h2>
+              <h2>存储接入与远端目录</h2>
               <span>连接配置</span>
             </div>
             <span :class="['card-badge', webdavCardState.tone]">{{ webdavCardState.label }}</span>
@@ -507,7 +507,7 @@
     <div v-if="showRemoteFolderPicker" class="picker-overlay" @click.self="showRemoteFolderPicker = false">
       <div class="picker-modal">
         <div class="picker-header">
-          <h3>选择 WebDAV 备份目录</h3>
+          <h3>选择{{ draftConfig.provider === 'open115' ? ' 115 Open ' : ' WebDAV ' }}备份目录</h3>
           <button class="settings-close" @click="showRemoteFolderPicker = false"><LucideX :size="20" /></button>
         </div>
         <div class="picker-body">
@@ -606,11 +606,11 @@ const open115AuthStatusText = ref('未开始')
 const open115Authorized = ref<boolean | null>(null)
 let authPollTimer: number | null = null
 
-const sectionMeta: Record<SectionKey, { title: string; kicker: string; description: string }> = {
+const sectionMeta = computed<Record<SectionKey, { title: string; kicker: string; description: string }>>(() => ({
   webdav: {
-    title: 'WebDAV 与远端目录',
+    title: '存储接入与远端目录',
     kicker: '连接配置',
-    description: '管理 WebDAV 连接信息和云端备份目录。',
+    description: '管理 WebDAV / 115 Open 连接信息以及云端备份目录。',
   },
   backup: {
     title: '备份路径',
@@ -620,7 +620,9 @@ const sectionMeta: Record<SectionKey, { title: string; kicker: string; descripti
   encrypt: {
     title: '加密配置',
     kicker: '传输保护',
-    description: '控制是否启用 Rclone Crypt 以及对应密钥。',
+    description: config.provider === 'open115'
+      ? '控制是否启用 Open115 本地加密上传，以及 temp / stream 模式相关参数。'
+      : '控制是否启用 Rclone Crypt 以及对应密钥。',
   },
   automation: {
     title: '定时任务与访问保护',
@@ -632,7 +634,7 @@ const sectionMeta: Record<SectionKey, { title: string; kicker: string; descripti
     kicker: 'Bark 通知',
     description: '备份完成或失败时，通过 Bark 推送通知到手机。',
   },
-}
+}))
 
 const refreshConfig = async () => {
   isRefreshing.value = true
@@ -832,6 +834,9 @@ const backupSignals = computed(() => {
   signals.push(config.backup.library_dir.trim() ? `照片库: ${config.backup.library_dir.trim()}` : '照片库路径未设置')
   signals.push(config.backup.backups_dir.trim() ? `数据库备份: ${config.backup.backups_dir.trim()}` : '数据库备份路径未设置')
   signals.push(config.backup.library_dir.trim() && config.backup.backups_dir.trim() ? '两类数据都会进入备份任务' : '建议同时配置两类路径，避免备份不完整')
+  if (config.provider === 'open115' && config.backup.manifest_path?.trim()) {
+    signals.push(`索引库: ${config.backup.manifest_path.trim()}`)
+  }
   if (config.backup.mode === 'sync') {
     signals.push(config.backup.allow_remote_delete ? 'sync 删除已开启' : 'sync 删除未开启（更安全）')
   }
