@@ -32,7 +32,7 @@ COPY --from=frontend-builder /build/web/dist ./web/dist
 
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /immichto115 ./cmd/server/
+    CGO_ENABLED=0 GOOS=linux go build -tags embedfront -ldflags="-s -w" -o /immichto115 ./cmd/server/
 
 # ============================================================
 # Stage 3: 最终运行镜像 (Alpine + Rclone)

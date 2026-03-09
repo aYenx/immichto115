@@ -121,12 +121,40 @@ func HandleWebSocket(hub *Hub) gin.HandlerFunc {
 		})
 
 		// 持续读取客户端消息（主要用于检测断开连接）
+		// 同时通过 Pong handler 实现心跳检测
 		go func() {
 			defer hub.Unregister(conn)
+
+			const pongWait = 60 * time.Second
+			conn.SetReadDeadline(time.Now().Add(pongWait))
+			conn.SetPongHandler(func(string) error {
+				conn.SetReadDeadline(time.Now().Add(pongWait))
+				return nil
+			})
+
 			for {
 				_, _, err := conn.ReadMessage()
 				if err != nil {
 					break
+				}
+			}
+		}()
+
+		// 定时发送 Ping 帧，触发客户端 Pong 回复
+		go func() {
+			const pingInterval = 30 * time.Second
+			ticker := time.NewTicker(pingInterval)
+			defer ticker.Stop()
+
+			for range ticker.C {
+				hub.mu.RLock()
+				_, connected := hub.clients[conn]
+				hub.mu.RUnlock()
+				if !connected {
+					return
+				}
+				if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)); err != nil {
+					return
 				}
 			}
 		}()

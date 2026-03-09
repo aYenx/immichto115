@@ -589,7 +589,7 @@ func (s *Server) SetupRouter() *gin.Engine {
 		v1.POST("/notify/test", s.handleNotifyTest)
 	}
 
-	// --- WebSocket ---
+	// --- WebSocket（使用 auth 中间件保护）---
 	r.GET("/ws/logs", HandleWebSocket(s.Hub))
 
 	return r
@@ -712,8 +712,6 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 			return
 		}
 	}
-
-	newCfg.Backup.RemoteDir = normalizeRemoteDir(newCfg.Backup.RemoteDir)
 
 	if err := s.Config.Update(newCfg); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -1198,18 +1196,19 @@ func (s *Server) handleLocalList(c *gin.Context) {
 		}
 	}
 
-	// 安全校验：规范化路径并禁止路径遍历
-	absPath, err := filepath.Abs(localPath)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效路径: " + err.Error()})
-		return
-	}
-	normalizedLocalPath := strings.ReplaceAll(absPath, "\\", "/")
-	for _, segment := range strings.Split(normalizedLocalPath, "/") {
+	// 安全校验：在路径规范化之前先检查原始输入
+	rawPath := strings.ReplaceAll(localPath, "\\", "/")
+	for _, segment := range strings.Split(rawPath, "/") {
 		if segment == ".." {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "路径中不允许包含父级路径段 '..'"})
 			return
 		}
+	}
+
+	absPath, err := filepath.Abs(localPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效路径: " + err.Error()})
+		return
 	}
 	localPath = absPath
 

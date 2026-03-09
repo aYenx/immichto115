@@ -181,23 +181,40 @@ func fileSHA1AndPreID(localPath string) (fileSHA1 string, preID string, size int
 	}
 	size = info.Size()
 
-	h := sha1.New()
-	if _, err = io.Copy(h, file); err != nil {
-		return "", "", 0, err
-	}
-	fileSHA1 = strings.ToUpper(fmt.Sprintf("%x", h.Sum(nil)))
-
-	if _, err = file.Seek(0, io.SeekStart); err != nil {
-		return "", "", 0, err
-	}
+	// 在一次遍历中同时计算完整文件 SHA1 和前 128KB 的 preID
+	fullHasher := sha1.New()
+	preHasher := sha1.New()
 	preLen := preHashSize
 	if size < preLen {
 		preLen = size
 	}
-	preHasher := sha1.New()
-	if _, err = io.CopyN(preHasher, file, preLen); err != nil && err != io.EOF {
-		return "", "", 0, err
+	var preCollected int64
+
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := file.Read(buf)
+		if n > 0 {
+			chunk := buf[:n]
+			fullHasher.Write(chunk)
+			if preCollected < preLen {
+				remaining := preLen - preCollected
+				if int64(n) <= remaining {
+					preHasher.Write(chunk)
+				} else {
+					preHasher.Write(chunk[:remaining])
+				}
+				preCollected += int64(n)
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return "", "", 0, readErr
+		}
 	}
+
+	fileSHA1 = strings.ToUpper(fmt.Sprintf("%x", fullHasher.Sum(nil)))
 	preID = strings.ToUpper(fmt.Sprintf("%x", preHasher.Sum(nil)))
 	return fileSHA1, preID, size, nil
 }

@@ -3,7 +3,6 @@ package open115
 import (
 	"context"
 	"fmt"
-	"path"
 	"strings"
 
 	sdk "github.com/xhofe/115-sdk-go"
@@ -80,6 +79,3 @@ func (u *Uploader) DeleteRemote(ctx context.Context, remotePath string) error {
 	})
 }
 
-func joinRemote(root string, rel string) string {
-	return path.Join(normalizeUploadPath(root), rel)
-}

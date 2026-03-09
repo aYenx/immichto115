@@ -11,6 +11,10 @@ import (
 	"path/filepath"
 )
 
+// maxInMemoryEncryptSize 是 temp 模式下允许的最大文件大小（256MB）。
+// 超过该阈值的文件应使用 stream 模式加密，避免 OOM。
+const maxInMemoryEncryptSize int64 = 256 * 1024 * 1024
+
 type EncryptedTempFile struct {
 	TempPath      string
 	EncryptedSize int64
@@ -30,6 +34,9 @@ func EncryptFileToTemp(srcPath string, cfg Config) (*EncryptedTempFile, error) {
 	stat, err := in.Stat()
 	if err != nil {
 		return nil, err
+	}
+	if stat.Size() > maxInMemoryEncryptSize {
+		return nil, fmt.Errorf("文件 %s 大小 (%d bytes) 超过 temp 模式限制 (%d bytes)，请切换到 stream 模式", srcPath, stat.Size(), maxInMemoryEncryptSize)
 	}
 	key, err := DeriveKey(cfg.Password, cfg.Salt)
 	if err != nil {

@@ -34,7 +34,11 @@ func (s *Scheduler) Start(expression string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	oldEntryID := s.entryID
+	// 先删除旧任务，避免新旧任务同时存在的短暂窗口
+	if s.entryID != 0 {
+		s.c.Remove(s.entryID)
+		s.entryID = 0
+	}
 
 	entryID, err := s.c.AddFunc(expression, func() {
 		log.Printf("[cron] triggered backup job: %s", expression)
@@ -51,10 +55,6 @@ func (s *Scheduler) Start(expression string) error {
 	})
 	if err != nil {
 		return err
-	}
-
-	if oldEntryID != 0 {
-		s.c.Remove(oldEntryID)
 	}
 
 	s.entryID = entryID
