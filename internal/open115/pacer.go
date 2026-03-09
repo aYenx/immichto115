@@ -44,13 +44,13 @@ func WithBurstFactor(f float64) PacerOption {
 }
 
 // NewPacer 创建一个自适应速率限制器。
-// 默认参数：最小间隔 500ms，最大间隔 60s，初始间隔 800ms。
+// 默认参数：最小间隔 200ms，最大间隔 60s，初始间隔 300ms。
 func NewPacer(opts ...PacerOption) *Pacer {
 	p := &Pacer{
-		minInterval: 500 * time.Millisecond,
+		minInterval: 200 * time.Millisecond,
 		maxInterval: 60 * time.Second,
-		interval:    800 * time.Millisecond,
-		decayFactor: 0.85,
+		interval:    300 * time.Millisecond,
+		decayFactor: 0.7,
 		burstFactor: 3.0,
 	}
 	for _, opt := range opts {
@@ -88,8 +88,8 @@ func (p *Pacer) EndCall(err error) {
 
 	if err == nil {
 		p.consecutive++
-		// 连续成功 3 次以上才开始加速，避免刚恢复就激进
-		if p.consecutive >= 3 {
+		// 连续成功 1 次以上即开始加速
+		if p.consecutive >= 1 {
 			p.interval = time.Duration(float64(p.interval) * p.decayFactor)
 			if p.interval < p.minInterval {
 				p.interval = p.minInterval
