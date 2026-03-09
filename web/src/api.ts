@@ -191,7 +191,7 @@ export function handleAuthFailure(error: unknown): boolean {
     authRecoveryTriggered = true
     showToast('warning', '认证已失效', AUTH_ERROR_MESSAGE, 2200)
     window.setTimeout(() => {
-      authRecoveryTriggered = false // Reset flag so future 401s can be handled
+      // 不需要重置 authRecoveryTriggered，页面 reload 后模块会重新初始化
       window.location.reload()
     }, 250)
   }

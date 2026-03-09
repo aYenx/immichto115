@@ -289,7 +289,9 @@ func (r *Open115CopyRunner) Run(ctx context.Context) (*Open115CopySummary, error
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	allFiles := append(libraryFiles, backupFiles...)
+	allFiles := make([]localFile, 0, len(libraryFiles)+len(backupFiles))
+	allFiles = append(allFiles, libraryFiles...)
+	allFiles = append(allFiles, backupFiles...)
 	if len(allFiles) == 0 {
 		r.log("stderr", "[immichto115] Open115 未发现可备份文件")
 	} else {

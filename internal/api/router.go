@@ -28,6 +28,21 @@ import (
 
 const maskedSecret = "********"
 
+// maskSecret 如果字段非空则替换为遮蔽值。
+func maskSecret(field *string) {
+	if *field != "" {
+		*field = maskedSecret
+	}
+}
+
+// restoreSecret 如果新值是遮蔽值，则从旧配置还原。
+// 空字符串视为用户主动清除该值，不做还原。
+func restoreSecret(newField *string, oldValue string) {
+	if *newField == maskedSecret {
+		*newField = oldValue
+	}
+}
+
 func normalizeRemoteDir(remoteDir string) string {
 	cleaned := path.Clean("/" + strings.TrimSpace(remoteDir))
 	if cleaned == "." || cleaned == "" {
@@ -614,27 +629,13 @@ func (s *Server) handleSystemStatus(c *gin.Context) {
 func (s *Server) handleGetConfig(c *gin.Context) {
 	cfg := s.Config.Get()
 	// 隐藏敏感信息
-	if cfg.WebDAV.Password != "" {
-		cfg.WebDAV.Password = maskedSecret
-	}
-	if cfg.Open115.AccessToken != "" {
-		cfg.Open115.AccessToken = maskedSecret
-	}
-	if cfg.Open115.RefreshToken != "" {
-		cfg.Open115.RefreshToken = maskedSecret
-	}
-	if cfg.Encrypt.Password != "" {
-		cfg.Encrypt.Password = maskedSecret
-	}
-	if cfg.Encrypt.Salt != "" {
-		cfg.Encrypt.Salt = maskedSecret
-	}
-	if cfg.Open115Encrypt.Password != "" {
-		cfg.Open115Encrypt.Password = maskedSecret
-	}
-	if cfg.Open115Encrypt.Salt != "" {
-		cfg.Open115Encrypt.Salt = maskedSecret
-	}
+	maskSecret(&cfg.WebDAV.Password)
+	maskSecret(&cfg.Open115.AccessToken)
+	maskSecret(&cfg.Open115.RefreshToken)
+	maskSecret(&cfg.Encrypt.Password)
+	maskSecret(&cfg.Encrypt.Salt)
+	maskSecret(&cfg.Open115Encrypt.Password)
+	maskSecret(&cfg.Open115Encrypt.Salt)
 	if cfg.Server.AuthPasswordHash != "" {
 		cfg.Server.AuthPassword = maskedSecret
 	}
@@ -670,27 +671,13 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 
 	// 如果前端传了 "********" 则保留旧密钥；显式清空字符串则视为用户要清除该值。
 	oldCfg := s.Config.Get()
-	if newCfg.WebDAV.Password == maskedSecret {
-		newCfg.WebDAV.Password = oldCfg.WebDAV.Password
-	}
-	if newCfg.Open115.AccessToken == maskedSecret {
-		newCfg.Open115.AccessToken = oldCfg.Open115.AccessToken
-	}
-	if newCfg.Open115.RefreshToken == maskedSecret {
-		newCfg.Open115.RefreshToken = oldCfg.Open115.RefreshToken
-	}
-	if newCfg.Encrypt.Password == maskedSecret {
-		newCfg.Encrypt.Password = oldCfg.Encrypt.Password
-	}
-	if newCfg.Encrypt.Salt == maskedSecret {
-		newCfg.Encrypt.Salt = oldCfg.Encrypt.Salt
-	}
-	if newCfg.Open115Encrypt.Password == maskedSecret {
-		newCfg.Open115Encrypt.Password = oldCfg.Open115Encrypt.Password
-	}
-	if newCfg.Open115Encrypt.Salt == maskedSecret {
-		newCfg.Open115Encrypt.Salt = oldCfg.Open115Encrypt.Salt
-	}
+	restoreSecret(&newCfg.WebDAV.Password, oldCfg.WebDAV.Password)
+	restoreSecret(&newCfg.Open115.AccessToken, oldCfg.Open115.AccessToken)
+	restoreSecret(&newCfg.Open115.RefreshToken, oldCfg.Open115.RefreshToken)
+	restoreSecret(&newCfg.Encrypt.Password, oldCfg.Encrypt.Password)
+	restoreSecret(&newCfg.Encrypt.Salt, oldCfg.Encrypt.Salt)
+	restoreSecret(&newCfg.Open115Encrypt.Password, oldCfg.Open115Encrypt.Password)
+	restoreSecret(&newCfg.Open115Encrypt.Salt, oldCfg.Open115Encrypt.Salt)
 
 	newCfg.Server.AuthUser = strings.TrimSpace(newCfg.Server.AuthUser)
 	if newCfg.Server.AuthPassword == maskedSecret || newCfg.Server.AuthPassword == "" {
@@ -932,6 +919,17 @@ func (s *Server) cleanupExpiredAuthSessions() {
 			delete(s.authSessions, uid)
 		}
 	}
+}
+
+// StartAuthCleanup 启动后台 goroutine 定期清理过期的 auth session。
+func (s *Server) StartAuthCleanup() {
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			s.cleanupExpiredAuthSessions()
+		}
+	}()
 }
 
 func (s *Server) handleOpen115AuthStart(c *gin.Context) {
@@ -1187,14 +1185,20 @@ func (s *Server) handleLocalList(c *gin.Context) {
 		}
 	}
 
-	// 安全校验：禁止使用父级路径段进行路径遍历，但允许合法名称中包含 '..'。
-	normalizedLocalPath := strings.ReplaceAll(localPath, "\\", "/")
+	// 安全校验：规范化路径并禁止路径遍历
+	absPath, err := filepath.Abs(localPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效路径: " + err.Error()})
+		return
+	}
+	normalizedLocalPath := strings.ReplaceAll(absPath, "\\", "/")
 	for _, segment := range strings.Split(normalizedLocalPath, "/") {
 		if segment == ".." {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "路径中不允许包含父级路径段 '..'"})
 			return
 		}
 	}
+	localPath = absPath
 
 	entries, err := os.ReadDir(localPath)
 	if err != nil {

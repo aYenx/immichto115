@@ -69,20 +69,28 @@ func (h *Hub) Unregister(conn *websocket.Conn) {
 }
 
 // Broadcast 向所有已连接的客户端广播一条日志消息。
+// 使用非阻塞写入避免慢客户端阻塞 rclone 进程输出；
+// 收集断开的连接在释放读锁后统一清理，避免 RLock/Lock 交叉死锁。
 func (h *Hub) Broadcast(line rclone.LogLine) {
 	h.mu.RLock()
-	defer h.mu.RUnlock()
-
+	var dead []*websocket.Conn
 	for conn := range h.clients {
 		err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		if err != nil {
+			dead = append(dead, conn)
 			continue
 		}
 		err = conn.WriteJSON(line)
 		if err != nil {
 			log.Printf("[ws] write error: %v, removing client", err)
-			go h.Unregister(conn)
+			dead = append(dead, conn)
 		}
+	}
+	h.mu.RUnlock()
+
+	// 在读锁释放后统一清理断开的连接
+	for _, conn := range dead {
+		h.Unregister(conn)
 	}
 }
 

@@ -35,30 +35,38 @@ func SendBark(barkURL, title, body string) error {
 		Group: "ImmichTo115",
 	}
 
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// 优先尝试 GET
+	encodedURL := base + "/" + url.PathEscape(title) + "/" + url.PathEscape(body)
+	resp, err := client.Get(encodedURL)
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+		return fmt.Errorf("bark returned status %d", resp.StatusCode)
+	}
+
+	// GET 失败，回退到 POST JSON
+	log.Printf("[notify] GET failed, falling back to POST: %v", err)
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal bark payload: %w", err)
 	}
-
-	// 对标题和正文进行 URL 编码，避免中文/emoji/特殊字符导致请求失败
-	encodedURL := base + "/" + url.PathEscape(title) + "/" + url.PathEscape(body)
-	client := &http.Client{Timeout: 10 * time.Second}
-
-	resp, err := client.Get(encodedURL)
+	req, err := http.NewRequest("POST", base+"/push", bytes.NewReader(data))
 	if err != nil {
-		// 回退到 POST JSON
-		log.Printf("[notify] GET failed, falling back to POST: %v", err)
-		req, _ := http.NewRequest("POST", base+"/push", bytes.NewReader(data))
-		req.Header.Set("Content-Type", "application/json; charset=utf-8")
-		resp, err = client.Do(req)
-		if err != nil {
-			return fmt.Errorf("bark push failed: %w", err)
-		}
+		return fmt.Errorf("failed to create POST request: %w", err)
 	}
-	defer resp.Body.Close()
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	resp2, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("bark push failed: %w", err)
+	}
+	defer resp2.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("bark returned status %d", resp.StatusCode)
+	if resp2.StatusCode != http.StatusOK {
+		return fmt.Errorf("bark returned status %d", resp2.StatusCode)
 	}
 	return nil
 }

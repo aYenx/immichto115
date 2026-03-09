@@ -7,6 +7,9 @@ import (
 
 // WebDAVRcloneBackend 预留给现有 WebDAV + rclone 模式的统一包装层。
 // 当前阶段先提供骨架，后续再把现有 router/rclone 调用收口到这里。
+//
+// TODO: 待 Open115 路径稳定后，将 router.go 中分散的 rclone exec.Command 调用
+// 收口到这里，实现 Backend 接口的完整 WebDAV 版本。
 type WebDAVRcloneBackend struct{}
 
 func NewWebDAVRcloneBackend() *WebDAVRcloneBackend {
