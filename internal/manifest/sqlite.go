@@ -39,15 +39,30 @@ func (s *SQLiteStore) Init(ctx context.Context) error {
 			remote_file_id TEXT,
 			remote_pick_code TEXT,
 			last_uploaded_at INTEGER NOT NULL,
-			deleted INTEGER DEFAULT 0
+			deleted INTEGER DEFAULT 0,
+			encrypted INTEGER DEFAULT 0,
+			encrypted_size INTEGER,
+			remote_path TEXT,
+			encryption_version TEXT,
+			content_sha256 TEXT
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_manifest_files_uploaded_at ON files(last_uploaded_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_manifest_files_deleted ON files(deleted, path)`,
+	}
+	alterStmts := []string{
+		`ALTER TABLE files ADD COLUMN encrypted INTEGER DEFAULT 0`,
+		`ALTER TABLE files ADD COLUMN encrypted_size INTEGER`,
+		`ALTER TABLE files ADD COLUMN remote_path TEXT`,
+		`ALTER TABLE files ADD COLUMN encryption_version TEXT`,
+		`ALTER TABLE files ADD COLUMN content_sha256 TEXT`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			return err
 		}
+	}
+	for _, stmt := range alterStmts {
+		_, _ = s.db.ExecContext(ctx, stmt)
 	}
 	return nil
 }
@@ -56,16 +71,18 @@ func (s *SQLiteStore) Get(ctx context.Context, path string) (*FileRecord, error)
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("manifest sqlite store 未初始化")
 	}
-	row := s.db.QueryRowContext(ctx, `SELECT path, size, mtime, sha1, preid, remote_file_id, remote_pick_code, last_uploaded_at, deleted FROM files WHERE path = ? LIMIT 1`, path)
+	row := s.db.QueryRowContext(ctx, `SELECT path, size, mtime, sha1, preid, remote_file_id, remote_pick_code, last_uploaded_at, deleted, encrypted, encrypted_size, remote_path, encryption_version, content_sha256 FROM files WHERE path = ? LIMIT 1`, path)
 	var rec FileRecord
 	var deleted int
-	if err := row.Scan(&rec.Path, &rec.Size, &rec.MTime, &rec.SHA1, &rec.PreID, &rec.RemoteFileID, &rec.RemotePickCode, &rec.LastUploadedAt, &deleted); err != nil {
+	var encrypted int
+	if err := row.Scan(&rec.Path, &rec.Size, &rec.MTime, &rec.SHA1, &rec.PreID, &rec.RemoteFileID, &rec.RemotePickCode, &rec.LastUploadedAt, &deleted, &encrypted, &rec.EncryptedSize, &rec.RemotePath, &rec.EncryptionVersion, &rec.ContentSHA256); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
 	rec.Deleted = deleted != 0
+	rec.Encrypted = encrypted != 0
 	return &rec, nil
 }
 
@@ -80,9 +97,13 @@ func (s *SQLiteStore) Put(ctx context.Context, record *FileRecord) error {
 	if record.Deleted {
 		deleted = 1
 	}
+	encrypted := 0
+	if record.Encrypted {
+		encrypted = 1
+	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO files (path, size, mtime, sha1, preid, remote_file_id, remote_pick_code, last_uploaded_at, deleted)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO files (path, size, mtime, sha1, preid, remote_file_id, remote_pick_code, last_uploaded_at, deleted, encrypted, encrypted_size, remote_path, encryption_version, content_sha256)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(path) DO UPDATE SET
 			size = excluded.size,
 			mtime = excluded.mtime,
@@ -91,8 +112,13 @@ func (s *SQLiteStore) Put(ctx context.Context, record *FileRecord) error {
 			remote_file_id = excluded.remote_file_id,
 			remote_pick_code = excluded.remote_pick_code,
 			last_uploaded_at = excluded.last_uploaded_at,
-			deleted = excluded.deleted
-	`, record.Path, record.Size, record.MTime, record.SHA1, record.PreID, record.RemoteFileID, record.RemotePickCode, record.LastUploadedAt, deleted)
+			deleted = excluded.deleted,
+			encrypted = excluded.encrypted,
+			encrypted_size = excluded.encrypted_size,
+			remote_path = excluded.remote_path,
+			encryption_version = excluded.encryption_version,
+			content_sha256 = excluded.content_sha256
+	`, record.Path, record.Size, record.MTime, record.SHA1, record.PreID, record.RemoteFileID, record.RemotePickCode, record.LastUploadedAt, deleted, encrypted, record.EncryptedSize, record.RemotePath, record.EncryptionVersion, record.ContentSHA256)
 	return err
 }
 
@@ -126,7 +152,7 @@ func (s *SQLiteStore) List(ctx context.Context, limit int, offset int) ([]FileRe
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT path, size, mtime, sha1, preid, remote_file_id, remote_pick_code, last_uploaded_at, deleted FROM files ORDER BY path ASC LIMIT ? OFFSET ?`, limit, offset)
+	rows, err := s.db.QueryContext(ctx, `SELECT path, size, mtime, sha1, preid, remote_file_id, remote_pick_code, last_uploaded_at, deleted, encrypted, encrypted_size, remote_path, encryption_version, content_sha256 FROM files ORDER BY path ASC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -135,10 +161,12 @@ func (s *SQLiteStore) List(ctx context.Context, limit int, offset int) ([]FileRe
 	for rows.Next() {
 		var rec FileRecord
 		var deleted int
-		if err := rows.Scan(&rec.Path, &rec.Size, &rec.MTime, &rec.SHA1, &rec.PreID, &rec.RemoteFileID, &rec.RemotePickCode, &rec.LastUploadedAt, &deleted); err != nil {
+		var encrypted int
+		if err := rows.Scan(&rec.Path, &rec.Size, &rec.MTime, &rec.SHA1, &rec.PreID, &rec.RemoteFileID, &rec.RemotePickCode, &rec.LastUploadedAt, &deleted, &encrypted, &rec.EncryptedSize, &rec.RemotePath, &rec.EncryptionVersion, &rec.ContentSHA256); err != nil {
 			return nil, err
 		}
 		rec.Deleted = deleted != 0
+		rec.Encrypted = encrypted != 0
 		items = append(items, rec)
 	}
 	return items, rows.Err()
