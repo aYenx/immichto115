@@ -419,7 +419,7 @@
       <div v-if="showRemoteFolderPicker" class="modal-overlay" @click.self="showRemoteFolderPicker = false">
         <div class="modal">
           <div class="modal-header">
-            <h3 style="margin: 0; font-size: 16px;">选择 WebDAV 备份目录</h3>
+            <h3 style="margin: 0; font-size: 16px;">选择{{ config.provider === 'open115' ? ' 115 Open ' : ' WebDAV ' }}备份目录</h3>
             <button class="btn-icon" @click="showRemoteFolderPicker = false" style="background:none; border:none; cursor:pointer; color: var(--text-primary);"><LucideX :size="20" /></button>
           </div>
           <div class="modal-body">

@@ -114,6 +114,7 @@ export interface Open115TestResponse {
 }
 
 export interface SystemStatus {
+  provider?: 'webdav' | 'open115'
   rclone_installed: boolean
   rclone_version: string
   backup_status: 'idle' | 'running'

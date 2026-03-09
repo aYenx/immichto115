@@ -3,7 +3,7 @@
     <div class="header">
       <div class="greeting">
         <h1>{{ greeting }}，管理员</h1>
-        <p>系统环境良好。当前状态：{{ backupStatusText }}</p>
+        <p>当前传输后端：{{ storageBackendStatus }}。运行状态：{{ backupStatusText }}</p>
         <div class="backup-status-strip">
           <span :class="['status-chip', backupPhaseTone]">{{ backupPhaseLabel }}</span>
           <span v-if="backupStatusDetail" class="status-detail">{{ backupStatusDetail }}</span>
@@ -65,8 +65,8 @@
           <LucideCloud :size="20" class="icon" />
         </div>
         <div class="stat-info">
-          <span class="stat-label">Rclone 状态</span>
-          <span class="stat-value" style="font-size: 16px;">{{ systemStatus?.rclone_installed ? '可用' : '未检测到' }}</span>
+          <span class="stat-label">传输后端状态</span>
+          <span class="stat-value" style="font-size: 16px;">{{ storageBackendStatus }}</span>
         </div>
       </div>
     </div>
@@ -121,6 +121,7 @@ const MAX_LOGS = 200
 let logIdCounter = 0
 
 const systemStatus = ref<SystemStatus | null>(null)
+const provider = ref<'webdav' | 'open115'>('webdav')
 const logs = ref<Array<{ id: number, time: string, text: string }>>([])
 const lastStatusSnapshot = ref('')
 const suppressStatusDetail = ref(false)
@@ -157,9 +158,9 @@ const latestLogText = computed(() => {
 const derivePhaseFromText = (text: string): 'idle' | 'preparing' | 'library' | 'database' | 'stopping' | 'success' | 'partial' | 'failed' | null => {
   const lower = text.toLowerCase()
 
-  if (lower.includes('任务已被手动停止') || lower.includes('安全退出') || lower.includes('停止信号') || lower.includes('已发送停止指令')) return 'stopping'
-  if (lower.includes('所有备份阶段执行完毕') || lower.includes('当前同步阶段已成功完成')) return 'success'
-  if (lower.includes('数据库备份失败') || lower.includes('照片库备份失败') || lower.includes('生成 rclone 配置失败') || lower.includes('无法启动')) {
+  if (lower.includes('任务已被手动停止') || lower.includes('安全退出') || lower.includes('停止信号') || lower.includes('已发送停止指令') || lower.includes('open115 备份已手动停止')) return 'stopping'
+  if (lower.includes('所有备份阶段执行完毕') || lower.includes('当前同步阶段已成功完成') || lower.includes('open115 copy 增量备份执行完成')) return 'success'
+  if (lower.includes('数据库备份失败') || lower.includes('照片库备份失败') || lower.includes('生成 rclone 配置失败') || lower.includes('无法启动') || lower.includes('open115 备份失败') || lower.includes('upload encrypted stream failed') || lower.includes('measure encrypted stream failed')) {
     const completedLibrary = logs.value.some(log => log.text.includes('照片库目录备份阶段已结束'))
     const completedDatabase = logs.value.some(log => log.text.includes('数据库备份目录同步阶段已结束'))
     if (completedLibrary || completedDatabase) return 'partial'
@@ -167,7 +168,8 @@ const derivePhaseFromText = (text: string): 'idle' | 'preparing' | 'library' | '
   }
   if (lower.includes('开始备份数据库备份目录')) return 'database'
   if (lower.includes('开始备份照片库目录')) return 'library'
-  if (lower.includes('备份任务已启动') || lower.includes('正在生成临时 rclone 配置') || lower.includes('开始执行同步任务')) return 'preparing'
+  if (lower.includes('open115 上传文件') || lower.includes('[open115-stream] upload start') || lower.includes('[open115-reader] putobjectreader done')) return 'library'
+  if (lower.includes('open115 增量扫描完成') || lower.includes('当前使用 115 open 模式') || lower.includes('[open115-stream] measure start') || lower.includes('[open115-reader] uploadinitreader start') || lower.includes('备份任务已启动') || lower.includes('正在生成临时 rclone 配置') || lower.includes('开始执行同步任务')) return 'preparing'
   return null
 }
 
@@ -212,6 +214,17 @@ const backupPhaseTone = computed(() => {
     case 'database': return 'info'
     default: return 'neutral'
   }
+})
+
+const storageBackendStatus = computed(() => {
+  const effectiveProvider = systemStatus.value?.provider || provider.value
+  if (effectiveProvider === 'open115') {
+    return 'Open115 可用'
+  }
+  if (latestLogText.value.toLowerCase().includes('open115') || latestStatusLogText.value.toLowerCase().includes('open115')) {
+    return 'Open115 可用'
+  }
+  return systemStatus.value?.rclone_installed ? 'Rclone 可用' : '未检测到'
 })
 
 const backupStatusText = computed(() => {
@@ -266,7 +279,9 @@ const disconnectRealtime = () => {
 
 const fetchStatus = async () => {
   try {
-    systemStatus.value = await api.getSystemStatus()
+    const [status, cfg] = await Promise.all([api.getSystemStatus(), api.getConfig()])
+    systemStatus.value = status
+    provider.value = cfg.provider
     apiReachable.value = true
   } catch (err) {
     if (handleAuthFailure(err)) {
@@ -344,7 +359,9 @@ const getLogLevelClass = (text: string) => {
     upper.includes('SUCCESS') ||
     text.includes('成功') ||
     text.includes('已完成') ||
-    text.includes('执行完毕')
+    text.includes('执行完毕') ||
+    text.includes('PutObjectReader done') ||
+    text.includes('upload done: remote=')
   ) return 'success'
 
   return 'info'

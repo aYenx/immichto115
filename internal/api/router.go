@@ -471,16 +471,17 @@ func isSetupWhitelisted(r *http.Request) bool {
 	}
 	// Setup 阶段允许的接口
 	setupPaths := map[string][]string{
-		"/api/v1/system/status":      {"GET"},
-		"/api/v1/config":             {"GET", "POST"},
-		"/api/v1/webdav/test":        {"POST"},
-		"/api/v1/webdav/ls":          {"POST"},
-		"/api/v1/local/ls":           {"GET"},
-		"/api/v1/open115/auth/start": {"POST"},
+		"/api/v1/system/status":       {"GET"},
+		"/api/v1/config":              {"GET", "POST"},
+		"/api/v1/webdav/test":         {"POST"},
+		"/api/v1/webdav/ls":           {"POST"},
+		"/api/v1/local/ls":            {"GET"},
+		"/api/v1/remote/ls":           {"GET"},
+		"/api/v1/open115/auth/start":  {"POST"},
 		"/api/v1/open115/auth/status": {"GET"},
 		"/api/v1/open115/auth/finish": {"POST"},
-		"/api/v1/open115/test":       {"POST"},
-		"/api/v1/open115/ls":         {"GET"},
+		"/api/v1/open115/test":        {"POST"},
+		"/api/v1/open115/ls":          {"GET"},
 	}
 	methods, ok := setupPaths[path]
 	if !ok {
@@ -583,7 +584,12 @@ func (s *Server) handleSystemStatus(c *gin.Context) {
 	nextRun := s.Scheduler.NextRun()
 	cronRunning := s.Scheduler.IsRunning()
 
+	provider := strings.TrimSpace(s.Config.Get().Provider)
+	if provider == "" {
+		provider = "webdav"
+	}
 	c.JSON(http.StatusOK, gin.H{
+		"provider":         provider,
 		"rclone_installed": rcloneInstalled,
 		"rclone_version":   strings.TrimSpace(version),
 		"backup_status":    status,
@@ -599,11 +605,23 @@ func (s *Server) handleGetConfig(c *gin.Context) {
 	if cfg.WebDAV.Password != "" {
 		cfg.WebDAV.Password = maskedSecret
 	}
+	if cfg.Open115.AccessToken != "" {
+		cfg.Open115.AccessToken = maskedSecret
+	}
+	if cfg.Open115.RefreshToken != "" {
+		cfg.Open115.RefreshToken = maskedSecret
+	}
 	if cfg.Encrypt.Password != "" {
 		cfg.Encrypt.Password = maskedSecret
 	}
 	if cfg.Encrypt.Salt != "" {
 		cfg.Encrypt.Salt = maskedSecret
+	}
+	if cfg.Open115Encrypt.Password != "" {
+		cfg.Open115Encrypt.Password = maskedSecret
+	}
+	if cfg.Open115Encrypt.Salt != "" {
+		cfg.Open115Encrypt.Salt = maskedSecret
 	}
 	if cfg.Server.AuthPasswordHash != "" {
 		cfg.Server.AuthPassword = maskedSecret
@@ -623,11 +641,23 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 	if newCfg.WebDAV.Password == maskedSecret || newCfg.WebDAV.Password == "" {
 		newCfg.WebDAV.Password = oldCfg.WebDAV.Password
 	}
+	if newCfg.Open115.AccessToken == maskedSecret || newCfg.Open115.AccessToken == "" {
+		newCfg.Open115.AccessToken = oldCfg.Open115.AccessToken
+	}
+	if newCfg.Open115.RefreshToken == maskedSecret || newCfg.Open115.RefreshToken == "" {
+		newCfg.Open115.RefreshToken = oldCfg.Open115.RefreshToken
+	}
 	if newCfg.Encrypt.Password == maskedSecret || newCfg.Encrypt.Password == "" {
 		newCfg.Encrypt.Password = oldCfg.Encrypt.Password
 	}
 	if newCfg.Encrypt.Salt == maskedSecret || newCfg.Encrypt.Salt == "" {
 		newCfg.Encrypt.Salt = oldCfg.Encrypt.Salt
+	}
+	if newCfg.Open115Encrypt.Password == maskedSecret || newCfg.Open115Encrypt.Password == "" {
+		newCfg.Open115Encrypt.Password = oldCfg.Open115Encrypt.Password
+	}
+	if newCfg.Open115Encrypt.Salt == maskedSecret || newCfg.Open115Encrypt.Salt == "" {
+		newCfg.Open115Encrypt.Salt = oldCfg.Open115Encrypt.Salt
 	}
 
 	newCfg.Server.AuthUser = strings.TrimSpace(newCfg.Server.AuthUser)
@@ -1019,6 +1049,34 @@ func (s *Server) handleRemoteList(c *gin.Context) {
 	}
 
 	cfg := s.Config.Get()
+	provider := strings.TrimSpace(cfg.Provider)
+	if provider == "" {
+		provider = "webdav"
+	}
+	if provider == "open115" {
+		backend := backup.NewOpen115Backend(s.Open115)
+		remotePath := strings.TrimSpace(req.Path)
+		if remotePath == "" {
+			remotePath = "/"
+		}
+		items, err := backend.ListRemote(c.Request.Context(), remotePath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		entries := make([]gin.H, 0, len(items))
+		for _, item := range items {
+			entries = append(entries, gin.H{
+				"Name":    item.Name,
+				"Path":    item.Path,
+				"IsDir":   item.IsDir,
+				"Size":    item.Size,
+				"ModTime": time.Unix(item.ModTime, 0).Format(time.RFC3339),
+			})
+		}
+		c.JSON(http.StatusOK, entries)
+		return
+	}
 
 	confPath, err := config.GenerateRcloneConf(cfg)
 	if err != nil {
@@ -1029,7 +1087,6 @@ func (s *Server) handleRemoteList(c *gin.Context) {
 
 	remotePath := config.BuildRemotePath(cfg, req.Path)
 
-	// 带超时的 context 防止 rclone 挂起
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
 
@@ -1040,7 +1097,6 @@ func (s *Server) handleRemoteList(c *gin.Context) {
 		return
 	}
 
-	// lsjson 返回的就是 JSON 数组，直接透传
 	c.Data(http.StatusOK, "application/json", out)
 }
 

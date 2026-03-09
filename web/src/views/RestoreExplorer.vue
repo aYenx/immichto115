@@ -2,8 +2,8 @@
   <div class="explore-container">
     <div class="header">
       <div class="title-group">
-        <h1>云端文件浏览</h1>
-        <p>浏览云端备份的文件与目录结构（恢复功能开发中）</p>
+        <h1>云端目录浏览</h1>
+        <p>当前后端：{{ backendLabel }} · 浏览当前接入后端的云端备份目录结构（恢复功能开发中）</p>
       </div>
       <div class="actions">
         <button class="btn secondary" @click="fetchList" :disabled="isLoading">
@@ -81,7 +81,7 @@
             <div v-if="items.length === 0" class="table-empty">
               <LucideFolderOpen :size="40" class="empty-icon" />
               <span class="empty-title">当前目录为空</span>
-              <span class="empty-desc">当前目录下没有文件或文件夹</span>
+              <span class="empty-desc">当前后端（{{ backendLabel }}）在这个目录下没有返回文件或文件夹。若你刚完成上传，请稍等片刻后再刷新一次。</span>
             </div>
           </template>
         </div>
@@ -103,12 +103,14 @@ import {
   LucideFile,
   LucideFileJson
 } from 'lucide-vue-next'
-import { api, getErrorMessage, handleAuthFailure, type DirEntry } from '../api'
+import { api, getErrorMessage, handleAuthFailure, type DirEntry, type AppConfig } from '../api'
 import { showToast } from '../composables/toast'
 
 const currentPath = ref('')
 const isLoading = ref(false)
 const items = ref<DirEntry[]>([])
+const config = ref<AppConfig | null>(null)
+const backendLabel = computed(() => config.value?.provider === 'open115' ? '115 Open' : 'WebDAV / Rclone')
 
 
 const breadcrumbs = computed(() => {
@@ -134,7 +136,7 @@ const fetchList = async () => {
     items.value = Array.isArray(data) ? data : []
   } catch (err: any) {
     if (handleAuthFailure(err)) return
-    showToast('error', '请求文件列表失败', getErrorMessage(err))
+    showToast('error', `请求${backendLabel.value}文件列表失败`, getErrorMessage(err))
     items.value = []
   } finally {
     isLoading.value = false
@@ -192,7 +194,12 @@ const formatSize = (bytes: number) => {
 const isImage = (name: string) => /\.(jpg|jpeg|png|gif|webp)$/i.test(name)
 const isJson = (name: string) => /\.json$/i.test(name)
 
-onMounted(() => {
+onMounted(async () => {
+  try {
+    config.value = await api.getConfig()
+  } catch (err) {
+    if (handleAuthFailure(err)) return
+  }
   fetchList()
 })
 </script>
