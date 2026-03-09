@@ -231,25 +231,78 @@
         </div>
 
         <div class="form-group">
-          <div class="toggle-field" @click="config.encrypt.enabled = !config.encrypt.enabled">
-            <div class="toggle-info">
-              <span class="toggle-title">启用加密 (Rclone Crypt)</span>
-              <span class="toggle-desc">如果启用，所有的文件上传之前都会被本地加密</span>
+          <template v-if="config.provider === 'open115'">
+            <div class="toggle-field" @click="config.open115_encrypt.enabled = !config.open115_encrypt.enabled">
+              <div class="toggle-info">
+                <span class="toggle-title">启用 Open115 本地加密</span>
+                <span class="toggle-desc">支持 `temp` 和 `stream` 两种模式；正式建议优先使用 `temp`。</span>
+              </div>
+              <div :class="['switch', config.open115_encrypt.enabled ? 'active' : '']">
+                <div class="thumb"></div>
+              </div>
             </div>
-            <div :class="['switch', config.encrypt.enabled ? 'active' : '']">
-              <div class="thumb"></div>
+
+            <div v-if="config.open115_encrypt.enabled" class="input-field">
+              <span class="input-label">加密模式</span>
+              <div class="radio-group provider-group">
+                <label class="radio-option" :class="{ active: config.open115_encrypt.mode === 'temp' }">
+                  <input type="radio" v-model="config.open115_encrypt.mode" value="temp" />
+                  <div class="radio-option-text">
+                    <strong>temp</strong>
+                    <span>先生成临时 `.enc` 文件后上传，更稳</span>
+                  </div>
+                </label>
+                <label class="radio-option" :class="{ active: config.open115_encrypt.mode === 'stream' }">
+                  <input type="radio" v-model="config.open115_encrypt.mode" value="stream" />
+                  <div class="radio-option-text">
+                    <strong>stream</strong>
+                    <span>流式加密上传，更省空间，但当前更适合实验验证</span>
+                  </div>
+                </label>
+              </div>
             </div>
-          </div>
 
-          <div class="input-field" v-if="config.encrypt.enabled">
-            <span class="input-label">加密密码 (Password)</span>
-            <input class="input-control" type="password" v-model="config.encrypt.password" placeholder="用于文件内容的加密" autocomplete="new-password" />
-          </div>
+            <div class="input-field" v-if="config.open115_encrypt.enabled">
+              <span class="input-label">加密密码</span>
+              <input class="input-control" type="password" v-model="config.open115_encrypt.password" placeholder="用于 Open115 内容加密" autocomplete="new-password" />
+            </div>
 
-          <div class="input-field" v-if="config.encrypt.enabled">
-            <span class="input-label">加密混淆盐 (Salt)</span>
-            <input class="input-control" type="password" v-model="config.encrypt.salt" placeholder="用于文件名的加密" autocomplete="new-password" />
-          </div>
+            <div class="input-field" v-if="config.open115_encrypt.enabled">
+              <span class="input-label">加密盐</span>
+              <input class="input-control" type="password" v-model="config.open115_encrypt.salt" placeholder="可留空使用自动盐" autocomplete="new-password" />
+            </div>
+
+            <div class="input-field" v-if="config.open115_encrypt.enabled">
+              <span class="input-label">临时目录</span>
+              <input class="input-control" type="text" v-model="config.open115_encrypt.temp_dir" placeholder="例如 /tmp/immichto115-open115-encrypt" />
+            </div>
+
+            <div class="input-field" v-if="config.open115_encrypt.enabled">
+              <span class="input-label">最小剩余空间（MB）</span>
+              <input class="input-control" type="number" min="0" v-model.number="config.open115_encrypt.min_free_space_mb" placeholder="1024" />
+            </div>
+          </template>
+          <template v-else>
+            <div class="toggle-field" @click="config.encrypt.enabled = !config.encrypt.enabled">
+              <div class="toggle-info">
+                <span class="toggle-title">启用加密 (Rclone Crypt)</span>
+                <span class="toggle-desc">如果启用，所有的文件上传之前都会被本地加密</span>
+              </div>
+              <div :class="['switch', config.encrypt.enabled ? 'active' : '']">
+                <div class="thumb"></div>
+              </div>
+            </div>
+
+            <div class="input-field" v-if="config.encrypt.enabled">
+              <span class="input-label">加密密码 (Password)</span>
+              <input class="input-control" type="password" v-model="config.encrypt.password" placeholder="用于文件内容的加密" autocomplete="new-password" />
+            </div>
+
+            <div class="input-field" v-if="config.encrypt.enabled">
+              <span class="input-label">加密混淆盐 (Salt)</span>
+              <input class="input-control" type="password" v-model="config.encrypt.salt" placeholder="用于文件名的加密" autocomplete="new-password" />
+            </div>
+          </template>
         </div>
 
         <div class="buttons space-between">
@@ -722,9 +775,15 @@ const validateCurrentStep = (): string | null => {
   } else if (step.value === 2) {
     if (!config.backup.library_dir.trim() && !config.backup.backups_dir.trim()) return '请至少填写一个备份路径（照片库或数据库备份路径）'
   } else if (step.value === 3) {
-    if (config.encrypt.enabled) {
-      if (!config.encrypt.password.trim()) return '请输入加密密码'
-      if (!config.encrypt.salt.trim()) return '请输入加密混淆盐'
+    if (config.provider === 'open115') {
+      if (config.open115_encrypt.enabled && !config.open115_encrypt.password.trim()) {
+        return '请输入 Open115 加密密码'
+      }
+    } else {
+      if (config.encrypt.enabled) {
+        if (!config.encrypt.password.trim()) return '请输入加密密码'
+        if (!config.encrypt.salt.trim()) return '请输入加密混淆盐'
+      }
     }
   }
   return null
