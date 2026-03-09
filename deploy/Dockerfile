@@ -16,7 +16,7 @@ RUN npm run build
 # Stage 2: 编译后端 (Go + go:embed)
 #   将 Stage 1 的前端产物嵌入 Go 二进制
 # ============================================================
-FROM golang:1.22-alpine AS backend-builder
+FROM golang:1.25-alpine AS backend-builder
 
 RUN apk add --no-cache git
 
