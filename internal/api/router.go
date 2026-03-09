@@ -720,6 +720,9 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 		return
 	}
 
+	// 配置更新后重置 115 Open 客户端缓存，确保后续使用新 token
+	s.Open115.ResetClient()
+
 	// 更新定时任务
 	if newCfg.Cron.Enabled && newCfg.Cron.Expression != "" {
 		expr := normalizeCronExpression(newCfg.Cron.Expression)
