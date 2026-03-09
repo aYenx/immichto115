@@ -179,6 +179,8 @@ var (
 )
 
 // GetVersion 获取系统上安装的 Rclone 版本号（结果会缓存，只执行一次子进程）。
+// 注意：缓存永不过期，如果 rclone 在运行期间被安装/升级，需要重启服务。
+// 对于 Docker 部署场景，rclone 在镜像构建时就已确定，因此无影响。
 func GetVersion() (string, error) {
 	versionOnce.Do(func() {
 		out, err := exec.Command("rclone", "version", "--check").CombinedOutput()

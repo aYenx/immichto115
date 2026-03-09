@@ -99,12 +99,16 @@ type Manager struct {
 	mu       sync.RWMutex
 	cfg      *AppConfig
 	filePath string
+	v        *viper.Viper
 }
 
 // NewManager 创建配置管理器并加载或初始化配置文件。
 func NewManager(configPath string) (*Manager, error) {
+	v := viper.New()
+
 	m := &Manager{
 		filePath: configPath,
+		v:        v,
 	}
 
 	// 确保配置目录存在
@@ -113,40 +117,40 @@ func NewManager(configPath string) (*Manager, error) {
 		return nil, fmt.Errorf("failed to create config dir: %w", err)
 	}
 
-	viper.SetConfigFile(configPath)
-	viper.SetConfigType("yaml")
+	v.SetConfigFile(configPath)
+	v.SetConfigType("yaml")
 
 	// 设置默认值
-	viper.SetDefault("provider", "webdav")
-	viper.SetDefault("server.port", 8096)
-	viper.SetDefault("server.auth_enabled", false)
-	viper.SetDefault("webdav.vendor", "other")
-	viper.SetDefault("open115.enabled", false)
-	viper.SetDefault("open115.root_id", "0")
-	viper.SetDefault("open115.token_expires_at", 0)
-	viper.SetDefault("open115_encrypt.enabled", false)
-	viper.SetDefault("open115_encrypt.mode", "temp")
-	viper.SetDefault("open115_encrypt.filename_mode", "plain")
-	viper.SetDefault("open115_encrypt.algorithm", "aes256gcm-v1")
-	viper.SetDefault("open115_encrypt.temp_dir", "")
-	viper.SetDefault("open115_encrypt.min_free_space_mb", 1024)
-	viper.SetDefault("backup.remote_dir", "/immich-backup")
-	viper.SetDefault("backup.mode", "copy")
-	viper.SetDefault("backup.manifest_path", "")
-	viper.SetDefault("backup.allow_remote_delete", false)
-	viper.SetDefault("cron.expression", "0 2 * * *")
-	viper.SetDefault("cron.enabled", false)
-	viper.SetDefault("encrypt.enabled", false)
-	viper.SetDefault("notify.enabled", false)
+	v.SetDefault("provider", "webdav")
+	v.SetDefault("server.port", 8096)
+	v.SetDefault("server.auth_enabled", false)
+	v.SetDefault("webdav.vendor", "other")
+	v.SetDefault("open115.enabled", false)
+	v.SetDefault("open115.root_id", "0")
+	v.SetDefault("open115.token_expires_at", 0)
+	v.SetDefault("open115_encrypt.enabled", false)
+	v.SetDefault("open115_encrypt.mode", "temp")
+	v.SetDefault("open115_encrypt.filename_mode", "plain")
+	v.SetDefault("open115_encrypt.algorithm", "aes256gcm-v1")
+	v.SetDefault("open115_encrypt.temp_dir", "")
+	v.SetDefault("open115_encrypt.min_free_space_mb", 1024)
+	v.SetDefault("backup.remote_dir", "/immich-backup")
+	v.SetDefault("backup.mode", "copy")
+	v.SetDefault("backup.manifest_path", "")
+	v.SetDefault("backup.allow_remote_delete", false)
+	v.SetDefault("cron.expression", "0 2 * * *")
+	v.SetDefault("cron.enabled", false)
+	v.SetDefault("encrypt.enabled", false)
+	v.SetDefault("notify.enabled", false)
 
 	// 尝试读取已有配置
-	if err := viper.ReadInConfig(); err != nil {
+	if err := v.ReadInConfig(); err != nil {
 		// SetConfigFile 时文件不存在返回 os.PathError，而非 viper.ConfigFileNotFoundError
 		var notFound viper.ConfigFileNotFoundError
 		if errors.As(err, &notFound) || os.IsNotExist(err) {
 			// 文件不存在，写入默认配置
-			if writeErr := viper.SafeWriteConfig(); writeErr != nil {
-				if writeErr2 := viper.WriteConfig(); writeErr2 != nil {
+			if writeErr := v.SafeWriteConfig(); writeErr != nil {
+				if writeErr2 := v.WriteConfig(); writeErr2 != nil {
 					return nil, fmt.Errorf("failed to write default config: %w", writeErr2)
 				}
 			}
@@ -156,7 +160,7 @@ func NewManager(configPath string) (*Manager, error) {
 	}
 
 	cfg := &AppConfig{}
-	if err := viper.Unmarshal(cfg); err != nil {
+	if err := v.Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 	m.cfg = cfg
@@ -183,52 +187,54 @@ func (m *Manager) Update(cfg AppConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	viper.Set("provider", cfg.Provider)
-	viper.Set("server.port", cfg.Server.Port)
-	viper.Set("server.auth_enabled", cfg.Server.AuthEnabled)
-	viper.Set("server.auth_user", cfg.Server.AuthUser)
-	viper.Set("server.auth_password_hash", cfg.Server.AuthPasswordHash)
+	v := m.v
 
-	viper.Set("webdav.url", cfg.WebDAV.URL)
-	viper.Set("webdav.user", cfg.WebDAV.User)
-	viper.Set("webdav.password", cfg.WebDAV.Password)
-	viper.Set("webdav.vendor", cfg.WebDAV.Vendor)
+	v.Set("provider", cfg.Provider)
+	v.Set("server.port", cfg.Server.Port)
+	v.Set("server.auth_enabled", cfg.Server.AuthEnabled)
+	v.Set("server.auth_user", cfg.Server.AuthUser)
+	v.Set("server.auth_password_hash", cfg.Server.AuthPasswordHash)
 
-	viper.Set("open115.enabled", cfg.Open115.Enabled)
-	viper.Set("open115.client_id", cfg.Open115.ClientID)
-	viper.Set("open115.access_token", cfg.Open115.AccessToken)
-	viper.Set("open115.refresh_token", cfg.Open115.RefreshToken)
-	viper.Set("open115.root_id", cfg.Open115.RootID)
-	viper.Set("open115.token_expires_at", cfg.Open115.TokenExpiresAt)
-	viper.Set("open115.user_id", cfg.Open115.UserID)
+	v.Set("webdav.url", cfg.WebDAV.URL)
+	v.Set("webdav.user", cfg.WebDAV.User)
+	v.Set("webdav.password", cfg.WebDAV.Password)
+	v.Set("webdav.vendor", cfg.WebDAV.Vendor)
 
-	viper.Set("open115_encrypt.enabled", cfg.Open115Encrypt.Enabled)
-	viper.Set("open115_encrypt.password", cfg.Open115Encrypt.Password)
-	viper.Set("open115_encrypt.salt", cfg.Open115Encrypt.Salt)
-	viper.Set("open115_encrypt.mode", cfg.Open115Encrypt.Mode)
-	viper.Set("open115_encrypt.filename_mode", cfg.Open115Encrypt.FilenameMode)
-	viper.Set("open115_encrypt.algorithm", cfg.Open115Encrypt.Algorithm)
-	viper.Set("open115_encrypt.temp_dir", cfg.Open115Encrypt.TempDir)
-	viper.Set("open115_encrypt.min_free_space_mb", cfg.Open115Encrypt.MinFreeSpaceMB)
+	v.Set("open115.enabled", cfg.Open115.Enabled)
+	v.Set("open115.client_id", cfg.Open115.ClientID)
+	v.Set("open115.access_token", cfg.Open115.AccessToken)
+	v.Set("open115.refresh_token", cfg.Open115.RefreshToken)
+	v.Set("open115.root_id", cfg.Open115.RootID)
+	v.Set("open115.token_expires_at", cfg.Open115.TokenExpiresAt)
+	v.Set("open115.user_id", cfg.Open115.UserID)
 
-	viper.Set("backup.library_dir", cfg.Backup.LibraryDir)
-	viper.Set("backup.backups_dir", cfg.Backup.BackupsDir)
-	viper.Set("backup.remote_dir", cfg.Backup.RemoteDir)
-	viper.Set("backup.mode", cfg.Backup.Mode)
-	viper.Set("backup.manifest_path", cfg.Backup.ManifestPath)
-	viper.Set("backup.allow_remote_delete", cfg.Backup.AllowRemoteDelete)
+	v.Set("open115_encrypt.enabled", cfg.Open115Encrypt.Enabled)
+	v.Set("open115_encrypt.password", cfg.Open115Encrypt.Password)
+	v.Set("open115_encrypt.salt", cfg.Open115Encrypt.Salt)
+	v.Set("open115_encrypt.mode", cfg.Open115Encrypt.Mode)
+	v.Set("open115_encrypt.filename_mode", cfg.Open115Encrypt.FilenameMode)
+	v.Set("open115_encrypt.algorithm", cfg.Open115Encrypt.Algorithm)
+	v.Set("open115_encrypt.temp_dir", cfg.Open115Encrypt.TempDir)
+	v.Set("open115_encrypt.min_free_space_mb", cfg.Open115Encrypt.MinFreeSpaceMB)
 
-	viper.Set("encrypt.enabled", cfg.Encrypt.Enabled)
-	viper.Set("encrypt.password", cfg.Encrypt.Password)
-	viper.Set("encrypt.salt", cfg.Encrypt.Salt)
+	v.Set("backup.library_dir", cfg.Backup.LibraryDir)
+	v.Set("backup.backups_dir", cfg.Backup.BackupsDir)
+	v.Set("backup.remote_dir", cfg.Backup.RemoteDir)
+	v.Set("backup.mode", cfg.Backup.Mode)
+	v.Set("backup.manifest_path", cfg.Backup.ManifestPath)
+	v.Set("backup.allow_remote_delete", cfg.Backup.AllowRemoteDelete)
 
-	viper.Set("cron.enabled", cfg.Cron.Enabled)
-	viper.Set("cron.expression", cfg.Cron.Expression)
+	v.Set("encrypt.enabled", cfg.Encrypt.Enabled)
+	v.Set("encrypt.password", cfg.Encrypt.Password)
+	v.Set("encrypt.salt", cfg.Encrypt.Salt)
 
-	viper.Set("notify.enabled", cfg.Notify.Enabled)
-	viper.Set("notify.bark_url", cfg.Notify.BarkURL)
+	v.Set("cron.enabled", cfg.Cron.Enabled)
+	v.Set("cron.expression", cfg.Cron.Expression)
 
-	if err := viper.WriteConfig(); err != nil {
+	v.Set("notify.enabled", cfg.Notify.Enabled)
+	v.Set("notify.bark_url", cfg.Notify.BarkURL)
+
+	if err := v.WriteConfig(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 

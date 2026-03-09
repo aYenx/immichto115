@@ -103,7 +103,7 @@ func GenerateRcloneConf(cfg AppConfig) (string, error) {
 		return "", fmt.Errorf("failed to parse template: %w", err)
 	}
 
-	f, err := os.Create(confPath)
+	f, err := os.OpenFile(confPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		os.RemoveAll(tmpDir)
 		return "", fmt.Errorf("failed to create rclone.conf: %w", err)

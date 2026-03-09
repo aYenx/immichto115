@@ -12,7 +12,7 @@ type BackupFunc func()
 
 // Scheduler 管理定时备份任务。
 type Scheduler struct {
-	mu       sync.Mutex
+	mu       sync.RWMutex
 	c        *cron.Cron
 	entryID  cron.EntryID
 	running  bool
@@ -87,15 +87,15 @@ func (s *Scheduler) Stop() {
 
 // IsRunning 返回调度器是否在运行。
 func (s *Scheduler) IsRunning() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.running
 }
 
 // NextRun 返回下次执行时间的字符串表示。
 func (s *Scheduler) NextRun() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	if !s.running {
 		return ""
@@ -112,7 +112,7 @@ func (s *Scheduler) NextRun() string {
 
 // Expression 返回当前的 Cron 表达式。
 func (s *Scheduler) Expression() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.expr
 }
