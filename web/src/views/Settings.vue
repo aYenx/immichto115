@@ -297,25 +297,71 @@
           </template>
 
           <template v-else-if="activeSection === 'encrypt'">
-            <div class="toggle-field" @click="draftConfig.encrypt.enabled = !draftConfig.encrypt.enabled">
-              <div class="toggle-info">
-                <span class="toggle-title">启用加密 (Rclone Crypt)</span>
-                <span class="toggle-desc">开启后，上传前会在本地对文件内容和文件名进行加密。</span>
+            <template v-if="draftConfig.provider === 'open115'">
+              <div class="toggle-field" @click="draftConfig.open115_encrypt.enabled = !draftConfig.open115_encrypt.enabled">
+                <div class="toggle-info">
+                  <span class="toggle-title">启用 Open115 本地加密（实验性）</span>
+                  <span class="toggle-desc">开启后，会先在本地生成加密临时文件，再通过 Open115 上传。</span>
+                </div>
+                <div :class="['switch', draftConfig.open115_encrypt.enabled ? 'active' : '']">
+                  <div class="thumb"></div>
+                </div>
               </div>
-              <div :class="['switch', draftConfig.encrypt.enabled ? 'active' : '']">
-                <div class="thumb"></div>
+
+              <div v-if="draftConfig.open115_encrypt.enabled" class="input-field">
+                <span class="input-label">加密密码</span>
+                <input class="input-control" v-model="draftConfig.open115_encrypt.password" type="password" placeholder="用于 Open115 内容加密" autocomplete="new-password" />
               </div>
-            </div>
 
-            <div v-if="draftConfig.encrypt.enabled" class="input-field">
-              <span class="input-label">加密密码</span>
-              <input class="input-control" v-model="draftConfig.encrypt.password" type="password" placeholder="用于文件内容的加密" autocomplete="new-password" />
-            </div>
+              <div v-if="draftConfig.open115_encrypt.enabled" class="input-field">
+                <span class="input-label">加密盐</span>
+                <input class="input-control" v-model="draftConfig.open115_encrypt.salt" type="password" placeholder="用于密钥派生，可留空使用自动盐" autocomplete="new-password" />
+              </div>
 
-            <div v-if="draftConfig.encrypt.enabled" class="input-field">
-              <span class="input-label">加密混淆盐</span>
-              <input class="input-control" v-model="draftConfig.encrypt.salt" type="password" placeholder="用于文件名的加密" autocomplete="new-password" />
-            </div>
+              <div v-if="draftConfig.open115_encrypt.enabled" class="input-field">
+                <span class="input-label">文件名模式</span>
+                <div class="radio-group">
+                  <label class="radio-option" :class="{ active: draftConfig.open115_encrypt.filename_mode === 'plain' }">
+                    <input type="radio" v-model="draftConfig.open115_encrypt.filename_mode" value="plain" />
+                    <div class="radio-option-text">
+                      <strong>plain</strong>
+                      <span>保留原文件名，仅在远端追加 `.enc`</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div v-if="draftConfig.open115_encrypt.enabled" class="input-field">
+                <span class="input-label">临时目录</span>
+                <input class="input-control" v-model="draftConfig.open115_encrypt.temp_dir" type="text" placeholder="例如 /tmp/immichto115-open115-encrypt" />
+              </div>
+
+              <div v-if="draftConfig.open115_encrypt.enabled" class="input-field">
+                <span class="input-label">最小剩余空间（MB）</span>
+                <input class="input-control" v-model.number="draftConfig.open115_encrypt.min_free_space_mb" type="number" min="0" placeholder="1024" />
+              </div>
+            </template>
+            <template v-else>
+              <div class="toggle-field" @click="draftConfig.encrypt.enabled = !draftConfig.encrypt.enabled">
+                <div class="toggle-info">
+                  <span class="toggle-title">启用加密 (Rclone Crypt)</span>
+                  <span class="toggle-desc">开启后，上传前会在本地对文件内容和文件名进行加密。</span>
+                </div>
+                <div :class="['switch', draftConfig.encrypt.enabled ? 'active' : '']">
+                  <div class="thumb"></div>
+                </div>
+              </div>
+
+              <div v-if="draftConfig.encrypt.enabled" class="input-field">
+                <span class="input-label">加密密码</span>
+                <input class="input-control" v-model="draftConfig.encrypt.password" type="password" placeholder="用于文件内容的加密" autocomplete="new-password" />
+              </div>
+
+              <div v-if="draftConfig.encrypt.enabled" class="input-field">
+                <span class="input-label">加密混淆盐</span>
+                <input class="input-control" v-model="draftConfig.encrypt.salt" type="password" placeholder="用于文件名的加密" autocomplete="new-password" />
+              </div>
+            </template>
           </template>
 
           <template v-else-if="activeSection === 'automation'">
@@ -715,6 +761,9 @@ const backupSummary = computed(() => {
 })
 
 const encryptSummary = computed(() => {
+  if (config.provider === 'open115') {
+    return config.open115_encrypt.enabled ? '已启用 Open115 本地加密上传（实验性）' : '当前未启用 Open115 本地加密'
+  }
   return config.encrypt.enabled ? '已启用加密传输与文件名混淆' : '当前未启用 Rclone Crypt 加密'
 })
 
@@ -743,6 +792,11 @@ const backupCardState = computed(() => {
 })
 
 const encryptCardState = computed(() => {
+  if (config.provider === 'open115') {
+    if (!config.open115_encrypt.enabled) return createCardState('未启用', 'neutral')
+    if (!config.open115_encrypt.password.trim()) return createCardState('需补全', 'warning')
+    return createCardState('已保护', 'healthy')
+  }
   if (!config.encrypt.enabled) return createCardState('未启用', 'neutral')
   if (!config.encrypt.password.trim() || !config.encrypt.salt.trim()) return createCardState('需补全', 'warning')
   return createCardState('已保护', 'healthy')
@@ -781,6 +835,16 @@ const backupSignals = computed(() => {
 })
 
 const encryptSignals = computed(() => {
+  if (config.provider === 'open115') {
+    if (!config.open115_encrypt.enabled) {
+      return ['当前 Open115 上传为明文内容', '如需保护文件内容，可开启本地加密（实验性）', '建议先在小目录上验证后再用于正式备份']
+    }
+    return [
+      config.open115_encrypt.password.trim() ? '已填写 Open115 加密密码' : 'Open115 加密密码缺失',
+      config.open115_encrypt.temp_dir.trim() ? `临时目录: ${config.open115_encrypt.temp_dir.trim()}` : '未指定临时目录，将使用系统临时目录',
+      `最小剩余空间: ${config.open115_encrypt.min_free_space_mb || 0} MB`,
+    ]
+  }
   if (!config.encrypt.enabled) {
     return ['当前上传为明文目录结构', '适合可信存储环境', '如需保护文件内容，建议开启加密']
   }
@@ -827,9 +891,15 @@ const validateSection = (section: SectionKey): string | null => {
     }
   }
 
-  if (section === 'encrypt' && draftConfig.value.encrypt.enabled) {
-    if (!draftConfig.value.encrypt.password.trim()) return '请输入加密密码'
-    if (!draftConfig.value.encrypt.salt.trim()) return '请输入加密混淆盐'
+  if (section === 'encrypt') {
+    if (draftConfig.value.provider === 'open115') {
+      if (draftConfig.value.open115_encrypt.enabled && !draftConfig.value.open115_encrypt.password.trim()) {
+        return '请输入 Open115 加密密码'
+      }
+    } else if (draftConfig.value.encrypt.enabled) {
+      if (!draftConfig.value.encrypt.password.trim()) return '请输入加密密码'
+      if (!draftConfig.value.encrypt.salt.trim()) return '请输入加密混淆盐'
+    }
   }
 
   if (section === 'automation' && draftConfig.value.server.auth_enabled) {
