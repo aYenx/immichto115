@@ -134,7 +134,7 @@
               </button>
             </div>
             <div class="input-hint">
-              推荐：点击“获取 Token（OpenList）”，在打开的页面里选择 <strong>115 Network Disk Verification</strong>，勾选 <strong>Use parameters provided by OpenList</strong>，留空 Client ID / Secret，然后把获取到的 access_token / refresh_token 粘贴回来。
+              推荐先点“获取 Token（OpenList）”。在打开的页面中选择 <strong>115 Network Disk Verification</strong>，勾选 <strong>Use parameters provided by OpenList</strong>，留空 Client ID / Secret，获取到 <code>access_token</code> / <code>refresh_token</code> 后再粘贴回来。若你已有自己的开放平台应用，也可以继续使用项目内扫码授权。
             </div>
 
             <div v-if="open115Auth.qrcode" class="qrcode-panel">
@@ -235,7 +235,7 @@
             <div class="toggle-field" @click="config.open115_encrypt.enabled = !config.open115_encrypt.enabled">
               <div class="toggle-info">
                 <span class="toggle-title">启用 Open115 本地加密</span>
-                <span class="toggle-desc">支持 `temp` 和 `stream` 两种模式；正式建议优先使用 `temp`。</span>
+                <span class="toggle-desc">支持 <code>temp</code> 和 <code>stream</code> 两种模式；正式建议优先使用 <code>temp</code>，验证稳定后再尝试 <code>stream</code>。</span>
               </div>
               <div :class="['switch', config.open115_encrypt.enabled ? 'active' : '']">
                 <div class="thumb"></div>
@@ -256,7 +256,7 @@
                   <input type="radio" v-model="config.open115_encrypt.mode" value="stream" />
                   <div class="radio-option-text">
                     <strong>stream</strong>
-                    <span>流式加密上传，更省空间，但当前更适合实验验证</span>
+                    <span>流式加密上传，更省空间；当前已完成 debug 闭环验证，但正式使用仍建议先从小目录开始</span>
                   </div>
                 </label>
               </div>

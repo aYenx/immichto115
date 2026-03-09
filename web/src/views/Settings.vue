@@ -301,7 +301,7 @@
               <div class="toggle-field" @click="draftConfig.open115_encrypt.enabled = !draftConfig.open115_encrypt.enabled">
                 <div class="toggle-info">
                   <span class="toggle-title">启用 Open115 本地加密（实验性）</span>
-                  <span class="toggle-desc">开启后，会先在本地生成加密临时文件，再通过 Open115 上传。</span>
+                  <span class="toggle-desc">开启后，将在上传前先做本地加密。根据模式不同，会走临时文件或流式加密上传。</span>
                 </div>
                 <div :class="['switch', draftConfig.open115_encrypt.enabled ? 'active' : '']">
                   <div class="thumb"></div>
@@ -325,7 +325,7 @@
                     <input type="radio" v-model="draftConfig.open115_encrypt.filename_mode" value="plain" />
                     <div class="radio-option-text">
                       <strong>plain</strong>
-                      <span>保留原文件名，仅在远端追加 `.enc`</span>
+                      <span>保留原文件名，仅在远端追加 <code>.enc</code>，当前最稳</span>
                     </div>
                   </label>
                 </div>
@@ -841,7 +841,7 @@ const backupSignals = computed(() => {
 const encryptSignals = computed(() => {
   if (config.provider === 'open115') {
     if (!config.open115_encrypt.enabled) {
-      return ['当前 Open115 上传为明文内容', '如需保护文件内容，可开启本地加密（实验性）', '建议先在小目录上验证后再用于正式备份']
+      return ['当前 Open115 上传为明文内容', '如需保护文件内容，可开启本地加密', '建议先在小目录上验证通过，再用于正式备份']
     }
     return [
       config.open115_encrypt.password.trim() ? '已填写 Open115 加密密码' : 'Open115 加密密码缺失',
