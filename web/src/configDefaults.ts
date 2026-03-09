@@ -31,6 +31,7 @@ export function createDefaultConfig(): AppConfig {
       enabled: false,
       password: '',
       salt: '',
+      mode: 'temp',
       filename_mode: 'plain',
       algorithm: 'aes256gcm-v1',
       temp_dir: '',

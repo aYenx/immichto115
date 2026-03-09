@@ -60,6 +60,7 @@ export interface Open115EncryptConfig {
   enabled: boolean
   password: string
   salt: string
+  mode: string
   filename_mode: string
   algorithm: string
   temp_dir: string

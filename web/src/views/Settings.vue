@@ -340,6 +340,10 @@
                 <span class="input-label">最小剩余空间（MB）</span>
                 <input class="input-control" v-model.number="draftConfig.open115_encrypt.min_free_space_mb" type="number" min="0" placeholder="1024" />
               </div>
+
+              <div v-if="draftConfig.open115_encrypt.enabled" class="input-hint">
+                当前为第一阶段实现：会先在本地生成临时 `.enc` 文件，再上传到 115；后续再考虑升级为流式加密上传。
+              </div>
             </template>
             <template v-else>
               <div class="toggle-field" @click="draftConfig.encrypt.enabled = !draftConfig.encrypt.enabled">

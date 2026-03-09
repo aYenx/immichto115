@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path"
 	"strings"
@@ -55,18 +56,62 @@ func (u *Uploader) rootID() string {
 	return strings.TrimSpace(cfg.RootID)
 }
 
+func isRateLimitedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "refresh frequently") || strings.Contains(msg, "40140117")
+}
+
+func retryOpen115[T any](ctx context.Context, label string, fn func() (T, error)) (T, error) {
+	var zero T
+	var lastErr error
+	for i := 0; i < 6; i++ {
+		if ctx.Err() != nil {
+			return zero, ctx.Err()
+		}
+		if i > 0 {
+			// 非首次尝试也做轻微节流，降低连续请求频率
+			select {
+			case <-ctx.Done():
+				return zero, ctx.Err()
+			case <-time.After(1200 * time.Millisecond):
+			}
+		}
+		value, err := fn()
+		if err == nil {
+			return value, nil
+		}
+		lastErr = err
+		if !isRateLimitedError(err) || i == 5 {
+			return zero, err
+		}
+		delay := time.Duration(i+1) * 3 * time.Second
+		log.Printf("[open115] %s rate limited, retry in %s: %v", label, delay, err)
+		select {
+		case <-ctx.Done():
+			return zero, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+	return zero, lastErr
+}
+
 func (u *Uploader) listDirItems(ctx context.Context, parentID string) ([]sdk.GetFilesResp_File, error) {
 	client, err := u.service.Client()
 	if err != nil {
 		return nil, err
 	}
-	resp, err := client.GetFiles(ctx, &sdk.GetFilesReq{
-		CID:     parentID,
-		Limit:   200,
-		Offset:  0,
-		ASC:     true,
-		O:       "file_name",
-		ShowDir: true,
+	resp, err := retryOpen115(ctx, "GetFiles", func() (*sdk.GetFilesResp, error) {
+		return client.GetFiles(ctx, &sdk.GetFilesReq{
+			CID:     parentID,
+			Limit:   200,
+			Offset:  0,
+			ASC:     true,
+			O:       "file_name",
+			ShowDir: true,
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -114,7 +159,9 @@ func (u *Uploader) EnsureDir(ctx context.Context, remotePath string) (string, er
 			currentID = existingID
 			continue
 		}
-		created, err := client.Mkdir(ctx, currentID, seg)
+		created, err := retryOpen115(ctx, "Mkdir", func() (*sdk.MkdirResp, error) {
+			return client.Mkdir(ctx, currentID, seg)
+		})
 		if err != nil {
 			return "", err
 		}
@@ -204,6 +251,20 @@ func putObject(ctx context.Context, localPath string, tokenResp *sdk.UploadGetTo
 		return ctx.Err()
 	}
 	return bucket.PutObject(initResp.Object, f,
+		oss.Callback(base64.StdEncoding.EncodeToString([]byte(initResp.Callback.Value.Callback))),
+		oss.CallbackVar(base64.StdEncoding.EncodeToString([]byte(initResp.Callback.Value.CallbackVar))),
+	)
+}
+
+func putObjectReader(ctx context.Context, reader io.Reader, tokenResp *sdk.UploadGetTokenResp, initResp *sdk.UploadInitResp) error {
+	bucket, err := newOSSBucket(tokenResp, initResp)
+	if err != nil {
+		return err
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return bucket.PutObject(initResp.Object, reader,
 		oss.Callback(base64.StdEncoding.EncodeToString([]byte(initResp.Callback.Value.Callback))),
 		oss.CallbackVar(base64.StdEncoding.EncodeToString([]byte(initResp.Callback.Value.CallbackVar))),
 	)
@@ -310,6 +371,76 @@ func (u *Uploader) ListRemote(ctx context.Context, remotePath string) ([]RemoteE
 	return result, nil
 }
 
+// UploadReader 直接上传一个 reader 到指定逻辑远端路径（包含文件名）。
+// 保留为兼容入口，默认使用占位 init 参数；更推荐调用 UploadReaderWithInit。
+func (u *Uploader) UploadReader(ctx context.Context, reader io.Reader, remotePath string) error {
+	return u.UploadReaderWithInit(ctx, reader, remotePath, 1, strings.Repeat("0", 40), strings.Repeat("0", 40))
+}
+
+func (u *Uploader) UploadReaderWithInit(ctx context.Context, reader io.Reader, remotePath string, size int64, fileID string, preID string) error {
+	if u == nil || u.service == nil {
+		return fmt.Errorf("open115 uploader not initialized")
+	}
+	if reader == nil {
+		return fmt.Errorf("reader 不能为空")
+	}
+	if strings.TrimSpace(remotePath) == "" {
+		return fmt.Errorf("remotePath 不能为空")
+	}
+	client, err := u.service.Client()
+	if err != nil {
+		return err
+	}
+	cleaned := normalizeUploadPath(remotePath)
+	dirPath, fileName := path.Split(cleaned)
+	if strings.TrimSpace(fileName) == "" {
+		return fmt.Errorf("remotePath 必须包含文件名")
+	}
+	dirID, err := u.EnsureDir(ctx, dirPath)
+	if err != nil {
+		return err
+	}
+	if size <= 0 {
+		size = 1
+	}
+	if strings.TrimSpace(fileID) == "" {
+		fileID = strings.Repeat("0", 40)
+	}
+	if strings.TrimSpace(preID) == "" {
+		preID = strings.Repeat("0", 40)
+	}
+	log.Printf("[open115-reader] UploadInitReader start: remote=%s size=%d", remotePath, size)
+	initResp, err := retryOpen115(ctx, "UploadInitReader", func() (*sdk.UploadInitResp, error) {
+		return client.UploadInit(ctx, &sdk.UploadInitReq{
+			FileName: fileName,
+			FileSize: size,
+			Target:   dirID,
+			FileID:   fileID,
+			PreID:    preID,
+		})
+	})
+	if err != nil {
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	log.Printf("[open115-reader] UploadInitReader done: remote=%s object=%s status=%d", remotePath, initResp.Object, initResp.Status)
+	tokenResp, err := retryOpen115(ctx, "UploadGetTokenReader", func() (*sdk.UploadGetTokenResp, error) {
+		return client.UploadGetToken(ctx)
+	})
+	if err != nil {
+		return err
+	}
+	log.Printf("[open115-reader] UploadGetTokenReader done: remote=%s bucket=%s", remotePath, initResp.Bucket)
+	err = putObjectReader(ctx, reader, tokenResp, initResp)
+	if err != nil {
+		return err
+	}
+	log.Printf("[open115-reader] PutObjectReader done: remote=%s", remotePath)
+	return nil
+}
+
 // UploadFile 上传一个本地文件到指定逻辑远端路径（包含文件名）。
 func (u *Uploader) UploadFile(ctx context.Context, localPath string, remotePath string) error {
 	if u == nil || u.service == nil {
@@ -338,12 +469,14 @@ func (u *Uploader) UploadFile(ctx context.Context, localPath string, remotePath 
 	if err != nil {
 		return err
 	}
-	initResp, err := client.UploadInit(ctx, &sdk.UploadInitReq{
-		FileName: fileName,
-		FileSize: size,
-		Target:   dirID,
-		FileID:   fileSHA1,
-		PreID:    preID,
+	initResp, err := retryOpen115(ctx, "UploadInit", func() (*sdk.UploadInitResp, error) {
+		return client.UploadInit(ctx, &sdk.UploadInitReq{
+			FileName: fileName,
+			FileSize: size,
+			Target:   dirID,
+			FileID:   fileSHA1,
+			PreID:    preID,
+		})
 	})
 	if err != nil {
 		return err
@@ -356,14 +489,16 @@ func (u *Uploader) UploadFile(ctx context.Context, localPath string, remotePath 
 		if err != nil {
 			return err
 		}
-		initResp, err = client.UploadInit(ctx, &sdk.UploadInitReq{
-			FileName: fileName,
-			FileSize: size,
-			Target:   dirID,
-			FileID:   fileSHA1,
-			PreID:    preID,
-			SignKey:  initResp.SignKey,
-			SignVal:  signVal,
+		initResp, err = retryOpen115(ctx, "UploadInitSign", func() (*sdk.UploadInitResp, error) {
+			return client.UploadInit(ctx, &sdk.UploadInitReq{
+				FileName: fileName,
+				FileSize: size,
+				Target:   dirID,
+				FileID:   fileSHA1,
+				PreID:    preID,
+				SignKey:  initResp.SignKey,
+				SignVal:  signVal,
+			})
 		})
 		if err != nil {
 			return err
