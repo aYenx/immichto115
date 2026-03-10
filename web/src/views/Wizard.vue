@@ -121,22 +121,32 @@
               <span class="input-hint">可以手动输入路径，或点击"115 目录"按钮浏览选择。</span>
             </div>
 
-            <div class="settings-inline-actions">
-              <button class="btn secondary" @click="openOpenListPopupAndPaste">
-                一键获取 Token（OpenList 扫码）
-              </button>
-              <button class="btn secondary" @click="startOpen115Auth" :disabled="isOpen115AuthLoading || !config.open115.client_id.trim()">
-                {{ isOpen115AuthLoading ? '生成中...' : '开始扫码授权（可选）' }}
-              </button>
-              <button class="btn secondary" @click="finishOpen115Auth" :disabled="isOpen115Finishing || !open115Auth.uid || open115Authorized !== true">
-                {{ isOpen115Finishing ? '确认中...' : '完成授权' }}
-              </button>
-              <button class="btn secondary" @click="testConnection" :disabled="isTesting">
-                {{ isTesting ? '测试中...' : '测试连接' }}
-              </button>
-            </div>
-            <div class="input-hint">
-              推荐点击“一键获取 Token”按钮，按弹窗中的步骤完成操作。若你已有自己的开放平台应用，也可以继续使用项目内扫码授权。
+            <div class="open115-actions-area">
+              <div class="action-primary-row">
+                <button class="btn primary action-primary-btn" @click="openOpenListPopupAndPaste">
+                  <LucideKey :size="18" />
+                  一键获取 Token
+                </button>
+                <span class="action-primary-hint">推荐方式：通过 OpenList 扫码快速获取 Token</span>
+              </div>
+
+              <div class="action-divider"><span>或</span></div>
+
+              <div class="action-secondary-group">
+                <p class="action-group-label">高级选项：使用自有 115 Open 应用扫码授权</p>
+                <div class="action-secondary-row">
+                  <button class="btn secondary btn-sm" @click="startOpen115Auth" :disabled="isOpen115AuthLoading || !config.open115.client_id.trim()">
+                    {{ isOpen115AuthLoading ? '生成中...' : '开始扫码' }}
+                  </button>
+                  <button class="btn secondary btn-sm" @click="finishOpen115Auth" :disabled="isOpen115Finishing || !open115Auth.uid || open115Authorized !== true">
+                    {{ isOpen115Finishing ? '确认中...' : '完成授权' }}
+                  </button>
+                  <button class="btn secondary btn-sm" @click="testConnection" :disabled="isTesting">
+                    {{ isTesting ? '测试中...' : '测试连接' }}
+                  </button>
+                </div>
+                <span class="action-group-hint">需要先填写 Client ID 才能使用扫码授权</span>
+              </div>
             </div>
 
             <div v-if="open115Auth.qrcode" class="qrcode-panel">
@@ -510,7 +520,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, reactive, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { LucideCheck, LucideFolder, LucideFolderOpen, LucideX, LucideHardDrive, LucidePencil, LucideLoader2, LucideCornerLeftUp, LucideExternalLink } from 'lucide-vue-next'
+import { LucideCheck, LucideFolder, LucideFolderOpen, LucideX, LucideHardDrive, LucidePencil, LucideLoader2, LucideCornerLeftUp, LucideExternalLink, LucideKey } from 'lucide-vue-next'
 import { api, getErrorMessage, handleAuthFailure, type AppConfig, type DirEntry, type Open115AuthStartResponse } from '../api'
 import { showToast } from '../composables/toast'
 import { markSetupComplete } from '../router'
@@ -942,6 +952,18 @@ const finishSetup = async () => {
 .input-hint { color:var(--text-secondary); font-size:13px; }
 .success-hint { color:#15803d; }
 .path-input-row, .buttons, .buttons.space-between, .settings-inline-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.open115-actions-area { display:flex; flex-direction:column; gap:4px; padding:16px; border-radius:12px; background:var(--bg-card); }
+.action-primary-row { display:flex; flex-direction:column; gap:8px; }
+.action-primary-btn { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; font-size:15px; }
+.action-primary-hint { font-size:12px; color:var(--text-secondary); text-align:center; }
+.action-divider { display:flex; align-items:center; gap:12px; margin:8px 0; }
+.action-divider::before, .action-divider::after { content:''; flex:1; height:1px; background:var(--border-strong, #e5e7eb); }
+.action-divider span { font-size:12px; color:var(--text-secondary); flex-shrink:0; }
+.action-secondary-group { display:flex; flex-direction:column; gap:8px; }
+.action-group-label { font-size:13px; font-weight:600; color:var(--text-secondary); margin:0; }
+.action-secondary-row { display:flex; flex-wrap:wrap; gap:8px; }
+.btn-sm { height:36px !important; padding:0 14px !important; font-size:13px !important; border-radius:8px !important; }
+.action-group-hint { font-size:12px; color:var(--text-secondary); opacity:0.7; }
 .buttons.space-between { justify-content:space-between; }
 .btn { border:none; border-radius:14px; padding:12px 18px; cursor:pointer; font-weight:700; }
 .btn.primary { background:#111827; color:#fff; }

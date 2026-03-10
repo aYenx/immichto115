@@ -212,25 +212,38 @@
               </div>
             </template>
 
-            <div class="settings-inline-actions">
+            <div class="open115-actions-area">
               <template v-if="draftConfig.provider === 'webdav'">
                 <button class="btn secondary" @click="testConnection" :disabled="isTesting">
                   {{ isTesting ? '测试中...' : '测试连接' }}
                 </button>
               </template>
               <template v-else>
-                <button class="btn secondary" @click="openOpenListPopupAndPaste">
-                  一键获取 Token（OpenList 扫码）
-                </button>
-                <button class="btn secondary" @click="startOpen115Auth" :disabled="isOpen115AuthLoading || !draftConfig.open115.client_id.trim()">
-                  {{ isOpen115AuthLoading ? '生成中...' : '开始扫码授权（可选）' }}
-                </button>
-                <button class="btn secondary" @click="finishOpen115Auth" :disabled="isOpen115Finishing || !open115Auth.uid || open115Authorized !== true">
-                  {{ isOpen115Finishing ? '确认中...' : '完成授权' }}
-                </button>
-                <button class="btn secondary" @click="testConnection" :disabled="isTesting">
-                  {{ isTesting ? '测试中...' : '测试连接' }}
-                </button>
+                <div class="action-primary-row">
+                  <button class="btn primary action-primary-btn" @click="openOpenListPopupAndPaste">
+                    <LucideKey :size="18" />
+                    一键获取 Token
+                  </button>
+                  <span class="action-primary-hint">推荐方式：通过 OpenList 扫码快速获取 Token</span>
+                </div>
+
+                <div class="action-divider"><span>或</span></div>
+
+                <div class="action-secondary-group">
+                  <p class="action-group-label">高级选项：使用自有 115 Open 应用扫码授权</p>
+                  <div class="action-secondary-row">
+                    <button class="btn secondary btn-sm" @click="startOpen115Auth" :disabled="isOpen115AuthLoading || !draftConfig.open115.client_id.trim()">
+                      {{ isOpen115AuthLoading ? '生成中...' : '开始扫码' }}
+                    </button>
+                    <button class="btn secondary btn-sm" @click="finishOpen115Auth" :disabled="isOpen115Finishing || !open115Auth.uid || open115Authorized !== true">
+                      {{ isOpen115Finishing ? '确认中...' : '完成授权' }}
+                    </button>
+                    <button class="btn secondary btn-sm" @click="testConnection" :disabled="isTesting">
+                      {{ isTesting ? '测试中...' : '测试连接' }}
+                    </button>
+                  </div>
+                  <span class="action-group-hint">需要先填写 Client ID 才能使用扫码授权</span>
+                </div>
               </template>
               <span v-if="testResult" :class="['settings-inline-message', testSuccess ? 'success' : 'error']">
                 {{ testResult }}
@@ -632,7 +645,8 @@ import {
   LucideCheck,
   LucideBell,
   LucideSend,
-  LucideExternalLink
+  LucideExternalLink,
+  LucideKey
 } from 'lucide-vue-next'
 
 type SectionKey = 'webdav' | 'backup' | 'encrypt' | 'automation' | 'notify'
@@ -1597,6 +1611,90 @@ const confirmRemoteFolder = () => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* Open115 actions area redesign */
+.open115-actions-area {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+
+.action-primary-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.action-primary-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  font-size: 15px;
+}
+
+.action-primary-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.action-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0;
+}
+
+.action-divider::before,
+.action-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-strong);
+}
+
+.action-divider span {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.action-secondary-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.action-group-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.action-secondary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.btn-sm {
+  height: 36px !important;
+  padding: 0 14px !important;
+  font-size: 13px !important;
+  border-radius: 8px !important;
+}
+
+.action-group-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  opacity: 0.7;
 }
 
 .input-field,
