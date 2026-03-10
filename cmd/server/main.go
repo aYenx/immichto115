@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -73,7 +74,7 @@ func main() {
 	srv.InitCron()
 
 	// 启动后台清理过期的 115 授权 session
-	srv.StartAuthCleanup()
+	srv.StartAuthCleanup(context.Background())
 
 	// 设置路由
 	router := srv.SetupRouter()

@@ -6,7 +6,7 @@
 
 [![GitHub Release](https://img.shields.io/github/v/release/aYenx/immichto115?style=flat-square&logo=github&label=Release)](https://github.com/aYenx/immichto115/releases)
 [![Docker Image](https://img.shields.io/badge/GHCR-ghcr.io/ayenx/immichto115-blue?style=flat-square&logo=docker)](https://ghcr.io/ayenx/immichto115)
-[![Go Version](https://img.shields.io/badge/Go-1.25-00ADD8?style=flat-square&logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/Go-1.23-00ADD8?style=flat-square&logo=go)](https://go.dev/)
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D?style=flat-square&logo=vuedotjs)](https://vuejs.org/)
 [![License](https://img.shields.io/github/license/aYenx/immichto115?style=flat-square)](LICENSE)
 
@@ -24,48 +24,41 @@ Go 后端 + Vue 3 前端，编译为**单个二进制文件**，开箱即用。
 
 ### 适合谁用？
 
-如果你只是想把自托管 Immich 的照片库和数据库备份到 115，这个项目现在有两条推荐路径：
+如果你想把自托管 Immich 的照片库和数据库备份到 115，这个项目提供两条路径：
 
-- **最省心**：`115 Open + token 模式`
-- **更传统**：`WebDAV + rclone`
+- **最省心**：`115 Open` — 填入 Token 即可直接上传，无额外依赖
+- **更传统**：`WebDAV + Rclone` — 适合已有 WebDAV 环境的用户
 
-如果你已经有 OpenList / OpenList Token 页面能拿到 token，优先推荐 `115 Open`。如果你已经长期在用 WebDAV，继续用 WebDAV 也没问题。
+> [!TIP]
+> 大多数用户直接选 115 Open 就行。在界面中点击"获取 Token（OpenList）"，拿到 Token 后直接填写即可。
 
-|     | 功能              | 说明                                                                            |
-| :-: | ----------------- | ------------------------------------------------------------------------------- |
-| 🧙  | **Setup Wizard**  | 4 步引导式配置，支持 `WebDAV` 或 `115 Open` 两种接入方式                        |
-| 🔑  | **115 Open 授权** | 支持直接填写 `access_token / refresh_token`，也支持一键跳转 OpenList 获取 Token |
-| ☁️  | **115 Open 上传** | 目录浏览、目录创建、单文件上传，以及大文件 multipart 上传                       |
-| 🧠  | **增量索引**      | 内置 `manifest.db`（SQLite）记录上传状态，二次备份自动跳过未变化文件            |
-| 🔐  | **本地加密上传**  | 支持 `temp`（临时文件）与 `stream`（流式）两种加密上传模式（Open115 模式）      |
-| 🔄  | **备份模式**      | 增量备份 (`copy`) 或镜像同步 (`sync`)，`sync` 支持远端删除保护开关              |
-| ⏰  | **定时备份**      | 可视化 Cron 调度器：每日 / 每周 / 间隔 / 自定义表达式                           |
-| 📡  | **实时日志**      | WebSocket 推送备份输出，秒级可观测                                              |
-| 🔔  | **Bark 推送通知** | 备份成功/失败时推送通知到 iPhone，支持在设置页一键测试                          |
-| 🔒  | **加密传输**      | WebDAV 模式下可选 Rclone Crypt，数据在云端始终加密存储                          |
-| 🛡️  | **访问保护**      | 可选管理员账号密码（bcrypt），保护 Web UI / API / WebSocket                     |
-| 📂  | **云端文件浏览**  | Restore Explorer 浏览云端备份目录，`115 Open` 模式可直接浏览 115 目录树         |
-| 📦  | **单文件部署**    | 前端资源 `go:embed` 内嵌，零外部依赖                                            |
-| 🏗️  | **多架构**        | `linux/amd64` + `linux/arm64` 双架构构建                                        |
+### 核心能力
+
+| | 功能 | 说明 |
+| :-: | --- | --- |
+| ☁️ | **115 Open 直传** | Token 授权即用，支持大文件 multipart 上传 + manifest.db 增量索引 |
+| 🔐 | **端到端加密** | Open115 本地加密（temp / stream）或 WebDAV Rclone Crypt |
+| ⏰ | **定时 + 增量备份** | 可视化 Cron 调度 + `copy`/`sync` 两种模式，`sync` 支持远端删除保护 |
+| 🧙 | **Setup Wizard** | 4 步引导式配置，WebDAV / 115 Open 双模式 |
+| 📡 | **实时可观测** | WebSocket 日志推送 + Bark 通知到手机 |
+| 🛡️ | **访问保护** | HTTP Basic Auth（bcrypt）保护 Web UI / API / WebSocket |
+| 📦 | **单文件部署** | `go:embed` 内嵌前端，支持 `amd64` / `arm64`，Docker / systemd 一键启动 |
 
 ---
 
 ## 🚀 快速开始
 
-### 接入方式
+### 接入方式对比
 
-ImmichTo115 支持两种后端接入方式：
+| 对比项   | WebDAV 模式                | 115 Open 模式 ⭐ 推荐                          |
+| -------- | -------------------------- | ---------------------------------------------- |
+| 接入方式 | `rclone` + WebDAV 协议     | 115 Open API（`access_token / refresh_token`） |
+| 增量索引 | 依赖 rclone 本身           | 内置 `manifest.db` SQLite 索引                 |
+| 加密     | Rclone Crypt               | 本地加密上传（`temp` / `stream`）              |
+| 目录浏览 | WebDAV 目录                | 直接浏览 115 目录树                            |
+| 依赖     | 需安装 rclone              | 无额外依赖                                     |
 
-| 对比项   | WebDAV 模式            | 115 Open 模式 ⭐ 推荐                        |
-| -------- | ---------------------- | -------------------------------------------- |
-| 接入方式 | `rclone` + WebDAV 协议 | 115 Open API（`access_token / refresh_token`） |
-| 增量索引 | 依赖 rclone 本身       | 内置 `manifest.db` SQLite 索引               |
-| 加密     | Rclone Crypt           | 本地加密上传（`temp` / `stream`）            |
-| 目录浏览 | WebDAV 目录            | 直接浏览 115 目录树                          |
-| 依赖     | 需安装 rclone          | 无额外依赖                                   |
 
-> [!TIP]
-> **大多数用户直接选 115 Open 就行。** 在界面中点击“获取 Token（OpenList）”，拿到 `access_token / refresh_token` 后直接填写即可，不需要自己申请 `client_id`。
 
 ### 方式一：Docker Compose（推荐）
 
@@ -79,11 +72,17 @@ services:
     ports:
       - "8096:8096"
     volumes:
+      # ⬇️ 【必须修改】替换为你的 Immich 实际数据目录
       - /你的Immich照片库路径:/data/library:ro
       - /你的Immich数据库备份路径:/data/backups:ro
       - ./config:/app/config
     environment:
       - TZ=Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8096/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 ```
 
 ```bash
@@ -92,29 +91,54 @@ docker compose up -d
 
 > 访问 `http://服务器IP:8096`，首次进入 Setup Wizard 完成配置。
 
+---
+
 ### 方式二：一键安装（Linux / systemd）
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/install.sh | sudo bash
 ```
 
-自动完成：检测架构 → 安装 Rclone → 下载二进制 → 创建 systemd 服务 → 启动。
+自动完成：检测架构 → 安装 Rclone → 下载二进制（SHA256 校验）→ 创建 systemd 服务 → 启动。
 
 <details>
-<summary>💡 自定义下载源 / 更新 / 卸载</summary>
+<summary>💡 安装脚本命令行选项</summary>
 
 ```bash
-# 自定义下载源
-RELEASE_URL=https://your-mirror.com/releases/latest/download sudo bash install.sh
+sudo bash install.sh [选项]
 
-# 更新（重新运行安装脚本即可，自动保留 config.yaml）
-curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/install.sh | sudo bash
+选项:
+  --no-rclone    跳过 Rclone 检查与安装（适用于已使用 Open115 的用户）
+  --force        强制覆写 systemd 服务文件（默认更新时保留）
+  --help         显示帮助信息
 
-# 卸载
-curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uninstall.sh | sudo bash
+环境变量:
+  RELEASE_URL    自定义下载地址前缀
+                 示例: RELEASE_URL=https://mirror.example.com/releases/latest/download bash install.sh
 ```
 
 </details>
+
+<details>
+<summary>💡 更新 / 卸载</summary>
+
+```bash
+# 更新（重新运行安装脚本，自动保留 config.yaml 和 systemd 服务配置）
+curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/install.sh | sudo bash
+
+# 卸载（交互式，默认保留配置目录）
+curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uninstall.sh | sudo bash
+
+# 卸载并删除配置
+curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uninstall.sh | sudo bash -s -- --purge
+
+# 非交互式卸载（CI / 自动化）
+curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uninstall.sh | sudo bash -s -- --yes
+```
+
+</details>
+
+---
 
 ### 方式三：从源码构建
 
@@ -215,7 +239,7 @@ backup:
 
 </details>
 
-### 配置项说明
+### 配置项速查
 
 | 配置项                                   | 说明                                             |     必填     |
 | ---------------------------------------- | ------------------------------------------------ | :----------: |
@@ -250,23 +274,35 @@ backup:
 
 ## 🔧 运维手册
 
-<table>
-<tr><th>操作</th><th>Docker</th><th>Systemd（一键安装）</th></tr>
-<tr><td>查看日志</td><td><code>docker compose logs -f</code></td><td><code>journalctl -u immichto115 -f</code></td></tr>
-<tr><td>重启服务</td><td><code>docker compose restart</code></td><td><code>systemctl restart immichto115</code></td></tr>
-<tr><td>停止服务</td><td><code>docker compose down</code></td><td><code>systemctl stop immichto115</code></td></tr>
-<tr><td>查看状态</td><td><code>docker compose ps</code></td><td><code>systemctl status immichto115</code></td></tr>
-<tr><td>更新</td><td><code>docker compose pull && docker compose up -d</code></td><td>重新运行安装脚本</td></tr>
-</table>
+### 日常操作
 
-### 🗑️ 卸载
+| 操作     | Docker                                             | Systemd（一键安装）                    |
+| -------- | -------------------------------------------------- | -------------------------------------- |
+| 查看日志 | `docker compose logs -f`                           | `journalctl -u immichto115 -f`        |
+| 重启服务 | `docker compose restart`                           | `systemctl restart immichto115`        |
+| 停止服务 | `docker compose down`                              | `systemctl stop immichto115`           |
+| 查看状态 | `docker compose ps`                                | `systemctl status immichto115`         |
+| 更新     | `docker compose pull && docker compose up -d`      | 重新运行 `install.sh`                 |
+
+### 卸载
+
+**Docker**
 
 ```bash
-# Docker：停止并删除容器和镜像
 docker compose down --rmi all
+```
 
-# 一键安装：运行卸载脚本
-curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uninstall.sh | sudo bash
+**Systemd（一键安装）**
+
+```bash
+# 交互式卸载（默认保留配置目录）
+sudo bash deploy/uninstall.sh
+
+# 卸载并清除配置
+sudo bash deploy/uninstall.sh --purge
+
+# 非交互式（自动化 / CI）
+sudo bash deploy/uninstall.sh --yes --purge
 ```
 
 > 卸载不会影响 115 网盘上已备份的文件。
@@ -309,7 +345,7 @@ curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uni
 
 ```
 immichto115/
-├── cmd/server/              # Go 入口
+├── cmd/server/              # Go 入口（main.go）
 ├── internal/
 │   ├── api/                 # Gin 路由 + WebSocket Hub
 │   ├── backup/              # 备份后端抽象 (WebDAV / Open115)
@@ -322,27 +358,31 @@ immichto115/
 │   └── rclone/              # Rclone CLI 封装 (os/exec)
 ├── web/                     # Vue 3 + Vite + TypeScript 前端
 │   └── src/
-│       ├── views/           # Dashboard / Wizard / Settings / RestoreExplorer
+│       ├── views/           # Dashboard · Wizard · Settings · RestoreExplorer
 │       ├── components/      # Layout · CronScheduler · GlobalToast
 │       ├── api.ts           # 类型化 API 客户端
 │       └── style.css        # 全局样式 (CSS Variables + Dark Mode)
 ├── web_embed.go             # go:embed 前端资源入口
 ├── deploy/
 │   ├── Dockerfile           # 多阶段构建 (amd64 / arm64)
-│   ├── docker-compose.yml
+│   ├── docker-compose.yml   # Docker Compose 参考配置
+│   ├── common.sh            # 部署脚本公共工具库
 │   ├── install.sh           # Linux 一键安装 / 更新
 │   └── uninstall.sh         # 卸载脚本
-└── .github/workflows/       # CI/CD: 构建 + Docker + Release
+└── .github/workflows/
+    └── release.yml          # CI/CD: 构建 + Docker + Release
 ```
+
+---
 
 ## 📦 技术栈
 
-<table>
-<tr><td><b>后端</b></td><td>Go 1.23 · Gin · Viper · gorilla/websocket · robfig/cron · modernc.org/sqlite</td></tr>
-<tr><td><b>前端</b></td><td>Vue 3 · Vite · TypeScript · Vue Router · Lucide Icons · CSS Variables (Dark&nbsp;Mode)</td></tr>
-<tr><td><b>备份引擎</b></td><td>WebDAV 模式：Rclone CLI<br>Open115 模式：115 Open API + manifest 增量索引 + AES-256-GCM 本地加密</td></tr>
-<tr><td><b>构建</b></td><td>go:embed 内嵌前端 · 多阶段 Docker · GitHub Actions CI/CD</td></tr>
-</table>
+| 层         | 技术                                                                                                 |
+| ---------- | ---------------------------------------------------------------------------------------------------- |
+| **后端**   | Go 1.23 · Gin · Viper · gorilla/websocket · robfig/cron · modernc.org/sqlite                        |
+| **前端**   | Vue 3 · Vite · TypeScript · Vue Router · Lucide Icons · CSS Variables (Dark Mode)                    |
+| **备份**   | WebDAV 模式：Rclone CLI / Open115 模式：115 Open API + manifest 增量索引 + AES-256-GCM 本地加密     |
+| **构建**   | go:embed 内嵌前端 · 多阶段 Docker · GitHub Actions CI/CD                                            |
 
 ---
 
@@ -358,15 +398,6 @@ git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-GitHub Actions 自动完成：
-
-1. 🔨 构建 `linux/amd64` + `linux/arm64` 二进制
-2. 🐳 构建多架构 Docker 镜像并推送到 [GHCR](https://ghcr.io/ayenx/immichto115)
-3. 📦 创建 [GitHub Release](https://github.com/aYenx/immichto115/releases) 并上传产物
-
----
-
-<div align="center">
 
 ## 📄 License
 

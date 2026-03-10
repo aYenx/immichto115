@@ -583,6 +583,7 @@ onUnmounted(() => {
   padding: 24px;
   border-radius: 16px;
   border: 1px solid var(--border-subtle);
+  min-width: 0;
 }
 
 .stat-icon-wrapper {
@@ -624,6 +625,7 @@ onUnmounted(() => {
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .stat-value {

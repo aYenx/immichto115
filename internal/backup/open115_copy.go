@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -106,14 +107,22 @@ func scanLocalFiles(baseDir string, prefix string) ([]localFile, error) {
 	files := make([]localFile, 0)
 	err = filepath.WalkDir(baseDir, func(current string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return walkErr
+			// 权限不足等非致命错误：跳过该文件/目录，继续扫描
+			if os.IsPermission(walkErr) {
+				log.Printf("[backup] scan skipped (permission denied): %s", current)
+				return nil
+			}
+			// 其他错误也尝试跳过，避免中断整个扫描
+			log.Printf("[backup] scan skipped (error): %s: %v", current, walkErr)
+			return nil
 		}
 		if d.IsDir() {
 			return nil
 		}
 		stat, err := d.Info()
 		if err != nil {
-			return err
+			log.Printf("[backup] scan skipped (info error): %s: %v", current, err)
+			return nil
 		}
 		rel, err := filepath.Rel(baseDir, current)
 		if err != nil {
@@ -134,6 +143,9 @@ func scanLocalFiles(baseDir string, prefix string) ([]localFile, error) {
 func (r *Open115CopyRunner) uploadChangedFiles(ctx context.Context, files []localFile, remoteRoot string) (int, int, error) {
 	uploaded := 0
 	skipped := 0
+	const maxConsecutiveErrors = 10
+	consecutiveErrors := 0
+	var firstErr error
 	for _, file := range files {
 		if ctx.Err() != nil {
 			return uploaded, skipped, ctx.Err()
@@ -167,7 +179,15 @@ func (r *Open115CopyRunner) uploadChangedFiles(ctx context.Context, files []loca
 			} else {
 				encFile, err := open115crypt.EncryptFileToTemp(file.AbsPath, encCfg)
 				if err != nil {
-					return uploaded, skipped, err
+					r.log("stderr", fmt.Sprintf("[immichto115] Open115 加密文件失败（跳过）: %s: %v", file.AbsPath, err))
+					consecutiveErrors++
+					if firstErr == nil {
+						firstErr = err
+					}
+					if consecutiveErrors >= maxConsecutiveErrors {
+						return uploaded, skipped, fmt.Errorf("连续 %d 个文件处理失败，中止备份；最近错误: %w", maxConsecutiveErrors, err)
+					}
+					continue
 				}
 				uploadPath = encFile.TempPath
 				cleanupPath = encFile.TempPath
@@ -183,21 +203,31 @@ func (r *Open115CopyRunner) uploadChangedFiles(ctx context.Context, files []loca
 		} else {
 			uploadErr = r.backend.UploadFile(ctx, uploadPath, remotePath)
 		}
-		if uploadErr != nil {
-			if cleanupPath != "" {
-				_ = open115crypt.CleanupTempFile(cleanupPath)
-			}
-			return uploaded, skipped, uploadErr
-		}
 		if cleanupPath != "" {
 			_ = open115crypt.CleanupTempFile(cleanupPath)
 		}
+		if uploadErr != nil {
+			// context 取消立即返回
+			if ctx.Err() != nil {
+				return uploaded, skipped, ctx.Err()
+			}
+			r.log("stderr", fmt.Sprintf("[immichto115] Open115 上传失败（跳过）: %s: %v", file.RelPath, uploadErr))
+			consecutiveErrors++
+			if firstErr == nil {
+				firstErr = uploadErr
+			}
+			if consecutiveErrors >= maxConsecutiveErrors {
+				return uploaded, skipped, fmt.Errorf("连续 %d 个文件上传失败，中止备份；最近错误: %w", maxConsecutiveErrors, uploadErr)
+			}
+			continue
+		}
+		consecutiveErrors = 0 // 上传成功，重置连续错误计数
 		if err := r.manifest.Put(ctx, record); err != nil {
 			return uploaded, skipped, err
 		}
 		uploaded++
 	}
-	return uploaded, skipped, nil
+	return uploaded, skipped, firstErr
 }
 
 func (r *Open115CopyRunner) listAllManifestRecords(ctx context.Context) ([]manifest.FileRecord, error) {
