@@ -219,8 +219,11 @@
                 </button>
               </template>
               <template v-else>
-                <button class="btn secondary" @click="openOpenListTokenPage">
-                  获取 Token（OpenList）
+                <button class="btn secondary" @click="openOpenListPopupAndPaste">
+                  一键获取 Token（OpenList 扫码）
+                </button>
+                <button class="btn secondary" @click="showPasteDialog = true">
+                  粘贴 Token
                 </button>
                 <button class="btn secondary" @click="startOpen115Auth" :disabled="isOpen115AuthLoading || !draftConfig.open115.client_id.trim()">
                   {{ isOpen115AuthLoading ? '生成中...' : '开始扫码授权（可选）' }}
@@ -575,6 +578,33 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showPasteDialog" class="picker-overlay" @click.self="showPasteDialog = false">
+      <div class="picker-modal" style="width: min(560px, 100%)">
+        <div class="picker-header">
+          <h3>粘贴 OpenList Token</h3>
+          <button class="settings-close" @click="showPasteDialog = false"><LucideX :size="20" /></button>
+        </div>
+        <div class="picker-body">
+          <p class="input-hint">在 OpenList 页面扫码完成后，复制浏览器地址栏中的<strong>完整 URL</strong>（包含 <code>#</code> 后面的内容），或复制页面上显示的 base64 字符串，粘贴到下方输入框中。</p>
+          <textarea
+            v-model="pasteTokenInput"
+            class="input-control"
+            rows="4"
+            placeholder="粘贴 URL 或 base64 数据，例如：https://api.oplist.org/#eyJhY2Nlc3Nf..."
+            style="resize: vertical; font-family: monospace; font-size: 13px;"
+          ></textarea>
+          <p v-if="pasteTokenError" class="validation-error">{{ pasteTokenError }}</p>
+        </div>
+        <div class="picker-footer">
+          <div></div>
+          <div class="picker-footer-actions">
+            <button class="btn secondary" @click="showPasteDialog = false">取消</button>
+            <button class="btn primary" @click="handlePasteToken" :disabled="!pasteTokenInput.trim()">自动填充</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -583,6 +613,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { api, getErrorMessage, handleAuthFailure, type AppConfig, type DirEntry, type SystemStatus, type Open115AuthStartResponse } from '../api'
 import CronScheduler from '../components/CronScheduler.vue'
 import { showToast } from '../composables/toast'
+import { openOpenListPopup, parseOpenListTokenData } from '../utils/openlistToken'
 import {
   LucideGlobe,
   LucideFolder,
@@ -669,11 +700,28 @@ const refreshConfig = async () => {
   }
 }
 
-const OPENLIST_TOKEN_URL = 'https://api.oplist.org/'
+const showPasteDialog = ref(false)
+const pasteTokenInput = ref('')
+const pasteTokenError = ref('')
 
-const openOpenListTokenPage = () => {
-  if (typeof window !== 'undefined') {
-    window.open(OPENLIST_TOKEN_URL, '_blank', 'noopener,noreferrer')
+const openOpenListPopupAndPaste = () => {
+  openOpenListPopup()
+  pasteTokenInput.value = ''
+  pasteTokenError.value = ''
+  showPasteDialog.value = true
+}
+
+const handlePasteToken = () => {
+  pasteTokenError.value = ''
+  try {
+    const result = parseOpenListTokenData(pasteTokenInput.value)
+    draftConfig.value.open115.access_token = result.access_token
+    draftConfig.value.open115.refresh_token = result.refresh_token
+    showPasteDialog.value = false
+    pasteTokenInput.value = ''
+    showToast('success', 'Token 已填充', 'access_token 和 refresh_token 已自动填入，可以点击保存设置。')
+  } catch (err: any) {
+    pasteTokenError.value = err.message || '解析失败，请检查输入内容'
   }
 }
 
