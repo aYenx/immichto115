@@ -9,6 +9,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aYenx/immichto115/internal/config"
@@ -24,6 +26,12 @@ type Open115CopySummary struct {
 	Uploaded int
 	Skipped  int
 }
+
+// numWorkers 并发上传 worker 数，模仿 rclone --transfers 4。
+const numWorkers = 4
+
+// maxTotalErrors 累计错误数上限，超过后取消所有 workers。
+const maxTotalErrors = 20
 
 type Open115CopyRunner struct {
 	cfgMgr   *config.Manager
@@ -140,94 +148,196 @@ func scanLocalFiles(baseDir string, prefix string) ([]localFile, error) {
 	return files, err
 }
 
+// uploadResult 是 worker 上传单个文件后的结果。
+type uploadResult struct {
+	file    localFile
+	record  *manifest.FileRecord // nil 表示跳过
+	err     error
+	skipped bool
+}
+
+// uploadChangedFiles 使用 numWorkers 个并发 worker 上传已变化的文件。
+// 模仿 rclone --transfers 4 的 worker pool 模式。
+//
+// 架构：
+//
+//	             ┌─── worker 1 ──→ upload ──→ result
+//	files ──→ jobs ├─── worker 2 ──→ upload ──→ result ──→ collector
+//	             ├─── worker 3 ──→ upload ──→ result     (主goroutine)
+//	             └─── worker 4 ──→ upload ──→ result
 func (r *Open115CopyRunner) uploadChangedFiles(ctx context.Context, files []localFile, remoteRoot string) (int, int, error) {
-	uploaded := 0
+	// 先过滤出需要上传的文件（manifest 检查在主 goroutine 串行完成）
+	toUpload := make([]localFile, 0, len(files))
 	skipped := 0
-	const maxConsecutiveErrors = 10
-	consecutiveErrors := 0
-	var firstErr error
 	for _, file := range files {
 		if ctx.Err() != nil {
-			return uploaded, skipped, ctx.Err()
+			return 0, skipped, ctx.Err()
 		}
 		existingRec, err := r.manifest.Get(ctx, file.RelPath)
 		if err != nil {
-			return uploaded, skipped, err
+			return 0, skipped, err
 		}
 		if existingRec != nil && !existingRec.Deleted && existingRec.Size == file.Size && existingRec.MTime == file.MTime {
 			skipped++
 			continue
 		}
-		remotePath := path.Join(remoteRoot, file.RelPath)
-		uploadPath := file.AbsPath
-		record := &manifest.FileRecord{
-			Path:           file.RelPath,
-			Size:           file.Size,
-			MTime:          file.MTime,
-			LastUploadedAt: time.Now().Unix(),
-			Deleted:        false,
-			RemotePath:     remotePath,
-		}
-		encCfg := open115crypt.FromAppConfig(r.cfgMgr.Get())
-		var cleanupPath string
-		if encCfg.Enabled {
-			remotePath = remotePath + ".enc"
-			record.Encrypted = true
-			record.RemotePath = remotePath
-			if strings.TrimSpace(encCfg.Mode) == "stream" {
-				record.EncryptionVersion = "v2-stream"
-			} else {
-				encFile, err := open115crypt.EncryptFileToTemp(file.AbsPath, encCfg)
-				if err != nil {
-					r.log("stderr", fmt.Sprintf("[immichto115] Open115 加密文件失败（跳过）: %s: %v", file.AbsPath, err))
-					consecutiveErrors++
-					if firstErr == nil {
-						firstErr = err
-					}
-					if consecutiveErrors >= maxConsecutiveErrors {
-						return uploaded, skipped, fmt.Errorf("连续 %d 个文件处理失败，中止备份；最近错误: %w", maxConsecutiveErrors, err)
-					}
-					continue
-				}
-				uploadPath = encFile.TempPath
-				cleanupPath = encFile.TempPath
-				record.EncryptedSize = encFile.EncryptedSize
-				record.EncryptionVersion = encFile.Version
-			}
-		}
-		r.log("stdout", fmt.Sprintf("[immichto115] Open115 上传文件: %s -> %s", uploadPath, remotePath))
+		toUpload = append(toUpload, file)
+	}
 
-		var uploadErr error
-		if encCfg.Enabled && strings.TrimSpace(encCfg.Mode) == "stream" {
-			uploadErr = r.backend.UploadEncryptedStream(ctx, file.AbsPath, remotePath, encCfg)
-		} else {
-			uploadErr = r.backend.UploadFile(ctx, uploadPath, remotePath)
+	if len(toUpload) == 0 {
+		return 0, skipped, nil
+	}
+
+	r.log("stdout", fmt.Sprintf("[immichto115] Open115 需上传 %d 个文件（跳过 %d 未变化），使用 %d 并发 worker", len(toUpload), skipped, numWorkers))
+
+	// 创建可取消的子 context
+	workerCtx, workerCancel := context.WithCancel(ctx)
+	defer workerCancel()
+
+	jobs := make(chan localFile, numWorkers*2)
+	results := make(chan uploadResult, numWorkers*2)
+	var totalErrors atomic.Int64
+	var firstErr atomic.Value // stores error
+
+	encCfg := open115crypt.FromAppConfig(r.cfgMgr.Get())
+
+	// 启动 workers
+	var wg sync.WaitGroup
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for file := range jobs {
+				if workerCtx.Err() != nil {
+					return
+				}
+				result := r.uploadOneFile(workerCtx, file, remoteRoot, encCfg)
+				if result.err != nil && workerCtx.Err() == nil {
+					n := totalErrors.Add(1)
+					firstErr.CompareAndSwap(nil, result.err)
+					if n >= maxTotalErrors {
+						r.log("stderr", fmt.Sprintf("[immichto115] 累计 %d 个文件上传失败，中止备份", n))
+						workerCancel()
+						return
+					}
+				}
+				select {
+				case results <- result:
+				case <-workerCtx.Done():
+					return
+				}
+			}
+		}(i)
+	}
+
+	// 发送 jobs（单独 goroutine）
+	go func() {
+		defer close(jobs)
+		for _, file := range toUpload {
+			select {
+			case jobs <- file:
+			case <-workerCtx.Done():
+				return
+			}
 		}
-		if cleanupPath != "" {
-			_ = open115crypt.CleanupTempFile(cleanupPath)
-		}
-		if uploadErr != nil {
-			// context 取消立即返回
-			if ctx.Err() != nil {
-				return uploaded, skipped, ctx.Err()
-			}
-			r.log("stderr", fmt.Sprintf("[immichto115] Open115 上传失败（跳过）: %s: %v", file.RelPath, uploadErr))
-			consecutiveErrors++
-			if firstErr == nil {
-				firstErr = uploadErr
-			}
-			if consecutiveErrors >= maxConsecutiveErrors {
-				return uploaded, skipped, fmt.Errorf("连续 %d 个文件上传失败，中止备份；最近错误: %w", maxConsecutiveErrors, uploadErr)
-			}
+	}()
+
+	// workers 全部结束后关闭 results
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// 收集结果（主 goroutine），串行写 manifest
+	uploaded := 0
+	for result := range results {
+		if result.skipped {
 			continue
 		}
-		consecutiveErrors = 0 // 上传成功，重置连续错误计数
-		if err := r.manifest.Put(ctx, record); err != nil {
-			return uploaded, skipped, err
+		if result.err != nil {
+			// 错误已在 worker 中记录和计数
+			continue
 		}
-		uploaded++
+		if result.record != nil {
+			if err := r.manifest.Put(ctx, result.record); err != nil {
+				workerCancel()
+				// drain remaining results
+				for range results {
+				}
+				return uploaded, skipped, err
+			}
+			uploaded++
+		}
 	}
-	return uploaded, skipped, firstErr
+
+	// 检查是否因错误中止
+	if n := totalErrors.Load(); n >= maxTotalErrors {
+		if stored := firstErr.Load(); stored != nil {
+			return uploaded, skipped, fmt.Errorf("累计 %d 个文件上传失败，中止备份；首个错误: %w", n, stored.(error))
+		}
+	}
+
+	// 返回首个非致命错误（如果有）
+	if stored := firstErr.Load(); stored != nil {
+		return uploaded, skipped, stored.(error)
+	}
+
+	return uploaded, skipped, nil
+}
+
+// uploadOneFile 上传单个文件，由 worker goroutine 调用。
+func (r *Open115CopyRunner) uploadOneFile(ctx context.Context, file localFile, remoteRoot string, encCfg open115crypt.Config) uploadResult {
+	remotePath := path.Join(remoteRoot, file.RelPath)
+	uploadPath := file.AbsPath
+	record := &manifest.FileRecord{
+		Path:           file.RelPath,
+		Size:           file.Size,
+		MTime:          file.MTime,
+		LastUploadedAt: time.Now().Unix(),
+		Deleted:        false,
+		RemotePath:     remotePath,
+	}
+
+	var cleanupPath string
+	if encCfg.Enabled {
+		remotePath = remotePath + ".enc"
+		record.Encrypted = true
+		record.RemotePath = remotePath
+		if strings.TrimSpace(encCfg.Mode) == "stream" {
+			record.EncryptionVersion = "v2-stream"
+		} else {
+			encFile, err := open115crypt.EncryptFileToTemp(file.AbsPath, encCfg)
+			if err != nil {
+				r.log("stderr", fmt.Sprintf("[immichto115] Open115 加密文件失败（跳过）: %s: %v", file.AbsPath, err))
+				return uploadResult{file: file, err: err}
+			}
+			uploadPath = encFile.TempPath
+			cleanupPath = encFile.TempPath
+			record.EncryptedSize = encFile.EncryptedSize
+			record.EncryptionVersion = encFile.Version
+		}
+	}
+
+	r.log("stdout", fmt.Sprintf("[immichto115] Open115 上传文件: %s -> %s", uploadPath, remotePath))
+
+	var uploadErr error
+	if encCfg.Enabled && strings.TrimSpace(encCfg.Mode) == "stream" {
+		uploadErr = r.backend.UploadEncryptedStream(ctx, file.AbsPath, remotePath, encCfg)
+	} else {
+		uploadErr = r.backend.UploadFile(ctx, uploadPath, remotePath)
+	}
+	if cleanupPath != "" {
+		_ = open115crypt.CleanupTempFile(cleanupPath)
+	}
+	if uploadErr != nil {
+		if ctx.Err() != nil {
+			return uploadResult{file: file, err: ctx.Err()}
+		}
+		r.log("stderr", fmt.Sprintf("[immichto115] Open115 上传失败（跳过）: %s: %v", file.RelPath, uploadErr))
+		return uploadResult{file: file, err: uploadErr}
+	}
+
+	return uploadResult{file: file, record: record}
 }
 
 func (r *Open115CopyRunner) listAllManifestRecords(ctx context.Context) ([]manifest.FileRecord, error) {
@@ -345,6 +455,10 @@ func (r *Open115CopyRunner) Run(ctx context.Context) (*Open115CopySummary, error
 			r.log("stdout", "[immichto115] Open115 sync 删除阶段执行完成")
 		}
 	}
+
+	// 备份结束后清理目录 ID 缓存
+	r.backend.Uploader().ClearDirCache()
+
 	r.log("stdout", fmt.Sprintf("[immichto115] Open115 copy 完成：上传 %d，跳过 %d", uploaded, skipped))
 	return &Open115CopySummary{Scanned: len(allFiles), Uploaded: uploaded, Skipped: skipped}, nil
 }

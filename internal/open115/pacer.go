@@ -9,18 +9,21 @@ import (
 
 // Pacer 是自适应速率限制器，类似 rclone 的 pacer 机制。
 // 核心思想：
-//   - 每次 API 调用前等待一个动态间隔
+//   - 每次 API 调用前通过时间槽预留机制排队等待
 //   - 成功时逐渐缩短间隔（加速）
 //   - 遇到限速错误时大幅增加间隔（退避）
 //   - 间隔有上下界限制
+//
+// 并发安全：多个 goroutine 可同时调用 Wait，通过时间槽预留
+// 自动排成有序队列，避免突发穿透。
 type Pacer struct {
 	mu          sync.Mutex
 	minInterval time.Duration // 最小间隔（最快速度）
 	maxInterval time.Duration // 最大间隔（最慢速度）
 	interval    time.Duration // 当前间隔
-	decayFactor float64       // 成功后缩短比例，如 0.9 表示每次成功后间隔变为 90%
+	decayFactor float64       // 成功后缩短比例，如 0.8 表示每次成功后间隔变为 80%
 	burstFactor float64       // 限速后放大比例，如 3.0 表示间隔变为 3 倍
-	lastCall    time.Time     // 上次调用时间
+	nextSlot    time.Time     // 下一个可用的 API 调用时间槽
 	consecutive int           // 连续成功次数（用于加速判断）
 }
 
@@ -44,13 +47,13 @@ func WithBurstFactor(f float64) PacerOption {
 }
 
 // NewPacer 创建一个自适应速率限制器。
-// 默认参数：最小间隔 200ms，最大间隔 60s，初始间隔 300ms。
+// 默认参数：最小间隔 50ms，最大间隔 60s，初始间隔 100ms。
 func NewPacer(opts ...PacerOption) *Pacer {
 	p := &Pacer{
-		minInterval: 200 * time.Millisecond,
+		minInterval: 50 * time.Millisecond,
 		maxInterval: 60 * time.Second,
-		interval:    300 * time.Millisecond,
-		decayFactor: 0.7,
+		interval:    100 * time.Millisecond,
+		decayFactor: 0.8,
 		burstFactor: 3.0,
 	}
 	for _, opt := range opts {
@@ -59,14 +62,31 @@ func NewPacer(opts ...PacerOption) *Pacer {
 	return p
 }
 
-// Wait 在 API 调用前等待适当的间隔。
+// Wait 在 API 调用前预留一个时间槽并等待。
+// 多个 goroutine 同时调用时，会自动排成有序队列：
+//
+//	Worker A → t=0ms
+//	Worker B → t=50ms
+//	Worker C → t=100ms
+//	Worker D → t=150ms
+//
 // 返回 error 仅在 context 被取消时。
 func (p *Pacer) Wait(ctx context.Context) error {
 	p.mu.Lock()
-	elapsed := time.Since(p.lastCall)
-	wait := p.interval - elapsed
+	now := time.Now()
+
+	// 计算本次调用的时间槽
+	earliest := p.nextSlot
+	if earliest.Before(now) {
+		earliest = now
+	}
+
+	// 预留此时间槽，下一个调用者排在后面
+	p.nextSlot = earliest.Add(p.interval)
 	p.mu.Unlock()
 
+	// 锁外等待到预留的时间槽
+	wait := earliest.Sub(now)
 	if wait <= 0 {
 		return nil
 	}
@@ -84,7 +104,6 @@ func (p *Pacer) Wait(ctx context.Context) error {
 func (p *Pacer) EndCall(err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.lastCall = time.Now()
 
 	if err == nil {
 		p.consecutive++

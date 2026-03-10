@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aliyun/aliyun-oss-go-sdk/oss"
@@ -22,15 +23,26 @@ const multipartChunkSize int64 = 20 * 1024 * 1024
 
 // Uploader 负责承载 Open115 上传相关能力。
 type Uploader struct {
-	service *Service
-	Pacer   *Pacer
+	service  *Service
+	Pacer    *Pacer
+	dirMu    sync.Mutex         // 保护 dirCache 和 EnsureDir 串行化
+	dirCache map[string]string  // normalized path → dir ID
 }
 
 func NewUploader(service *Service) *Uploader {
 	return &Uploader{
-		service: service,
-		Pacer:   NewPacer(),
+		service:  service,
+		Pacer:    NewPacer(),
+		dirCache: make(map[string]string),
 	}
+}
+
+// ClearDirCache 清空目录 ID 缓存。
+// 建议在每次备份任务结束后调用，避免跨任务的陈旧缓存。
+func (u *Uploader) ClearDirCache() {
+	u.dirMu.Lock()
+	u.dirCache = make(map[string]string)
+	u.dirMu.Unlock()
 }
 
 func normalizeUploadPath(remotePath string) string {
@@ -131,6 +143,9 @@ func (u *Uploader) findDirByName(ctx context.Context, parentID, name string) (st
 }
 
 // EnsureDir 确保逻辑路径存在，并返回最终目录 ID。
+// 使用 dirCache 缓存已解析的目录 ID，同路径只查一次 API。
+// 通过 dirMu 保证并发安全：多个 goroutine 同时 EnsureDir 时自动串行化，
+// 防止重复 Mkdir 同一个目录。
 func (u *Uploader) EnsureDir(ctx context.Context, remotePath string) (string, error) {
 	if u == nil || u.service == nil {
 		return "", fmt.Errorf("open115 uploader not initialized")
@@ -139,32 +154,60 @@ func (u *Uploader) EnsureDir(ctx context.Context, remotePath string) (string, er
 	if cleaned == "/" {
 		return u.rootID(), nil
 	}
+
+	u.dirMu.Lock()
+	defer u.dirMu.Unlock()
+
+	// 完整路径命中缓存 → 直接返回
+	if id, ok := u.dirCache[cleaned]; ok {
+		return id, nil
+	}
+
 	client, err := u.service.Client()
 	if err != nil {
 		return "", err
 	}
+
+	// 逐级解析，每级先查缓存
 	currentID := u.rootID()
+	builtPath := ""
 	for _, seg := range strings.Split(strings.TrimPrefix(cleaned, "/"), "/") {
 		seg = strings.TrimSpace(seg)
 		if seg == "" {
 			continue
 		}
+		builtPath += "/" + seg
+
+		// 中间路径命中缓存 → 跳过 API
+		if id, ok := u.dirCache[builtPath]; ok {
+			currentID = id
+			continue
+		}
+
+		// 缓存未命中 → 查询 API
 		existingID, err := u.findDirByName(ctx, currentID, seg)
 		if err != nil {
 			return "", err
 		}
 		if existingID != "" {
+			u.dirCache[builtPath] = existingID
 			currentID = existingID
 			continue
 		}
+
+		// 目录不存在 → 创建
 		created, err := Call(ctx, u.Pacer, "Mkdir", defaultMaxRetries, func() (*sdk.MkdirResp, error) {
 			return client.Mkdir(ctx, currentID, seg)
 		})
 		if err != nil {
 			return "", err
 		}
+		u.dirCache[builtPath] = created.FileID
 		currentID = created.FileID
 	}
+
+	// 缓存完整路径
+	u.dirCache[cleaned] = currentID
 	return currentID, nil
 }
 
