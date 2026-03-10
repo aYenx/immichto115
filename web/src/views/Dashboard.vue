@@ -159,8 +159,8 @@ const derivePhaseFromText = (text: string): 'idle' | 'preparing' | 'library' | '
   const lower = text.toLowerCase()
 
   if (lower.includes('任务已被手动停止') || lower.includes('安全退出') || lower.includes('停止信号') || lower.includes('已发送停止指令') || lower.includes('open115 备份已手动停止')) return 'stopping'
-  if (lower.includes('所有备份阶段执行完毕') || lower.includes('当前同步阶段已成功完成') || lower.includes('open115 copy 增量备份执行完成')) return 'success'
-  if (lower.includes('数据库备份失败') || lower.includes('照片库备份失败') || lower.includes('生成 rclone 配置失败') || lower.includes('无法启动') || lower.includes('open115 备份失败') || lower.includes('upload encrypted stream failed') || lower.includes('measure encrypted stream failed')) {
+  if (lower.includes('所有备份阶段执行完毕') || lower.includes('当前同步阶段已成功完成') || lower.includes('open115 copy 增量备份执行完成') || lower.includes('open115 copy 完成') || lower.includes('open115 sync 删除阶段执行完成')) return 'success'
+  if (lower.includes('数据库备份失败') || lower.includes('照片库备份失败') || lower.includes('生成 rclone 配置失败') || lower.includes('无法启动') || lower.includes('open115 备份失败') || lower.includes('upload encrypted stream failed') || lower.includes('measure encrypted stream failed') || lower.includes('累计') && lower.includes('个文件上传失败')) {
     const completedLibrary = logs.value.some(log => log.text.includes('照片库目录备份阶段已结束'))
     const completedDatabase = logs.value.some(log => log.text.includes('数据库备份目录同步阶段已结束'))
     if (completedLibrary || completedDatabase) return 'partial'
@@ -169,7 +169,8 @@ const derivePhaseFromText = (text: string): 'idle' | 'preparing' | 'library' | '
   if (lower.includes('开始备份数据库备份目录')) return 'database'
   if (lower.includes('开始备份照片库目录')) return 'library'
   if (lower.includes('open115 上传文件') || lower.includes('[open115-stream] upload start') || lower.includes('[open115-reader] putobjectreader done')) return 'library'
-  if (lower.includes('open115 增量扫描完成') || lower.includes('当前使用 115 open 模式') || lower.includes('[open115-stream] measure start') || lower.includes('[open115-reader] uploadinitreader start') || lower.includes('备份任务已启动') || lower.includes('正在生成临时 rclone 配置') || lower.includes('开始执行同步任务')) return 'preparing'
+  if (lower.includes('open115 增量扫描完成') || lower.includes('open115 需上传')) return 'library'
+  if (lower.includes('当前使用 115 open 模式') || lower.includes('[open115-stream] measure start') || lower.includes('[open115-reader] uploadinitreader start') || lower.includes('备份任务已启动') || lower.includes('正在生成临时 rclone 配置') || lower.includes('开始执行同步任务')) return 'preparing'
   return null
 }
 
