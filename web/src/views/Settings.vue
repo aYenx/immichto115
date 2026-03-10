@@ -4,7 +4,7 @@
       <div>
         <p class="settings-eyebrow">Settings</p>
         <h1 class="settings-title">配置中心</h1>
-        <p class="settings-subtitle">把常用配置拆成四个模块，按需打开弹窗编辑，避免沿用首次引导流程。</p>
+        <p class="settings-subtitle">按模块管理所有配置项，点击卡片即可编辑对应设置。</p>
         <div class="settings-status-strip">
           <span :class="['status-chip', (systemStatus?.provider || config.provider) === 'open115' || systemStatus?.rclone_installed ? 'healthy' : 'warning']">
             {{ (systemStatus?.provider || config.provider) === 'open115' ? 'Open115 已启用' : (systemStatus?.rclone_installed ? 'Rclone 已就绪' : 'Rclone 未安装') }}
@@ -303,11 +303,31 @@
             <template v-if="draftConfig.provider === 'open115'">
               <div class="toggle-field" @click="draftConfig.open115_encrypt.enabled = !draftConfig.open115_encrypt.enabled">
                 <div class="toggle-info">
-                  <span class="toggle-title">启用 Open115 本地加密（实验性）</span>
-                  <span class="toggle-desc">开启后，将在上传前先做本地加密。根据模式不同，会走临时文件或流式加密上传。</span>
+                  <span class="toggle-title">启用 Open115 本地加密</span>
+                  <span class="toggle-desc">开启后，将在上传前对文件内容进行本地加密。支持临时文件和流式两种模式。</span>
                 </div>
                 <div :class="['switch', draftConfig.open115_encrypt.enabled ? 'active' : '']">
                   <div class="thumb"></div>
+                </div>
+              </div>
+
+              <div v-if="draftConfig.open115_encrypt.enabled" class="input-field">
+                <span class="input-label">加密模式</span>
+                <div class="radio-group">
+                  <label class="radio-option" :class="{ active: draftConfig.open115_encrypt.mode === 'temp' }">
+                    <input type="radio" v-model="draftConfig.open115_encrypt.mode" value="temp" />
+                    <div class="radio-option-text">
+                      <strong>temp</strong>
+                      <span>先生成临时 <code>.enc</code> 文件后上传，更稳定</span>
+                    </div>
+                  </label>
+                  <label class="radio-option" :class="{ active: draftConfig.open115_encrypt.mode === 'stream' }">
+                    <input type="radio" v-model="draftConfig.open115_encrypt.mode" value="stream" />
+                    <div class="radio-option-text">
+                      <strong>stream</strong>
+                      <span>流式加密上传，更省磁盘空间；建议先在小目录上验证</span>
+                    </div>
+                  </label>
                 </div>
               </div>
 
@@ -328,7 +348,7 @@
                     <input type="radio" v-model="draftConfig.open115_encrypt.filename_mode" value="plain" />
                     <div class="radio-option-text">
                       <strong>plain</strong>
-                      <span>保留原文件名，仅在远端追加 <code>.enc</code>，当前最稳</span>
+                      <span>保留原文件名，仅在远端追加 <code>.enc</code></span>
                     </div>
                   </label>
                 </div>
@@ -342,10 +362,6 @@
               <div v-if="draftConfig.open115_encrypt.enabled" class="input-field">
                 <span class="input-label">最小剩余空间（MB）</span>
                 <input class="input-control" v-model.number="draftConfig.open115_encrypt.min_free_space_mb" type="number" min="0" placeholder="1024" />
-              </div>
-
-              <div v-if="draftConfig.open115_encrypt.enabled" class="input-hint">
-                当前为第一阶段实现：会先在本地生成临时 `.enc` 文件，再上传到 115；后续再考虑升级为流式加密上传。
               </div>
             </template>
             <template v-else>
@@ -820,8 +836,8 @@ const automationCardState = computed(() => {
 const webdavSignals = computed(() => {
   const signals: string[] = []
   if (config.provider === 'open115') {
-    signals.push(config.open115.client_id.trim() ? `Client ID: ${config.open115.client_id.trim()}` : '尚未填写 115 Open Client ID')
-    signals.push(config.open115.user_id.trim() ? `用户: ${config.open115.user_id.trim()}` : '尚未完成扫码授权')
+    if (config.open115.client_id.trim()) signals.push(`Client ID: ${config.open115.client_id.trim()}`)
+    signals.push(config.open115.user_id.trim() ? `用户: ${config.open115.user_id.trim()}` : (config.open115.access_token.trim() ? 'Token 已填写' : '尚未填写 Token 或完成授权'))
     signals.push(config.backup.remote_dir.trim() ? `写入目录: ${config.backup.remote_dir.trim()}` : '尚未选择远端目录')
     return signals
   }
