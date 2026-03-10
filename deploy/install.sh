@@ -7,6 +7,8 @@ set -euo pipefail
 #
 #  用法:
 #    sudo bash install.sh [选项]
+#    curl -fsSL https://...install.sh | sudo bash
+#    curl -fsSL https://...install.sh | sudo bash -s -- --no-rclone
 #
 #  选项:
 #    --no-rclone    跳过 Rclone 检查与安装
@@ -17,10 +19,88 @@ set -euo pipefail
 #    RELEASE_URL    自定义下载地址前缀（镜像加速）
 # ============================================================
 
-# 定位并加载公共库
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=common.sh
-source "${SCRIPT_DIR}/common.sh"
+# ---- 常量 ---------------------------------------------------
+APP_NAME="immichto115"
+INSTALL_DIR="/usr/local/bin"
+CONFIG_DIR="/etc/${APP_NAME}"
+SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
+DEFAULT_PORT=8096
+GITHUB_REPO="aYenx/immichto115"
+
+# ---- 颜色 ---------------------------------------------------
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[1;34m'
+CYAN='\033[1;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
+UNDERLINE='\033[4m'
+NC='\033[0m'
+
+# ---- 日志 ---------------------------------------------------
+info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
+warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
+step()  { echo -e "${BLUE}[STEP]${NC}  ${BOLD}$*${NC}"; }
+
+# ---- 工具函数 -----------------------------------------------
+link() {
+    local url="$1"
+    local text="${2:-$url}"
+    printf '\e]8;;%s\a%b%s%b\e]8;;\a' "$url" "${UNDERLINE}${CYAN}" "$text" "${NC}"
+}
+
+banner() {
+    local title="$1"
+    echo ""
+    echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
+    printf "${BOLD}║${NC}  %-40s${BOLD}║${NC}\n" "$title"
+    echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
+    echo ""
+}
+
+require_root() {
+    if [[ $EUID -ne 0 ]]; then
+        error "请使用 root 权限运行: sudo bash install.sh"
+    fi
+}
+
+detect_arch() {
+    local arch
+    arch=$(uname -m)
+    case "$arch" in
+        x86_64|amd64)  echo "amd64" ;;
+        aarch64|arm64) echo "arm64" ;;
+        *)             error "不支持的架构: $arch (仅支持 amd64/arm64)" ;;
+    esac
+}
+
+is_container() {
+    if [[ -f /.dockerenv ]]; then return 0; fi
+    if grep -qE '(docker|lxc|containerd)' /proc/1/cgroup 2>/dev/null; then return 0; fi
+    if [[ "$(head -1 /proc/1/sched 2>/dev/null)" =~ "bash" ]]; then return 0; fi
+    return 1
+}
+
+download() {
+    local url="$1" output="$2"
+    if command -v curl &>/dev/null; then
+        curl -fsSL -o "$output" "$url"
+    elif command -v wget &>/dev/null; then
+        wget -q -O "$output" "$url"
+    else
+        error "需要 curl 或 wget 才能下载文件"
+    fi
+}
+
+get_installed_version() {
+    if [[ -x "${INSTALL_DIR}/${APP_NAME}" ]]; then
+        "${INSTALL_DIR}/${APP_NAME}" --version 2>/dev/null || echo "未知"
+    else
+        echo "未安装"
+    fi
+}
 
 # ---- 参数默认值 ---------------------------------------------
 OPT_NO_RCLONE=false
@@ -33,6 +113,8 @@ ImmichTo115 一键安装 / 更新脚本
 
 用法:
   sudo bash install.sh [选项]
+  curl -fsSL https://...install.sh | sudo bash
+  curl -fsSL https://...install.sh | sudo bash -s -- --no-rclone
 
 选项:
   --no-rclone    跳过 Rclone 检查与安装（适用于已使用 Open115 的用户）
@@ -65,7 +147,8 @@ check_container_env() {
         warn "推荐使用 Docker 镜像部署: ghcr.io/${GITHUB_REPO}:latest"
         warn "详见 deploy/docker-compose.yml"
         echo ""
-        if ! confirm "仍然继续裸安装？"; then
+        read -rp "仍然继续裸安装？[y/N] " answer
+        if [[ ! "${answer}" =~ ^[Yy]$ ]]; then
             info "已取消安装"
             exit 0
         fi
@@ -103,12 +186,12 @@ check_rclone() {
 
 # ---- 检测升级 -----------------------------------------------
 is_upgrade() {
-    service_exists && service_is_active
+    [[ -f "${SERVICE_FILE}" ]] && systemctl is-active --quiet "${APP_NAME}" 2>/dev/null
 }
 
 # ---- 停止已运行的服务 ---------------------------------------
 stop_service() {
-    if service_is_active; then
+    if systemctl is-active --quiet "${APP_NAME}" 2>/dev/null; then
         info "正在停止 ${APP_NAME} 服务 ..."
         systemctl stop "${APP_NAME}"
         info "服务已停止"
@@ -175,8 +258,7 @@ setup_config() {
 setup_systemd() {
     local need_create=true
 
-    # 更新模式下默认保留已有的 service 文件
-    if service_exists && ! $OPT_FORCE; then
+    if [[ -f "${SERVICE_FILE}" ]] && ! $OPT_FORCE; then
         info "保留现有 systemd 服务配置（使用 --force 覆写）"
         need_create=false
     fi
@@ -213,7 +295,7 @@ EOF
 post_install_check() {
     sleep 2
 
-    if service_is_active; then
+    if systemctl is-active --quiet "${APP_NAME}" 2>/dev/null; then
         info "服务健康检查: 运行中 ✓"
     else
         warn "服务似乎未正常启动，请检查日志: journalctl -u ${APP_NAME} -n 30"
@@ -270,7 +352,6 @@ main() {
 
     check_rclone
 
-    # 更新时先停止服务
     if $upgrade; then
         stop_service
     fi

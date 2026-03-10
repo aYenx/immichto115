@@ -7,6 +7,8 @@ set -euo pipefail
 #
 #  用法:
 #    sudo bash uninstall.sh [选项]
+#    curl -fsSL https://...uninstall.sh | sudo bash
+#    curl -fsSL https://...uninstall.sh | sudo bash -s -- --purge --yes
 #
 #  选项:
 #    --purge    同时删除配置目录（默认保留）
@@ -14,10 +16,50 @@ set -euo pipefail
 #    --help     显示帮助信息
 # ============================================================
 
-# 定位并加载公共库
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=common.sh
-source "${SCRIPT_DIR}/common.sh"
+# ---- 常量 ---------------------------------------------------
+APP_NAME="immichto115"
+INSTALL_DIR="/usr/local/bin"
+CONFIG_DIR="/etc/${APP_NAME}"
+SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
+
+# ---- 颜色 ---------------------------------------------------
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[1;34m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+# ---- 日志 ---------------------------------------------------
+info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
+warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
+step()  { echo -e "${BLUE}[STEP]${NC}  ${BOLD}$*${NC}"; }
+
+# ---- 工具函数 -----------------------------------------------
+banner() {
+    local title="$1"
+    echo ""
+    echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
+    printf "${BOLD}║${NC}  %-40s${BOLD}║${NC}\n" "$title"
+    echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
+    echo ""
+}
+
+require_root() {
+    if [[ $EUID -ne 0 ]]; then
+        error "请使用 root 权限运行: sudo bash uninstall.sh"
+    fi
+}
+
+get_installed_version() {
+    if [[ -x "${INSTALL_DIR}/${APP_NAME}" ]]; then
+        "${INSTALL_DIR}/${APP_NAME}" --version 2>/dev/null || echo "未知"
+    else
+        echo "未安装"
+    fi
+}
 
 # ---- 参数默认值 ---------------------------------------------
 OPT_PURGE=false
@@ -30,6 +72,8 @@ ImmichTo115 卸载脚本
 
 用法:
   sudo bash uninstall.sh [选项]
+  curl -fsSL https://...uninstall.sh | sudo bash
+  curl -fsSL https://...uninstall.sh | sudo bash -s -- --purge --yes
 
 选项:
   --purge    同时删除配置目录（默认保留以便重新安装时恢复）
@@ -62,25 +106,26 @@ auto_confirm() {
     if $OPT_YES; then
         return 0
     fi
-    confirm "$prompt"
+    read -rp "${prompt} [y/N] " answer
+    [[ "${answer}" =~ ^[Yy]$ ]]
 }
 
 # ---- 停止并移除 systemd 服务 --------------------------------
 remove_service() {
     step "移除 systemd 服务 ..."
 
-    if service_is_active; then
+    if systemctl is-active --quiet "${APP_NAME}" 2>/dev/null; then
         info "正在停止 ${APP_NAME} 服务 ..."
         systemctl stop "${APP_NAME}"
         info "服务已停止"
     fi
 
-    if service_is_enabled; then
+    if systemctl is-enabled --quiet "${APP_NAME}" 2>/dev/null; then
         info "正在禁用 ${APP_NAME} 服务 ..."
         systemctl disable "${APP_NAME}" 2>/dev/null
     fi
 
-    if service_exists; then
+    if [[ -f "${SERVICE_FILE}" ]]; then
         rm -f "${SERVICE_FILE}"
         systemctl daemon-reload
         info "已移除 systemd 服务文件"
@@ -179,7 +224,7 @@ main() {
 
     require_root
 
-    if ! service_exists && [[ ! -f "${INSTALL_DIR}/${APP_NAME}" ]]; then
+    if [[ ! -f "${SERVICE_FILE}" ]] && [[ ! -f "${INSTALL_DIR}/${APP_NAME}" ]]; then
         info "${APP_NAME} 似乎未安装，无需卸载"
         exit 0
     fi
@@ -190,7 +235,7 @@ main() {
 
     if ! $OPT_YES; then
         echo ""
-        if ! confirm "确认卸载 ${APP_NAME}？"; then
+        if ! auto_confirm "确认卸载 ${APP_NAME}？"; then
             info "已取消卸载"
             exit 0
         fi
