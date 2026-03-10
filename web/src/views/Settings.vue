@@ -222,9 +222,6 @@
                 <button class="btn secondary" @click="openOpenListPopupAndPaste">
                   一键获取 Token（OpenList 扫码）
                 </button>
-                <button class="btn secondary" @click="showPasteDialog = true">
-                  粘贴 Token
-                </button>
                 <button class="btn secondary" @click="startOpen115Auth" :disabled="isOpen115AuthLoading || !draftConfig.open115.client_id.trim()">
                   {{ isOpen115AuthLoading ? '生成中...' : '开始扫码授权（可选）' }}
                 </button>
@@ -582,11 +579,18 @@
     <div v-if="showPasteDialog" class="picker-overlay" @click.self="showPasteDialog = false">
       <div class="picker-modal" style="width: min(560px, 100%)">
         <div class="picker-header">
-          <h3>粘贴 OpenList Token</h3>
+          <h3>一键获取 Token</h3>
           <button class="settings-close" @click="showPasteDialog = false"><LucideX :size="20" /></button>
         </div>
         <div class="picker-body">
-          <p class="input-hint">在 OpenList 页面扫码完成后，复制浏览器地址栏中的<strong>完整 URL</strong>（包含 <code>#</code> 后面的内容），或复制页面上显示的 base64 字符串，粘贴到下方输入框中。</p>
+          <div class="paste-dialog-steps">
+            <p class="input-hint"><strong>步骤 1：</strong>点击下方按钮打开 OpenList 页面，选择 <strong>115 Network Disk Verification</strong>，勾选 <strong>Use parameters provided by OpenList</strong>，留空 Client ID / Secret，然后扫码完成授权。</p>
+            <button class="btn secondary" @click="openOpenListPage" style="margin: 8px 0 12px;">
+              <LucideExternalLink :size="16" />
+              打开 OpenList 页面
+            </button>
+            <p class="input-hint"><strong>步骤 2：</strong>扫码完成后，复制浏览器地址栏中的<strong>完整 URL</strong>（包含 <code>#</code> 后面的内容），或复制页面上显示的 base64 字符串，粘贴到下方输入框中。</p>
+          </div>
           <textarea
             v-model="pasteTokenInput"
             class="input-control"
@@ -627,7 +631,8 @@ import {
   LucidePencil,
   LucideCheck,
   LucideBell,
-  LucideSend
+  LucideSend,
+  LucideExternalLink
 } from 'lucide-vue-next'
 
 type SectionKey = 'webdav' | 'backup' | 'encrypt' | 'automation' | 'notify'
@@ -705,10 +710,13 @@ const pasteTokenInput = ref('')
 const pasteTokenError = ref('')
 
 const openOpenListPopupAndPaste = () => {
-  openOpenListPopup()
   pasteTokenInput.value = ''
   pasteTokenError.value = ''
   showPasteDialog.value = true
+}
+
+const openOpenListPage = () => {
+  openOpenListPopup()
 }
 
 const handlePasteToken = () => {
