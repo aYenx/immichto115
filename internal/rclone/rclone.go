@@ -188,7 +188,6 @@ func Mkdir(remotePath string, configPath string) error {
 
 // 缓存 rclone 版本信息，避免每次请求都启动子进程
 var (
-	versionMu     sync.Mutex
 	versionOnce   sync.Once
 	cachedVersion string
 	cachedVerErr  error
@@ -211,15 +210,6 @@ func GetVersion() (string, error) {
 		cachedVersion = string(out)
 	})
 	return cachedVersion, cachedVerErr
-}
-
-// ResetVersionCache 清除版本缓存，下次调用 GetVersion 时重新检测。
-func ResetVersionCache() {
-	versionMu.Lock()
-	defer versionMu.Unlock()
-	versionOnce = sync.Once{}
-	cachedVersion = ""
-	cachedVerErr = nil
 }
 
 // isProgressNoise 判断一行是否是重复的进度统计信息。

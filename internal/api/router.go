@@ -933,12 +933,18 @@ func (s *Server) cleanupExpiredAuthSessions() {
 }
 
 // StartAuthCleanup 启动后台 goroutine 定期清理过期的 auth session。
-func (s *Server) StartAuthCleanup() {
+// 当传入的 ctx 被取消时 goroutine 会退出，支持优雅关闭。
+func (s *Server) StartAuthCleanup(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
-		for range ticker.C {
-			s.cleanupExpiredAuthSessions()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.cleanupExpiredAuthSessions()
+			}
 		}
 	}()
 }

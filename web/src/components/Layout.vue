@@ -164,4 +164,14 @@ onUnmounted(() => {
   overflow: auto;
   position: relative;
 }
+
+@media (max-width: 768px) {
+  .sidebar {
+    display: none;
+  }
+
+  .main-content {
+    width: 100%;
+  }
+}
 </style>

@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aYenx/immichto115/internal/rclone"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"github.com/aYenx/immichto115/internal/rclone"
 )
 
 var upgrader = websocket.Upgrader{
@@ -36,61 +36,64 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
+// wsClient 代表一个 WebSocket 客户端连接，所有写操作通过 send channel 串行化。
+type wsClient struct {
+	conn *websocket.Conn
+	send chan rclone.LogLine
+}
+
 // Hub 管理所有活跃的 WebSocket 连接，负责广播日志。
 type Hub struct {
 	mu      sync.RWMutex
-	clients map[*websocket.Conn]bool
+	clients map[*wsClient]bool
 }
 
 // NewHub 创建一个新的 WebSocket Hub。
 func NewHub() *Hub {
 	return &Hub{
-		clients: make(map[*websocket.Conn]bool),
+		clients: make(map[*wsClient]bool),
 	}
 }
 
-// Register 注册一个新的 WebSocket 连接。
-func (h *Hub) Register(conn *websocket.Conn) {
+// register 注册一个新的 WebSocket 客户端。
+func (h *Hub) register(client *wsClient) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.clients[conn] = true
+	h.clients[client] = true
 	log.Printf("[ws] client connected, total: %d", len(h.clients))
 }
 
-// Unregister 移除一个 WebSocket 连接。
-func (h *Hub) Unregister(conn *websocket.Conn) {
+// unregister 移除一个 WebSocket 客户端并关闭连接。
+func (h *Hub) unregister(client *wsClient) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if _, ok := h.clients[conn]; ok {
-		delete(h.clients, conn)
-		conn.Close()
+	if _, ok := h.clients[client]; ok {
+		delete(h.clients, client)
+		close(client.send)
+		client.conn.Close()
 		log.Printf("[ws] client disconnected, total: %d", len(h.clients))
 	}
 }
 
 // Broadcast 向所有已连接的客户端广播一条日志消息。
-// 使用非阻塞写入避免慢客户端阻塞 rclone 进程输出；
-// 收集断开的连接在释放读锁后统一清理，避免 RLock/Lock 交叉死锁。
+// 使用非阻塞 channel 发送避免慢客户端阻塞 rclone 进程输出。
 func (h *Hub) Broadcast(line rclone.LogLine) {
 	h.mu.RLock()
-	var dead []*websocket.Conn
-	for conn := range h.clients {
-		err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		if err != nil {
-			dead = append(dead, conn)
-			continue
-		}
-		err = conn.WriteJSON(line)
-		if err != nil {
-			log.Printf("[ws] write error: %v, removing client", err)
-			dead = append(dead, conn)
+	var dead []*wsClient
+	for client := range h.clients {
+		select {
+		case client.send <- line:
+		default:
+			// send buffer 已满，说明客户端过慢，标记为断开
+			dead = append(dead, client)
 		}
 	}
 	h.mu.RUnlock()
 
 	// 在读锁释放后统一清理断开的连接
-	for _, conn := range dead {
-		h.Unregister(conn)
+	for _, client := range dead {
+		log.Printf("[ws] client too slow, removing")
+		h.unregister(client)
 	}
 }
 
@@ -99,6 +102,55 @@ func (h *Hub) Broadcast(line rclone.LogLine) {
 func (h *Hub) BroadcastFromChannel(logCh <-chan rclone.LogLine) {
 	for line := range logCh {
 		h.Broadcast(line)
+	}
+}
+
+// writePump 是每个客户端独立的写 goroutine，串行化所有写操作。
+// 这保证了 gorilla/websocket 的 Conn 不会被并发写入。
+func (c *wsClient) writePump() {
+	const (
+		writeWait    = 5 * time.Second
+		pingInterval = 30 * time.Second
+	)
+	ticker := time.NewTicker(pingInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case msg, ok := <-c.send:
+			if !ok {
+				// Hub 已关闭 send channel，发送 close 帧后退出
+				_ = c.conn.WriteControl(websocket.CloseMessage, nil, time.Now().Add(writeWait))
+				return
+			}
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteJSON(msg); err != nil {
+				return
+			}
+		case <-ticker.C:
+			if err := c.conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeWait)); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// readPump 持续读取客户端消息（主要用于检测断开连接和处理 Pong）。
+func (c *wsClient) readPump(hub *Hub) {
+	defer hub.unregister(c)
+
+	const pongWait = 60 * time.Second
+	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error {
+		c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
+	for {
+		_, _, err := c.conn.ReadMessage()
+		if err != nil {
+			break
+		}
 	}
 }
 
@@ -112,51 +164,20 @@ func HandleWebSocket(hub *Hub) gin.HandlerFunc {
 			return
 		}
 
-		hub.Register(conn)
+		client := &wsClient{
+			conn: conn,
+			send: make(chan rclone.LogLine, 256),
+		}
+		hub.register(client)
 
-		// 发送欢迎消息
+		// 发送欢迎消息（在 writePump 启动前直接写，此时还没有并发）
 		_ = conn.WriteJSON(rclone.LogLine{
 			Stream: "stdout",
 			Text:   "[immichto115] 已连接到日志流",
 		})
 
-		// 持续读取客户端消息（主要用于检测断开连接）
-		// 同时通过 Pong handler 实现心跳检测
-		go func() {
-			defer hub.Unregister(conn)
-
-			const pongWait = 60 * time.Second
-			conn.SetReadDeadline(time.Now().Add(pongWait))
-			conn.SetPongHandler(func(string) error {
-				conn.SetReadDeadline(time.Now().Add(pongWait))
-				return nil
-			})
-
-			for {
-				_, _, err := conn.ReadMessage()
-				if err != nil {
-					break
-				}
-			}
-		}()
-
-		// 定时发送 Ping 帧，触发客户端 Pong 回复
-		go func() {
-			const pingInterval = 30 * time.Second
-			ticker := time.NewTicker(pingInterval)
-			defer ticker.Stop()
-
-			for range ticker.C {
-				hub.mu.RLock()
-				_, connected := hub.clients[conn]
-				hub.mu.RUnlock()
-				if !connected {
-					return
-				}
-				if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)); err != nil {
-					return
-				}
-			}
-		}()
+		// 启动读写 pump
+		go client.writePump()
+		go client.readPump(hub)
 	}
 }

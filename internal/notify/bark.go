@@ -26,7 +26,6 @@ func SendBark(barkURL, title, body string) error {
 		return fmt.Errorf("bark URL is empty")
 	}
 
-	// 确保 URL 以 / 结尾后拼接路径
 	base := strings.TrimRight(barkURL, "/")
 
 	payload := BarkPayload{
@@ -37,19 +36,7 @@ func SendBark(barkURL, title, body string) error {
 
 	client := &http.Client{Timeout: 10 * time.Second}
 
-	// 优先尝试 GET
-	encodedURL := base + "/" + url.PathEscape(title) + "/" + url.PathEscape(body)
-	resp, err := client.Get(encodedURL)
-	if err == nil {
-		defer resp.Body.Close()
-		if resp.StatusCode == http.StatusOK {
-			return nil
-		}
-		return fmt.Errorf("bark returned status %d", resp.StatusCode)
-	}
-
-	// GET 失败，回退到 POST JSON
-	log.Printf("[notify] GET failed, falling back to POST: %v", err)
+	// 优先使用 POST JSON（避免敏感信息出现在 URL / 服务端日志中）
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal bark payload: %w", err)
@@ -59,7 +46,19 @@ func SendBark(barkURL, title, body string) error {
 		return fmt.Errorf("failed to create POST request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
-	resp2, err := client.Do(req)
+	resp, err := client.Do(req)
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+		return fmt.Errorf("bark returned status %d", resp.StatusCode)
+	}
+
+	// POST 失败，回退到 GET（兼容部分旧版 Bark 服务端）
+	log.Printf("[notify] POST failed, falling back to GET: %v", err)
+	encodedURL := base + "/" + url.PathEscape(title) + "/" + url.PathEscape(body)
+	resp2, err := client.Get(encodedURL)
 	if err != nil {
 		return fmt.Errorf("bark push failed: %w", err)
 	}

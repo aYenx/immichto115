@@ -438,6 +438,11 @@ func (u *Uploader) UploadReaderWithInit(ctx context.Context, reader io.Reader, r
 		return err
 	}
 	log.Printf("[open115-reader] UploadInitReader done: remote=%s object=%s status=%d", remotePath, initResp.Object, initResp.Status)
+	// 秒传成功，无需实际上传
+	if initResp.Status == 2 {
+		log.Printf("[open115-reader] fast transfer (秒传) success: remote=%s", remotePath)
+		return nil
+	}
 	tokenResp, err := Call(ctx, u.Pacer, "UploadGetTokenReader", defaultMaxRetries, func() (*sdk.UploadGetTokenResp, error) {
 		return client.UploadGetToken(ctx)
 	})

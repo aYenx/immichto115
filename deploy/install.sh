@@ -2,113 +2,188 @@
 set -euo pipefail
 
 # ============================================================
-#  ImmichTo115 一键安装脚本
-#  支持 Linux (amd64/arm64)
+#  ImmichTo115 一键安装 / 更新脚本
+#  支持 Linux (amd64 / arm64)
+#
+#  用法:
+#    sudo bash install.sh [选项]
+#
+#  选项:
+#    --no-rclone    跳过 Rclone 检查与安装
+#    --force        强制覆写 systemd 服务文件
+#    --help         显示帮助信息
+#
+#  环境变量:
+#    RELEASE_URL    自定义下载地址前缀（镜像加速）
 # ============================================================
 
-APP_NAME="immichto115"
-INSTALL_DIR="/usr/local/bin"
-CONFIG_DIR="/etc/${APP_NAME}"
-SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
+# 定位并加载公共库
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "${SCRIPT_DIR}/common.sh"
 
-# 颜色
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[1;34m'
-CYAN='\033[1;36m'
-UNDERLINE='\033[4m'
-NC='\033[0m'
+# ---- 参数默认值 ---------------------------------------------
+OPT_NO_RCLONE=false
+OPT_FORCE=false
 
-# 生成可点击的终端超链接 (OSC 8)
-# 用法: link <url> [显示文本]
-# 现代终端 (iTerm2, GNOME Terminal ≥3.26, Windows Terminal, Alacritty 等) 会渲染为可点击链接
-link() {
-    local url="$1"
-    local text="${2:-$url}"
-    # OSC 8 超链接: \e]8;;URL\aTEXT\e]8;;\a
-    # 使用 \a (BEL) 替代 \e\\ 作为终止符，兼容性更好
-    printf '\e]8;;%s\a%b%s%b\e]8;;\a' "$url" "${UNDERLINE}${CYAN}" "$text" "${NC}"
+# ---- 参数解析 -----------------------------------------------
+show_help() {
+    cat <<'HELP'
+ImmichTo115 一键安装 / 更新脚本
+
+用法:
+  sudo bash install.sh [选项]
+
+选项:
+  --no-rclone    跳过 Rclone 检查与安装（适用于已使用 Open115 的用户）
+  --force        强制覆写 systemd 服务文件（默认更新时保留）
+  --help         显示此帮助信息
+
+环境变量:
+  RELEASE_URL    自定义下载地址前缀
+                 示例: RELEASE_URL=https://mirror.example.com/releases/latest/download bash install.sh
+HELP
+    exit 0
 }
 
-info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
-warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
-error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
-
-# 检测架构
-detect_arch() {
-    local arch
-    arch=$(uname -m)
-    case "$arch" in
-        x86_64|amd64)  echo "amd64" ;;
-        aarch64|arm64) echo "arm64" ;;
-        *)             error "不支持的架构: $arch" ;;
-    esac
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --no-rclone) OPT_NO_RCLONE=true ;;
+            --force)     OPT_FORCE=true ;;
+            --help|-h)   show_help ;;
+            *)           warn "未知参数: $1（已忽略）" ;;
+        esac
+        shift
+    done
 }
 
-# 检查并安装 Rclone
-check_rclone() {
-    if command -v rclone &> /dev/null; then
-        info "Rclone 已安装: $(rclone version --check 2>/dev/null || rclone version | head -1)"
-    else
-        info "正在安装 Rclone..."
-        curl -fsSL https://rclone.org/install.sh | bash
-        if ! command -v rclone &> /dev/null; then
-            error "Rclone 安装失败"
+# ---- Docker 环境警告 ----------------------------------------
+check_container_env() {
+    if is_container; then
+        warn "检测到当前处于容器环境"
+        warn "推荐使用 Docker 镜像部署: ghcr.io/${GITHUB_REPO}:latest"
+        warn "详见 deploy/docker-compose.yml"
+        echo ""
+        if ! confirm "仍然继续裸安装？"; then
+            info "已取消安装"
+            exit 0
         fi
-        info "Rclone 安装成功"
     fi
 }
 
-# 检测是否为更新（服务已存在且正在运行）
-is_upgrade() {
-    [[ -f "${SERVICE_FILE}" ]] && systemctl is-active --quiet "${APP_NAME}" 2>/dev/null
+# ---- Rclone 检查与安装 --------------------------------------
+check_rclone() {
+    if $OPT_NO_RCLONE; then
+        info "跳过 Rclone 检查（--no-rclone）"
+        return
+    fi
+
+    if command -v rclone &>/dev/null; then
+        local rclone_ver
+        rclone_ver=$(rclone version 2>/dev/null | head -1 || echo "未知版本")
+        info "Rclone 已安装: ${rclone_ver}"
+        return
+    fi
+
+    step "安装 Rclone ..."
+    local tmp_script="/tmp/rclone-install-$$.sh"
+    download "https://rclone.org/install.sh" "$tmp_script"
+    bash "$tmp_script" || {
+        rm -f "$tmp_script"
+        error "Rclone 安装失败"
+    }
+    rm -f "$tmp_script"
+
+    if ! command -v rclone &>/dev/null; then
+        error "Rclone 安装后仍无法找到命令"
+    fi
+    info "Rclone 安装成功"
 }
 
-# 停止正在运行的服务（更新前调用）
-stop_service_if_running() {
-    if systemctl is-active --quiet "${APP_NAME}" 2>/dev/null; then
-        info "检测到正在运行的服务，正在停止..."
+# ---- 检测升级 -----------------------------------------------
+is_upgrade() {
+    service_exists && service_is_active
+}
+
+# ---- 停止已运行的服务 ---------------------------------------
+stop_service() {
+    if service_is_active; then
+        info "正在停止 ${APP_NAME} 服务 ..."
         systemctl stop "${APP_NAME}"
         info "服务已停止"
     fi
 }
 
-# 下载 ImmichTo115 二进制
+# ---- 下载二进制 & 校验 --------------------------------------
 download_binary() {
-    local arch
+    local arch os="linux"
     arch=$(detect_arch)
-    local os="linux"
 
-    # GitHub Release 下载地址 — 可通过环境变量 RELEASE_URL 覆盖
-    # 示例: RELEASE_URL=https://my-mirror.com/releases/latest/download bash install.sh
-    local base_url="${RELEASE_URL:-https://github.com/aYenx/immichto115/releases/latest/download}"
-    local download_url="${base_url}/${APP_NAME}-${os}-${arch}"
+    local base_url="${RELEASE_URL:-https://github.com/${GITHUB_REPO}/releases/latest/download}"
+    local binary_name="${APP_NAME}-${os}-${arch}"
+    local download_url="${base_url}/${binary_name}"
+    local checksum_url="${base_url}/checksums.txt"
 
-    info "正在下载 ${APP_NAME} (${os}/${arch})..."
+    step "下载 ${APP_NAME} (${os}/${arch}) ..."
 
-    if command -v curl &> /dev/null; then
-        curl -fsSL -o "/tmp/${APP_NAME}" "${download_url}" || error "下载失败"
-    elif command -v wget &> /dev/null; then
-        wget -q -O "/tmp/${APP_NAME}" "${download_url}" || error "下载失败"
+    local tmp_bin="/tmp/${APP_NAME}-$$"
+    download "$download_url" "$tmp_bin" || error "下载二进制文件失败"
+
+    # 尝试校验 checksum（非强制，失败时仅警告）
+    local tmp_checksum="/tmp/${APP_NAME}-checksums-$$.txt"
+    if download "$checksum_url" "$tmp_checksum" 2>/dev/null; then
+        if command -v sha256sum &>/dev/null; then
+            local expected
+            expected=$(grep "${binary_name}$" "$tmp_checksum" | awk '{print $1}')
+            if [[ -n "$expected" ]]; then
+                local actual
+                actual=$(sha256sum "$tmp_bin" | awk '{print $1}')
+                if [[ "$expected" == "$actual" ]]; then
+                    info "SHA256 校验通过 ✓"
+                else
+                    rm -f "$tmp_bin" "$tmp_checksum"
+                    error "SHA256 校验失败！\n  期望: ${expected}\n  实际: ${actual}"
+                fi
+            else
+                warn "checksums.txt 中未找到 ${binary_name} 的记录，跳过校验"
+            fi
+        else
+            warn "未安装 sha256sum，跳过校验"
+        fi
     else
-        error "需要 curl 或 wget"
+        warn "无法下载 checksums.txt，跳过校验"
+    fi
+    rm -f "$tmp_checksum"
+
+    chmod +x "$tmp_bin"
+    mv "$tmp_bin" "${INSTALL_DIR}/${APP_NAME}"
+    info "二进制已安装到 ${INSTALL_DIR}/${APP_NAME}"
+}
+
+# ---- 配置目录 -----------------------------------------------
+setup_config() {
+    if [[ -d "${CONFIG_DIR}" ]]; then
+        info "配置目录已存在: ${CONFIG_DIR}"
+    else
+        mkdir -p "${CONFIG_DIR}"
+        info "已创建配置目录: ${CONFIG_DIR}"
+    fi
+}
+
+# ---- systemd 服务 -------------------------------------------
+setup_systemd() {
+    local need_create=true
+
+    # 更新模式下默认保留已有的 service 文件
+    if service_exists && ! $OPT_FORCE; then
+        info "保留现有 systemd 服务配置（使用 --force 覆写）"
+        need_create=false
     fi
 
-    chmod +x "/tmp/${APP_NAME}"
-    mv "/tmp/${APP_NAME}" "${INSTALL_DIR}/${APP_NAME}"
-    info "已安装到 ${INSTALL_DIR}/${APP_NAME}"
-}
-
-# 创建配置目录
-setup_config() {
-    mkdir -p "${CONFIG_DIR}"
-    info "配置目录: ${CONFIG_DIR}"
-}
-
-# 创建 systemd 服务
-setup_systemd() {
-    cat > "${SERVICE_FILE}" << EOF
+    if $need_create; then
+        step "创建 systemd 服务 ..."
+        cat > "${SERVICE_FILE}" <<EOF
 [Unit]
 Description=ImmichTo115 Web Backup Service
 After=network.target
@@ -124,64 +199,87 @@ Environment=TZ=Asia/Shanghai
 [Install]
 WantedBy=multi-user.target
 EOF
+        info "服务文件已写入: ${SERVICE_FILE}"
+    fi
 
     systemctl daemon-reload
-    systemctl enable "${APP_NAME}"
+    systemctl enable "${APP_NAME}" 2>/dev/null
     systemctl start "${APP_NAME}"
 
-    info "Systemd 服务已创建并启动"
+    info "服务已启动"
 }
 
-# 主流程
-main() {
+# ---- 安装后验证 ---------------------------------------------
+post_install_check() {
+    sleep 2
+
+    if service_is_active; then
+        info "服务健康检查: 运行中 ✓"
+    else
+        warn "服务似乎未正常启动，请检查日志: journalctl -u ${APP_NAME} -n 30"
+    fi
+}
+
+# ---- 安装完成摘要 -------------------------------------------
+print_summary() {
+    local is_upgrade="$1"
+    local new_ver
+    new_ver=$(get_installed_version)
+
     echo ""
-    echo "========================================"
-    echo "   ImmichTo115 一键安装 / 更新脚本"
-    echo "========================================"
+    echo -e "${GREEN}╔══════════════════════════════════════════╗${NC}"
+    if $is_upgrade; then
+        echo -e "${GREEN}║${NC}  ✅ 更新完成！                           ${GREEN}║${NC}"
+    else
+        echo -e "${GREEN}║${NC}  ✅ 安装完成！                           ${GREEN}║${NC}"
+    fi
+    echo -e "${GREEN}╚══════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  版本:    ${BOLD}${new_ver}${NC}"
+    echo -e "  二进制:  ${DIM}${INSTALL_DIR}/${APP_NAME}${NC}"
+    echo -e "  配置:    ${DIM}${CONFIG_DIR}${NC}"
+    echo -e "  服务:    ${DIM}${SERVICE_FILE}${NC}"
     echo ""
 
-    # 检查 root 权限
-    if [[ $EUID -ne 0 ]]; then
-        error "请使用 root 权限运行: sudo bash install.sh"
-    fi
+    local host_ip
+    host_ip=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+    local url="http://${host_ip}:${DEFAULT_PORT}"
+    info "请打开浏览器访问以下地址开始配置："
+    echo ""
+    echo -e "   👉 $(link "${url}")"
+    echo ""
+}
+
+# ---- 主流程 -------------------------------------------------
+main() {
+    parse_args "$@"
+
+    banner "ImmichTo115 安装 / 更新"
+
+    require_root
+    check_container_env
 
     local upgrade=false
     if is_upgrade; then
         upgrade=true
-        info "🔄 检测到已安装的服务，将执行更新..."
-        # 显示当前版本
-        if [[ -x "${INSTALL_DIR}/${APP_NAME}" ]]; then
-            local current_ver
-            current_ver=$("${INSTALL_DIR}/${APP_NAME}" --version 2>/dev/null || echo "未知")
-            info "当前版本: ${current_ver}"
-        fi
+        local current_ver
+        current_ver=$(get_installed_version)
+        info "🔄 检测到已安装的服务，将执行更新 ..."
+        info "当前版本: ${current_ver}"
     fi
 
     check_rclone
 
-    # 更新时先停止服务，再替换二进制
+    # 更新时先停止服务
     if $upgrade; then
-        stop_service_if_running
+        stop_service
     fi
 
     download_binary
     setup_config
     setup_systemd
-
-    echo ""
-    if $upgrade; then
-        info "✅ 更新完成！服务已重启。"
-    else
-        info "✅ 安装完成！"
-    fi
-    echo ""
-    local host_ip
-    host_ip=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
-    local url="http://${host_ip}:8096"
-    info "请打开浏览器访问以下地址开始配置："
-    echo ""
-    echo -e "   👉 $(link "${url}")"
-    echo ""
+    post_install_check
+    print_summary "$upgrade"
 }
 
 main "$@"

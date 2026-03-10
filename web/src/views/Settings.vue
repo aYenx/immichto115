@@ -1262,6 +1262,8 @@ const confirmRemoteFolder = () => {
   border-radius: 999px;
   font-size: 12px;
   font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .status-chip.healthy,
@@ -1299,12 +1301,14 @@ const confirmRemoteFolder = () => {
   align-items: flex-start;
   gap: 16px;
   width: 100%;
+  min-width: 0;
   padding: 24px;
   border-radius: 16px;
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
   text-align: left;
   transition: all 0.2s ease;
+  overflow: hidden;
 }
 
 .settings-card:hover {
@@ -1390,7 +1394,7 @@ const confirmRemoteFolder = () => {
   font-size: 20px;
   font-weight: 800;
   font-family: var(--font-primary);
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .settings-card-head span {
@@ -1418,6 +1422,10 @@ const confirmRemoteFolder = () => {
   color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 
 .settings-card-signals li::before {
@@ -1762,7 +1770,7 @@ const confirmRemoteFolder = () => {
 
 .radio-option-text strong {
   font-size: 14px;
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .radio-option-text span {
