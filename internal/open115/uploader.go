@@ -23,10 +23,11 @@ const multipartChunkSize int64 = 20 * 1024 * 1024
 
 // Uploader 负责承载 Open115 上传相关能力。
 type Uploader struct {
-	service  *Service
-	Pacer    *Pacer
-	dirMu    sync.Mutex         // 保护 dirCache 和 EnsureDir 串行化
-	dirCache map[string]string  // normalized path → dir ID
+	service    *Service
+	Pacer      *Pacer
+	dirMu      sync.Mutex         // 保护 dirCache 读写
+	dirCache   map[string]string  // normalized path → dir ID
+	dirFlight  sync.Map           // path → chan struct{} (in-flight 去重)
 }
 
 func NewUploader(service *Service) *Uploader {
@@ -43,6 +44,7 @@ func (u *Uploader) ClearDirCache() {
 	u.dirMu.Lock()
 	u.dirCache = make(map[string]string)
 	u.dirMu.Unlock()
+	u.dirFlight = sync.Map{}
 }
 
 func normalizeUploadPath(remotePath string) string {
@@ -144,8 +146,8 @@ func (u *Uploader) findDirByName(ctx context.Context, parentID, name string) (st
 
 // EnsureDir 确保逻辑路径存在，并返回最终目录 ID。
 // 使用 dirCache 缓存已解析的目录 ID，同路径只查一次 API。
-// 通过 dirMu 保证并发安全：多个 goroutine 同时 EnsureDir 时自动串行化，
-// 防止重复 Mkdir 同一个目录。
+// 并发安全：多个 goroutine 同时请求同一路径时，只有一个执行 API 调用，
+// 其余等待结果。不同路径可完全并发。
 func (u *Uploader) EnsureDir(ctx context.Context, remotePath string) (string, error) {
 	if u == nil || u.service == nil {
 		return "", fmt.Errorf("open115 uploader not initialized")
@@ -155,20 +157,51 @@ func (u *Uploader) EnsureDir(ctx context.Context, remotePath string) (string, er
 		return u.rootID(), nil
 	}
 
+	// 快速路径：缓存命中
 	u.dirMu.Lock()
-	defer u.dirMu.Unlock()
-
-	// 完整路径命中缓存 → 直接返回
 	if id, ok := u.dirCache[cleaned]; ok {
+		u.dirMu.Unlock()
 		return id, nil
 	}
+	u.dirMu.Unlock()
 
+	// 慢路径：per-path 去重，同路径只有一个 goroutine 执行 API 调用
+	// 其他请求同路径的 goroutine 等待 channel 关闭后从缓存读取结果
+	ch := make(chan struct{})
+	if existing, loaded := u.dirFlight.LoadOrStore(cleaned, ch); loaded {
+		// 另一个 goroutine 正在解析此路径，等待它完成
+		select {
+		case <-existing.(chan struct{}):
+			// 完成，从缓存获取结果
+			u.dirMu.Lock()
+			id, ok := u.dirCache[cleaned]
+			u.dirMu.Unlock()
+			if ok {
+				return id, nil
+			}
+			// 前一个调用失败了，重试
+			return u.ensureDirSlow(ctx, cleaned)
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+
+	// 我们是第一个请求此路径的 goroutine
+	defer func() {
+		close(ch)
+		u.dirFlight.Delete(cleaned)
+	}()
+
+	return u.ensureDirSlow(ctx, cleaned)
+}
+
+// ensureDirSlow 执行实际的目录解析（不持有 dirMu 期间调用 API）。
+func (u *Uploader) ensureDirSlow(ctx context.Context, cleaned string) (string, error) {
 	client, err := u.service.Client()
 	if err != nil {
 		return "", err
 	}
 
-	// 逐级解析，每级先查缓存
 	currentID := u.rootID()
 	builtPath := ""
 	for _, seg := range strings.Split(strings.TrimPrefix(cleaned, "/"), "/") {
@@ -178,36 +211,45 @@ func (u *Uploader) EnsureDir(ctx context.Context, remotePath string) (string, er
 		}
 		builtPath += "/" + seg
 
-		// 中间路径命中缓存 → 跳过 API
+		// 中间路径查缓存（短暂加锁）
+		u.dirMu.Lock()
 		if id, ok := u.dirCache[builtPath]; ok {
+			u.dirMu.Unlock()
 			currentID = id
 			continue
 		}
+		u.dirMu.Unlock()
 
-		// 缓存未命中 → 查询 API
+		// 缓存未命中 → 查询 API（不持锁）
 		existingID, err := u.findDirByName(ctx, currentID, seg)
 		if err != nil {
 			return "", err
 		}
 		if existingID != "" {
+			u.dirMu.Lock()
 			u.dirCache[builtPath] = existingID
+			u.dirMu.Unlock()
 			currentID = existingID
 			continue
 		}
 
-		// 目录不存在 → 创建
+		// 目录不存在 → 创建（不持锁）
 		created, err := Call(ctx, u.Pacer, "Mkdir", defaultMaxRetries, func() (*sdk.MkdirResp, error) {
 			return client.Mkdir(ctx, currentID, seg)
 		})
 		if err != nil {
 			return "", err
 		}
+		u.dirMu.Lock()
 		u.dirCache[builtPath] = created.FileID
+		u.dirMu.Unlock()
 		currentID = created.FileID
 	}
 
 	// 缓存完整路径
+	u.dirMu.Lock()
 	u.dirCache[cleaned] = currentID
+	u.dirMu.Unlock()
 	return currentID, nil
 }
 

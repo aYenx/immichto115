@@ -150,10 +150,9 @@ func scanLocalFiles(baseDir string, prefix string) ([]localFile, error) {
 
 // uploadResult 是 worker 上传单个文件后的结果。
 type uploadResult struct {
-	file    localFile
-	record  *manifest.FileRecord // nil 表示跳过
-	err     error
-	skipped bool
+	file   localFile
+	record *manifest.FileRecord // nil 表示失败
+	err    error
 }
 
 // uploadChangedFiles 使用 numWorkers 个并发 worker 上传已变化的文件。
@@ -197,7 +196,23 @@ func (r *Open115CopyRunner) uploadChangedFiles(ctx context.Context, files []loca
 	jobs := make(chan localFile, numWorkers*2)
 	results := make(chan uploadResult, numWorkers*2)
 	var totalErrors atomic.Int64
-	var firstErr atomic.Value // stores error
+	var (
+		firstErrOnce sync.Once
+		firstErrMu   sync.Mutex
+		firstErr     error
+	)
+	setFirstErr := func(err error) {
+		firstErrOnce.Do(func() {
+			firstErrMu.Lock()
+			firstErr = err
+			firstErrMu.Unlock()
+		})
+	}
+	getFirstErr := func() error {
+		firstErrMu.Lock()
+		defer firstErrMu.Unlock()
+		return firstErr
+	}
 
 	encCfg := open115crypt.FromAppConfig(r.cfgMgr.Get())
 
@@ -214,7 +229,7 @@ func (r *Open115CopyRunner) uploadChangedFiles(ctx context.Context, files []loca
 				result := r.uploadOneFile(workerCtx, file, remoteRoot, encCfg)
 				if result.err != nil && workerCtx.Err() == nil {
 					n := totalErrors.Add(1)
-					firstErr.CompareAndSwap(nil, result.err)
+					setFirstErr(result.err)
 					if n >= maxTotalErrors {
 						r.log("stderr", fmt.Sprintf("[immichto115] 累计 %d 个文件上传失败，中止备份", n))
 						workerCancel()
@@ -251,9 +266,6 @@ func (r *Open115CopyRunner) uploadChangedFiles(ctx context.Context, files []loca
 	// 收集结果（主 goroutine），串行写 manifest
 	uploaded := 0
 	for result := range results {
-		if result.skipped {
-			continue
-		}
 		if result.err != nil {
 			// 错误已在 worker 中记录和计数
 			continue
@@ -272,14 +284,14 @@ func (r *Open115CopyRunner) uploadChangedFiles(ctx context.Context, files []loca
 
 	// 检查是否因错误中止
 	if n := totalErrors.Load(); n >= maxTotalErrors {
-		if stored := firstErr.Load(); stored != nil {
-			return uploaded, skipped, fmt.Errorf("累计 %d 个文件上传失败，中止备份；首个错误: %w", n, stored.(error))
+		if e := getFirstErr(); e != nil {
+			return uploaded, skipped, fmt.Errorf("累计 %d 个文件上传失败，中止备份；首个错误: %w", n, e)
 		}
 	}
 
 	// 返回首个非致命错误（如果有）
-	if stored := firstErr.Load(); stored != nil {
-		return uploaded, skipped, stored.(error)
+	if e := getFirstErr(); e != nil {
+		return uploaded, skipped, e
 	}
 
 	return uploaded, skipped, nil
