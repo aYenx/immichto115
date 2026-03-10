@@ -125,9 +125,6 @@
               <button class="btn secondary" @click="openOpenListPopupAndPaste">
                 一键获取 Token（OpenList 扫码）
               </button>
-              <button class="btn secondary" @click="showPasteDialog = true">
-                粘贴 Token
-              </button>
               <button class="btn secondary" @click="startOpen115Auth" :disabled="isOpen115AuthLoading || !config.open115.client_id.trim()">
                 {{ isOpen115AuthLoading ? '生成中...' : '开始扫码授权（可选）' }}
               </button>
@@ -139,7 +136,7 @@
               </button>
             </div>
             <div class="input-hint">
-              推荐点击“一键获取 Token”按钮。在弹出的窗口中选择 <strong>115 Network Disk Verification</strong>，勾选 <strong>Use parameters provided by OpenList</strong>，留空 Client ID / Secret，扫码完成后复制页面上的 URL 或 base64 数据，点击“粘贴 Token”即可自动填充。若你已有自己的开放平台应用，也可以继续使用项目内扫码授权。
+              推荐点击“一键获取 Token”按钮，按弹窗中的步骤完成操作。若你已有自己的开放平台应用，也可以继续使用项目内扫码授权。
             </div>
 
             <div v-if="open115Auth.qrcode" class="qrcode-panel">
@@ -477,11 +474,18 @@
     <div v-if="showPasteDialog" class="modal-overlay" @click.self="showPasteDialog = false">
       <div class="modal" style="width: min(560px, 100%)">
         <div class="modal-header">
-          <h3 style="margin: 0; font-size: 16px;">粘贴 OpenList Token</h3>
+          <h3 style="margin: 0; font-size: 16px;">一键获取 Token</h3>
           <button class="btn-icon" @click="showPasteDialog = false" style="background:none; border:none; cursor:pointer; color: var(--text-primary);"><LucideX :size="20" /></button>
         </div>
         <div class="modal-body">
-          <p class="input-hint">在 OpenList 页面扫码完成后，复制浏览器地址栏中的<strong>完整 URL</strong>（包含 <code>#</code> 后面的内容），或复制页面上显示的 base64 字符串，粘贴到下方输入框中。</p>
+          <div class="paste-dialog-steps">
+            <p class="input-hint"><strong>步骤 1：</strong>点击下方按钮打开 OpenList 页面，选择 <strong>115 Network Disk Verification</strong>，勾选 <strong>Use parameters provided by OpenList</strong>，留空 Client ID / Secret，然后扫码完成授权。</p>
+            <button class="btn secondary" @click="openOpenListPage" style="margin: 8px 0 12px;">
+              <LucideExternalLink :size="16" />
+              打开 OpenList 页面
+            </button>
+            <p class="input-hint"><strong>步骤 2：</strong>扫码完成后，复制浏览器地址栏中的<strong>完整 URL</strong>（包含 <code>#</code> 后面的内容），或复制页面上显示的 base64 字符串，粘贴到下方输入框中。</p>
+          </div>
           <textarea
             v-model="pasteTokenInput"
             class="input-control"
@@ -506,7 +510,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, reactive, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { LucideCheck, LucideFolder, LucideFolderOpen, LucideX, LucideHardDrive, LucidePencil, LucideLoader2, LucideCornerLeftUp } from 'lucide-vue-next'
+import { LucideCheck, LucideFolder, LucideFolderOpen, LucideX, LucideHardDrive, LucidePencil, LucideLoader2, LucideCornerLeftUp, LucideExternalLink } from 'lucide-vue-next'
 import { api, getErrorMessage, handleAuthFailure, type AppConfig, type DirEntry, type Open115AuthStartResponse } from '../api'
 import { showToast } from '../composables/toast'
 import { markSetupComplete } from '../router'
@@ -535,10 +539,13 @@ const pasteTokenInput = ref('')
 const pasteTokenError = ref('')
 
 const openOpenListPopupAndPaste = () => {
-  openOpenListPopup()
   pasteTokenInput.value = ''
   pasteTokenError.value = ''
   showPasteDialog.value = true
+}
+
+const openOpenListPage = () => {
+  openOpenListPopup()
 }
 
 const handlePasteToken = () => {
