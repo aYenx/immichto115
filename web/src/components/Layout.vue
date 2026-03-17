@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="layout-container">
     <!-- Sidebar -->
     <div class="sidebar">
@@ -19,6 +19,10 @@
           <LucideSettings :size="20" />
           <span>设置</span>
         </router-link>
+        <router-link to="/photo-upload" class="nav-item" active-class="active">
+          <LucideCamera :size="20" />
+          <span>摄影上传</span>
+        </router-link>
       </div>
 
       <div class="sidebar-footer">
@@ -38,7 +42,7 @@
 
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
-import { LucideLayout, LucideHardDrive, LucideSettings } from 'lucide-vue-next'
+import { LucideLayout, LucideHardDrive, LucideSettings, LucideCamera } from 'lucide-vue-next'
 import { api, handleAuthFailure } from '../api'
 
 const serviceHealthy = ref(true)

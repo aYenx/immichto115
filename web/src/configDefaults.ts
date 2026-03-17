@@ -58,5 +58,13 @@ export function createDefaultConfig(): AppConfig {
       enabled: false,
       bark_url: '',
     },
+    photo_upload: {
+      enabled: false,
+      watch_dir: '',
+      remote_dir: '/摄影',
+      extensions: 'cr2,cr3,nef,arw,dng,raf,rw2,orf,pef,srw,jpg,jpeg',
+      date_format: '2006/01/02',
+      delete_after_upload: true,
+    },
   }
 }

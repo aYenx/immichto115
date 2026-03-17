@@ -23,6 +23,7 @@ type AppConfig struct {
 	Encrypt        EncryptConfig        `mapstructure:"encrypt"  json:"encrypt"  yaml:"encrypt"`
 	Cron           CronConfig           `mapstructure:"cron"     json:"cron"     yaml:"cron"`
 	Notify         NotifyConfig         `mapstructure:"notify"   json:"notify"   yaml:"notify"`
+	PhotoUpload    PhotoUploadConfig    `mapstructure:"photo_upload" json:"photo_upload" yaml:"photo_upload"`
 }
 
 // ServerConfig 服务器配置。
@@ -94,6 +95,16 @@ type NotifyConfig struct {
 	BarkURL string `mapstructure:"bark_url" json:"bark_url" yaml:"bark_url"` // Bark 推送地址，如 https://api.day.app/YOUR_KEY
 }
 
+// PhotoUploadConfig 摄影文件自动上传配置。
+type PhotoUploadConfig struct {
+	Enabled           bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+	WatchDir          string `mapstructure:"watch_dir" json:"watch_dir" yaml:"watch_dir"`                       // 本地监控目录
+	RemoteDir         string `mapstructure:"remote_dir" json:"remote_dir" yaml:"remote_dir"`                    // 115上的目标根目录
+	Extensions        string `mapstructure:"extensions" json:"extensions" yaml:"extensions"`                    // 逗号分隔的扩展名
+	DateFormat        string `mapstructure:"date_format" json:"date_format" yaml:"date_format"`                 // 目录分类格式，默认 "2006/01/02"
+	DeleteAfterUpload bool   `mapstructure:"delete_after_upload" json:"delete_after_upload" yaml:"delete_after_upload"`
+}
+
 // Manager 配置管理器，线程安全。
 type Manager struct {
 	mu       sync.RWMutex
@@ -142,6 +153,11 @@ func NewManager(configPath string) (*Manager, error) {
 	v.SetDefault("cron.enabled", false)
 	v.SetDefault("encrypt.enabled", false)
 	v.SetDefault("notify.enabled", false)
+	v.SetDefault("photo_upload.enabled", false)
+	v.SetDefault("photo_upload.extensions", "cr2,cr3,nef,arw,dng,raf,rw2,orf,pef,srw,jpg,jpeg")
+	v.SetDefault("photo_upload.date_format", "2006/01/02")
+	v.SetDefault("photo_upload.delete_after_upload", true)
+	v.SetDefault("photo_upload.remote_dir", "/摄影")
 
 	// 尝试读取已有配置
 	if err := v.ReadInConfig(); err != nil {
@@ -233,6 +249,13 @@ func (m *Manager) Update(cfg AppConfig) error {
 
 	v.Set("notify.enabled", cfg.Notify.Enabled)
 	v.Set("notify.bark_url", cfg.Notify.BarkURL)
+
+	v.Set("photo_upload.enabled", cfg.PhotoUpload.Enabled)
+	v.Set("photo_upload.watch_dir", cfg.PhotoUpload.WatchDir)
+	v.Set("photo_upload.remote_dir", cfg.PhotoUpload.RemoteDir)
+	v.Set("photo_upload.extensions", cfg.PhotoUpload.Extensions)
+	v.Set("photo_upload.date_format", cfg.PhotoUpload.DateFormat)
+	v.Set("photo_upload.delete_after_upload", cfg.PhotoUpload.DeleteAfterUpload)
 
 	if err := v.WriteConfig(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
