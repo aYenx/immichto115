@@ -37,6 +37,7 @@ Go 后端 + Vue 3 前端，编译为**单个二进制文件**，开箱即用。
 | | 功能 | 说明 |
 | :-: | --- | --- |
 | ☁️ | **115 Open 直传** | Token 授权即用，支持大文件 multipart 上传 + manifest.db 增量索引 |
+| 📷 | **摄影文件上传** | 扫描本地 RAW + JPG，按 EXIF 拍摄日期自动分类上传到 115 网盘 |
 | 🔐 | **端到端加密** | Open115 本地加密（temp / stream）或 WebDAV Rclone Crypt |
 | ⏰ | **定时 + 增量备份** | 可视化 Cron 调度 + `copy`/`sync` 两种模式，`sync` 支持远端删除保护 |
 | 🧙 | **Setup Wizard** | 4 步引导式配置，WebDAV / 115 Open 双模式 |
@@ -235,6 +236,15 @@ backup:
   mode: copy
   manifest_path: ./config/manifest.db
   allow_remote_delete: false
+
+# 摄影文件上传（可选）
+photo_upload:
+  enabled: true
+  watch_dir: /data/photos       # 本地摄影文件目录
+  remote_dir: /摄影              # 115 网盘目标目录
+  extensions: cr2,cr3,nef,arw,dng,raf,rw2,orf,pef,srw,jpg,jpeg
+  date_format: "2006/01/02"     # 远端子目录结构: 年/月/日
+  delete_after_upload: true     # 上传成功后删除本地文件
 ```
 
 </details>
@@ -259,6 +269,11 @@ backup:
 | `encrypt.password`                       | WebDAV 模式下 Rclone Crypt 加密口令              |      ⬜      |
 | `server.auth_user` / `auth_password`     | HTTP Basic Auth 保护 Web UI 与 API               |      ⬜      |
 | `notify.bark_url`                        | Bark 推送地址，如 `https://api.day.app/YOUR_KEY` |      ⬜      |
+| `photo_upload.watch_dir`                 | 本地摄影文件目录                                 |      ⬜      |
+| `photo_upload.remote_dir`                | 115 网盘目标目录                                 |      ⬜      |
+| `photo_upload.extensions`                | 监控的文件扩展名（逗号分隔）                     |      ⬜      |
+| `photo_upload.date_format`               | 远端日期子目录格式（Go time 格式）               |      ⬜      |
+| `photo_upload.delete_after_upload`       | 上传成功后是否删除本地文件                       |      ⬜      |
 
 > [!WARNING]
 > `sync` 模式下如果开启 `allow_remote_delete: true`，系统会尝试删除远端存在但本地已删除的文件。默认建议保持关闭，确认无误后再开启。
@@ -330,6 +345,9 @@ sudo bash deploy/uninstall.sh --yes --purge
 | `GET`  | `/api/v1/open115/ls`          | 浏览 115 Open 目录                      |  ✅  |
 | `POST` | `/api/v1/backup/start`        | 手动触发备份                            |  ✅  |
 | `POST` | `/api/v1/backup/stop`         | 停止备份                                |  ✅  |
+| `POST` | `/api/v1/photo-upload/start`  | 开始摄影文件上传                        |  ✅  |
+| `POST` | `/api/v1/photo-upload/stop`   | 停止摄影文件上传                        |  ✅  |
+| `GET`  | `/api/v1/photo-upload/status` | 查询摄影上传状态                        |  ✅  |
 | `GET`  | `/api/v1/remote/ls`           | 浏览云端文件（Restore Explorer）        |  ✅  |
 | `GET`  | `/api/v1/local/ls`            | 浏览本地目录                            |  ✅  |
 | `POST` | `/api/v1/notify/test`         | 测试 Bark 推送通知                      |  ✅  |
@@ -355,10 +373,11 @@ immichto115/
 │   ├── notify/              # Bark 推送通知
 │   ├── open115/             # 115 Open Client: 授权 / 上传 / 目录 / 删除
 │   ├── open115crypt/        # Open115 本地加密 (AES-256-GCM)
+│   ├── photoupload/         # 摄影文件扫描 + EXIF 日期提取 + 上传
 │   └── rclone/              # Rclone CLI 封装 (os/exec)
 ├── web/                     # Vue 3 + Vite + TypeScript 前端
 │   └── src/
-│       ├── views/           # Dashboard · Wizard · Settings · RestoreExplorer
+│       ├── views/           # Dashboard · Wizard · Settings · PhotoUpload · RestoreExplorer
 │       ├── components/      # Layout · CronScheduler · GlobalToast
 │       ├── api.ts           # 类型化 API 客户端
 │       └── style.css        # 全局样式 (CSS Variables + Dark Mode)
