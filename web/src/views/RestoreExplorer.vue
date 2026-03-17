@@ -435,4 +435,52 @@ onMounted(async () => {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+@media (max-width: 1024px) {
+  .explore-container {
+    padding: 32px 24px;
+  }
+}
+
+@media (max-width: 768px) {
+  .explore-container {
+    padding: 24px 16px;
+    gap: 20px;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .title-group h1 {
+    font-size: 24px;
+  }
+
+  .title-group p {
+    font-size: 14px;
+  }
+
+  .col-size,
+  .col-date,
+  .col-actions {
+    display: none;
+  }
+
+  .table-row,
+  .table-header {
+    padding: 12px 16px;
+  }
+
+  .breadcrumb {
+    padding: 14px 16px;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .col-name {
+    padding-left: 8px !important;
+  }
+}
 </style>

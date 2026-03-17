@@ -1969,4 +1969,53 @@ const confirmRemoteFolder = () => {
     flex-direction: column;
   }
 }
+
+@media (max-width: 768px) {
+  .settings-page {
+    padding: 24px 16px;
+  }
+
+  .settings-title {
+    font-size: 24px;
+  }
+
+  .settings-subtitle,
+  .settings-modal-header p {
+    font-size: 14px;
+  }
+
+  .settings-modal-header,
+  .picker-header {
+    padding: 20px 16px 16px;
+  }
+
+  .settings-modal-body,
+  .picker-body {
+    padding: 16px;
+  }
+
+  .settings-modal-footer,
+  .picker-footer {
+    padding: 16px;
+  }
+
+  .settings-modal-header h3,
+  .picker-header h3 {
+    font-size: 22px;
+  }
+
+  .settings-modal-overlay,
+  .picker-overlay {
+    padding: 12px;
+  }
+
+  .settings-card {
+    padding: 16px;
+    gap: 12px;
+  }
+
+  .settings-card-head h2 {
+    font-size: 16px;
+  }
+}
 </style>
