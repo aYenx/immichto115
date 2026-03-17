@@ -768,4 +768,90 @@ onUnmounted(() => {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
+
+@media (max-width: 1024px) {
+  .dashboard-container {
+    padding: 32px 24px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .dashboard-container {
+    padding: 24px 16px;
+    gap: 24px;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .greeting h1 {
+    font-size: 24px;
+  }
+
+  .actions {
+    width: 100%;
+  }
+
+  .actions .btn {
+    flex: 1;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .stat-card {
+    padding: 16px;
+    gap: 12px;
+  }
+
+  .stat-icon-wrapper {
+    width: 40px;
+    height: 40px;
+  }
+
+  .stat-value {
+    font-size: 14px !important;
+  }
+
+  .logs-terminal {
+    min-height: 200px;
+    max-height: 350px;
+    padding: 16px;
+    font-size: 12px;
+  }
+
+  .logs-header h2 {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .dashboard-container {
+    padding: 20px 12px;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .greeting h1 {
+    font-size: 22px;
+  }
+
+  .greeting p {
+    font-size: 14px;
+  }
+
+  .status-detail {
+    font-size: 12px;
+  }
+}
 </style>

@@ -919,7 +919,7 @@ onUnmounted(() => {
 .modal {
   background: var(--bg-card);
   border-radius: 16px;
-  width: 520px;
+  width: min(520px, calc(100vw - 32px));
   max-height: 70vh;
   display: flex;
   flex-direction: column;

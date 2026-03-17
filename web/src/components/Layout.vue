@@ -1,6 +1,6 @@
 <template>
   <div class="layout-container">
-    <!-- Sidebar -->
+    <!-- Sidebar (desktop) -->
     <div class="sidebar">
       <div class="sidebar-header">
         <h1 class="logo">ImmichTo115</h1>
@@ -37,6 +37,26 @@
     <div class="main-content">
       <router-view />
     </div>
+
+    <!-- Mobile Bottom Tab Bar -->
+    <nav class="mobile-tab-bar">
+      <router-link to="/dashboard" class="tab-item" active-class="active">
+        <LucideLayout :size="20" />
+        <span>仪表盘</span>
+      </router-link>
+      <router-link to="/explore" class="tab-item" active-class="active">
+        <LucideHardDrive :size="20" />
+        <span>云端</span>
+      </router-link>
+      <router-link to="/settings" class="tab-item" active-class="active">
+        <LucideSettings :size="20" />
+        <span>设置</span>
+      </router-link>
+      <router-link to="/photo-upload" class="tab-item" active-class="active">
+        <LucideCamera :size="20" />
+        <span>上传</span>
+      </router-link>
+    </nav>
   </div>
 </template>
 
@@ -169,6 +189,10 @@ onUnmounted(() => {
   position: relative;
 }
 
+.mobile-tab-bar {
+  display: none;
+}
+
 @media (max-width: 768px) {
   .sidebar {
     display: none;
@@ -176,6 +200,40 @@ onUnmounted(() => {
 
   .main-content {
     width: 100%;
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .mobile-tab-bar {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: calc(64px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background-color: var(--bg-card);
+    border-top: 1px solid var(--border-strong);
+    z-index: 100;
+    align-items: stretch;
+  }
+
+  .tab-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: var(--text-tertiary);
+    text-decoration: none;
+    font-size: 11px;
+    font-weight: 600;
+    transition: color 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .tab-item.active {
+    color: var(--text-primary);
   }
 }
 </style>

@@ -1004,4 +1004,13 @@ const finishSetup = async () => {
   .wizard-container { flex-direction:column; height:auto; min-height:100vh; gap:32px; padding:24px; }
   .left-col, .right-col { width:100%; }
 }
+@media (max-width: 768px) {
+  .wizard-container { padding:16px; gap:24px; }
+  .right-col { padding:24px; }
+  .main-title { font-size:28px; }
+  .content-title { font-size:22px; }
+  .buttons, .buttons.space-between { flex-direction:column; }
+  .buttons .btn { width:100%; justify-content:center; }
+  .modal { width:calc(100vw - 24px); }
+}
 </style>
