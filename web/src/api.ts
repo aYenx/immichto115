@@ -68,6 +68,15 @@ export interface Open115EncryptConfig {
   min_free_space_mb: number
 }
 
+export interface PhotoUploadConfig {
+  enabled: boolean
+  watch_dir: string
+  remote_dir: string
+  extensions: string
+  date_format: string
+  delete_after_upload: boolean
+}
+
 export interface AppConfig {
   provider: 'webdav' | 'open115'
   server: ServerConfig
@@ -78,6 +87,7 @@ export interface AppConfig {
   encrypt: EncryptConfig
   cron: CronConfig
   notify: NotifyConfig
+  photo_upload: PhotoUploadConfig
 }
 
 export interface NotifyConfig {
@@ -282,5 +292,18 @@ export const api = {
 
   testNotify: async (): Promise<{ message: string }> => {
     return await requestJSON<{ message: string }>(`${BASE_URL}/notify/test`, { method: 'POST' })
+  },
+
+  // 摄影文件上传
+  photoUploadStart: async (): Promise<{ message: string }> => {
+    return await requestJSON<{ message: string }>(`${BASE_URL}/photo-upload/start`, { method: 'POST' })
+  },
+
+  photoUploadStop: async (): Promise<{ message: string }> => {
+    return await requestJSON<{ message: string }>(`${BASE_URL}/photo-upload/stop`, { method: 'POST' })
+  },
+
+  photoUploadStatus: async (): Promise<{ status: string }> => {
+    return await requestJSON<{ status: string }>(`${BASE_URL}/photo-upload/status`)
   }
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/aYenx/immichto115/internal/notify"
 	"github.com/aYenx/immichto115/internal/open115"
 	"github.com/aYenx/immichto115/internal/open115crypt"
+	"github.com/aYenx/immichto115/internal/photoupload"
 	"github.com/aYenx/immichto115/internal/rclone"
 	"github.com/gin-gonic/gin"
 )
@@ -78,6 +79,10 @@ type Server struct {
 	backupCancel  context.CancelFunc
 	backupActive  bool
 	backupTrigger string
+
+	photoUploadMu     sync.RWMutex
+	photoUploadCancel context.CancelFunc
+	photoUploadActive bool
 }
 
 // NewServer 创建 API Server 实例。
@@ -587,6 +592,11 @@ func (s *Server) SetupRouter() *gin.Engine {
 
 		// 通知测试
 		v1.POST("/notify/test", s.handleNotifyTest)
+
+		// 摄影文件上传
+		v1.POST("/photo-upload/start", s.handlePhotoUploadStart)
+		v1.POST("/photo-upload/stop", s.handlePhotoUploadStop)
+		v1.GET("/photo-upload/status", s.handlePhotoUploadStatus)
 	}
 
 	// --- WebSocket（使用 auth 中间件保护）---
@@ -678,6 +688,17 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 	newCfg.Open115Encrypt.TempDir = strings.TrimSpace(newCfg.Open115Encrypt.TempDir)
 	newCfg.Cron.Expression = normalizeCronExpression(newCfg.Cron.Expression)
 	newCfg.Notify.BarkURL = strings.TrimSpace(newCfg.Notify.BarkURL)
+
+	newCfg.PhotoUpload.WatchDir = strings.TrimSpace(newCfg.PhotoUpload.WatchDir)
+	newCfg.PhotoUpload.RemoteDir = strings.TrimSpace(newCfg.PhotoUpload.RemoteDir)
+	newCfg.PhotoUpload.Extensions = strings.TrimSpace(newCfg.PhotoUpload.Extensions)
+	newCfg.PhotoUpload.DateFormat = strings.TrimSpace(newCfg.PhotoUpload.DateFormat)
+	if newCfg.PhotoUpload.RemoteDir == "" {
+		newCfg.PhotoUpload.RemoteDir = "/摄影"
+	}
+	if newCfg.PhotoUpload.DateFormat == "" {
+		newCfg.PhotoUpload.DateFormat = "2006/01/02"
+	}
 
 	// 如果前端传了 "********" 则保留旧密钥；显式清空字符串则视为用户要清除该值。
 	oldCfg := s.Config.Get()
@@ -1276,3 +1297,116 @@ func (s *Server) handleNotifyTest(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "测试通知已发送"})
 }
+
+// ===== 摄影文件上传 Handler =====
+
+func (s *Server) beginPhotoUploadJob() (context.Context, bool) {
+	s.photoUploadMu.Lock()
+	defer s.photoUploadMu.Unlock()
+	if s.photoUploadActive {
+		return nil, false
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.photoUploadCancel = cancel
+	s.photoUploadActive = true
+	return ctx, true
+}
+
+func (s *Server) finishPhotoUploadJob() {
+	s.photoUploadMu.Lock()
+	defer s.photoUploadMu.Unlock()
+	s.photoUploadCancel = nil
+	s.photoUploadActive = false
+}
+
+func (s *Server) stopPhotoUploadJob() bool {
+	s.photoUploadMu.Lock()
+	defer s.photoUploadMu.Unlock()
+	if !s.photoUploadActive || s.photoUploadCancel == nil {
+		return false
+	}
+	s.photoUploadCancel()
+	return true
+}
+
+func (s *Server) isPhotoUploadActive() bool {
+	s.photoUploadMu.RLock()
+	defer s.photoUploadMu.RUnlock()
+	return s.photoUploadActive
+}
+
+func (s *Server) handlePhotoUploadStart(c *gin.Context) {
+	cfg := s.Config.Get()
+	if strings.TrimSpace(cfg.PhotoUpload.WatchDir) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "未配置本地监控目录，请先在设置中填写"})
+		return
+	}
+
+	jobCtx, ok := s.beginPhotoUploadJob()
+	if !ok {
+		c.JSON(http.StatusConflict, gin.H{"error": "已有摄影上传任务正在运行"})
+		return
+	}
+
+	go func() {
+		defer s.finishPhotoUploadJob()
+
+		uploader := open115.NewUploader(s.Open115)
+		runner := photoupload.NewRunner(uploader, cfg.PhotoUpload, func(stream, text string) {
+			s.Hub.Broadcast(rclone.LogLine{Stream: stream, Text: text})
+		})
+
+		summary, err := runner.Run(jobCtx)
+		if err != nil {
+			if ctx_err := jobCtx.Err(); ctx_err != nil {
+				s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[photo-upload] 任务已手动停止"})
+				s.sendBackupNotify(cfg, notify.BackupNotification{
+					Success: false,
+					Trigger: "摄影上传",
+					Mode:    "摄影文件上传",
+					Stage:   "摄影上传",
+					Detail:  "任务已被手动停止",
+				})
+				return
+			}
+			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[photo-upload] 上传失败：" + err.Error()})
+			s.sendBackupNotify(cfg, notify.BackupNotification{
+				Success: false,
+				Trigger: "摄影上传",
+				Mode:    "摄影文件上传",
+				Stage:   "摄影上传",
+				Detail:  err.Error(),
+			})
+			return
+		}
+
+		detail := fmt.Sprintf("摄影文件上传完成；扫描 %d，上传 %d，失败 %d，删除 %d",
+			summary.Scanned, summary.Uploaded, summary.Failed, summary.Deleted)
+		s.sendBackupNotify(cfg, notify.BackupNotification{
+			Success: true,
+			Trigger: "摄影上传",
+			Mode:    "摄影文件上传",
+			Stage:   "摄影上传",
+			Detail:  detail,
+		})
+	}()
+
+	c.JSON(http.StatusOK, gin.H{"message": "摄影文件上传已开始"})
+}
+
+func (s *Server) handlePhotoUploadStop(c *gin.Context) {
+	if !s.stopPhotoUploadJob() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "当前没有正在运行的摄影上传任务"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "已发送停止指令"})
+}
+
+func (s *Server) handlePhotoUploadStatus(c *gin.Context) {
+	status := "idle"
+	if s.isPhotoUploadActive() {
+		status = "running"
+	}
+	c.JSON(http.StatusOK, gin.H{"status": status})
+}
+

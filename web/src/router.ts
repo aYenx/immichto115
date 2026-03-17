@@ -44,6 +44,13 @@ const router = createRouter({
             () => import("./views/Settings.vue"),
           ),
         },
+        {
+          path: "photo-upload",
+          name: "photo-upload",
+          component: defineAsyncComponent(
+            () => import("./views/PhotoUpload.vue"),
+          ),
+        },
       ],
     },
   ],
