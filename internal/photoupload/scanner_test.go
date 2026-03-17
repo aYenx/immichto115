@@ -3,6 +3,7 @@ package photoupload
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -138,3 +139,70 @@ func TestExtractDate_FallbackToModTime(t *testing.T) {
 		t.Fatalf("extractDate() = %v, want close to %v", date, info.ModTime())
 	}
 }
+
+func TestBaseName(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"IMG_0001.CR2", "img_0001"},
+		{"IMG_0001.jpg", "img_0001"},
+		{"photo.JPG", "photo"},
+		{"no_ext", "no_ext"},
+	}
+	for _, tt := range tests {
+		got := baseName(tt.input)
+		if got != tt.want {
+			t.Errorf("baseName(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestScan_RawJpgPairing(t *testing.T) {
+	// RAW 文件无法解析 EXIF，但同名的 JPG 可以
+	// 此测试验证 RAW 和 JPG 文件对能获得相同的日期
+	tmpDir := t.TempDir()
+
+	// 创建配对文件：RAW + JPG（均为 fake 数据,无真实 EXIF）
+	// 由于都没有 EXIF，它们应该共享相同的 ModTime 回退日期
+	rawFile := filepath.Join(tmpDir, "IMG_0001.CR2")
+	jpgFile := filepath.Join(tmpDir, "IMG_0001.jpg")
+	if err := os.WriteFile(rawFile, []byte("fake raw"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jpgFile, []byte("fake jpg"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := Scan(tmpDir, "cr2,jpg")
+	if err != nil {
+		t.Fatalf("Scan() error: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("Scan() returned %d entries, want 2", len(entries))
+	}
+
+	// 找到 RAW 和 JPG 条目
+	var rawEntry, jpgEntry *FileEntry
+	for i := range entries {
+		ext := strings.ToLower(filepath.Ext(entries[i].FileName))
+		if ext == ".cr2" {
+			rawEntry = &entries[i]
+		} else if ext == ".jpg" {
+			jpgEntry = &entries[i]
+		}
+	}
+
+	if rawEntry == nil || jpgEntry == nil {
+		t.Fatal("missing RAW or JPG entry")
+	}
+
+	// 两者的日期都应该是非零值
+	if rawEntry.Date.IsZero() {
+		t.Error("RAW entry has zero date")
+	}
+	if jpgEntry.Date.IsZero() {
+		t.Error("JPG entry has zero date")
+	}
+}
+

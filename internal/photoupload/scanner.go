@@ -80,7 +80,21 @@ func matchExtension(fileName string, exts map[string]bool) bool {
 	return exts[ext]
 }
 
+// isJPEG 判断扩展名是否为 JPEG 格式。
+func isJPEG(ext string) bool {
+	return ext == ".jpg" || ext == ".jpeg"
+}
+
+// baseName 返回文件名去掉扩展名后的小写基础名。
+func baseName(fileName string) string {
+	ext := filepath.Ext(fileName)
+	return strings.ToLower(strings.TrimSuffix(fileName, ext))
+}
+
 // Scan 扫描目录下的所有匹配文件。
+// 关键逻辑：RAW 文件通常无法解析 EXIF，但同一张照片会同时产生 RAW + JPG，
+// 文件名相同仅扩展名不同（例如 IMG_0001.CR2 + IMG_0001.JPG）。
+// 因此先从 JPG EXIF 提取拍摄日期，然后将日期同步到同名的 RAW 文件。
 func Scan(watchDir string, extensions string) ([]FileEntry, error) {
 	exts := parseExtensions(extensions)
 	if len(exts) == 0 {
@@ -111,14 +125,55 @@ func Scan(watchDir string, extensions string) ([]FileEntry, error) {
 		})
 		return nil
 	})
-	return entries, err
+	if err != nil {
+		return nil, err
+	}
+
+	// === 第二轮：RAW+JPG 日期配对 ===
+	// 1) 收集 JPG 文件中通过 EXIF 成功解析出日期的条目，按 "目录/基础名" 建索引
+	type dateKey struct {
+		dir  string // 文件所在目录
+		base string // 小写基础名（不含扩展名）
+	}
+	jpegDates := make(map[dateKey]time.Time)
+	for _, e := range entries {
+		ext := strings.ToLower(filepath.Ext(e.FileName))
+		if !isJPEG(ext) {
+			continue
+		}
+		// 只记录通过 EXIF 解析成功的日期（区别于 ModTime 回退）
+		if t, err := readExifDate(e.LocalPath); err == nil && !t.IsZero() {
+			key := dateKey{
+				dir:  filepath.Dir(e.LocalPath),
+				base: baseName(e.FileName),
+			}
+			jpegDates[key] = t
+		}
+	}
+
+	// 2) 对非 JPG 文件（即 RAW），如果有同目录同名的 JPG EXIF 日期，则覆盖
+	for i := range entries {
+		ext := strings.ToLower(filepath.Ext(entries[i].FileName))
+		if isJPEG(ext) {
+			continue
+		}
+		key := dateKey{
+			dir:  filepath.Dir(entries[i].LocalPath),
+			base: baseName(entries[i].FileName),
+		}
+		if jpegDate, ok := jpegDates[key]; ok {
+			entries[i].Date = jpegDate
+		}
+	}
+
+	return entries, nil
 }
 
 // extractDate 尝试从文件 EXIF 提取拍摄日期，失败则使用文件修改时间。
 func extractDate(filePath string, info fs.FileInfo) time.Time {
 	ext := strings.ToLower(filepath.Ext(filePath))
 	// 优先对 JPG 文件尝试 EXIF 解析
-	if ext == ".jpg" || ext == ".jpeg" {
+	if isJPEG(ext) {
 		if t, err := readExifDate(filePath); err == nil && !t.IsZero() {
 			return t
 		}
