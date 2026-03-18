@@ -12,9 +12,34 @@ permissions:
   contents: read
 
 jobs:
+  # ── 预检：如果有 v* tag 指向当前 commit，跳过 CI（release workflow 负责） ──
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          fetch-tags: true
+
+      - name: Check for version tag
+        id: check
+        run: |
+          if git tag --points-at HEAD | grep -qE '^v[0-9]'; then
+            TAG=$(git tag --points-at HEAD | grep -E '^v[0-9]' | head -1)
+            echo "::notice::Skipping CI — version tag $TAG found. Release workflow handles testing."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          else
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          fi
+
   # ── Layer 1: Lint & Type Check (fast gate) ─────────────
   lint:
     runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.should_run == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,7 +69,8 @@ jobs:
   # ── Layer 2: Unit Tests (after lint passes) ────────────
   test:
     runs-on: ubuntu-latest
-    needs: lint
+    needs: [preflight, lint]
+    if: needs.preflight.outputs.should_run == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -61,7 +87,8 @@ jobs:
   # ── Layer 3: Build Smoke Test ──────────────────────────
   build-check:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [preflight, test]
+    if: needs.preflight.outputs.should_run == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
