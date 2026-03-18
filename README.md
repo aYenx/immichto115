@@ -2,7 +2,7 @@
 
 # 🔄 ImmichTo115
 
-**将自托管 [Immich](https://immich.app/) 照片库 + 数据库备份一键同步到 115 网盘**
+**把自托管 [Immich](https://immich.app/) 照片库与数据库备份，稳定同步到 115 网盘。**
 
 [![GitHub Release](https://img.shields.io/github/v/release/aYenx/immichto115?style=flat-square&logo=github&label=Release)](https://github.com/aYenx/immichto115/releases)
 [![Docker Image](https://img.shields.io/badge/GHCR-ghcr.io/ayenx/immichto115-blue?style=flat-square&logo=docker)](https://ghcr.io/ayenx/immichto115)
@@ -10,61 +10,55 @@
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D?style=flat-square&logo=vuedotjs)](https://vuejs.org/)
 [![License](https://img.shields.io/github/license/aYenx/immichto115?style=flat-square)](LICENSE)
 
-Go 后端 + Vue 3 前端，编译为**单个二进制文件**，开箱即用。
+Go 后端 + Vue 3 前端，最终编译为**单个二进制文件**，开箱即用，支持 Docker、systemd 与源码部署。
 
----
-
-[功能特性](#-功能特性) · [快速开始](#-快速开始) · [配置说明](#️-配置说明) · [运维手册](#-运维手册) · [API 文档](#-api-文档) · [项目结构](#️-项目结构)
+[适用场景](#适用场景) · [接入模式](#接入模式) · [3 分钟上手](#3-分钟上手) · [配置要点](#配置要点) · [运维](#运维) · [开发说明](#开发说明) · [附录](#附录)
 
 </div>
 
----
+## 适用场景
 
-## ✨ 功能特性
+如果你希望把 Immich 的原始照片库、数据库备份，甚至额外的摄影素材，一并归档到 115 网盘，而且更看重“少折腾、可持续、能观察”，这个项目就是为这类场景准备的。
 
-### 适合谁用？
+它尤其适合下面这些需求：
 
-如果你想把自托管 Immich 的照片库和数据库备份到 115，这个项目提供两条路径：
-
-- **最省心**：`115 Open` — 填入 Token 即可直接上传，无额外依赖
-- **更传统**：`WebDAV + Rclone` — 适合已有 WebDAV 环境的用户
-
-> [!TIP]
-> 大多数用户直接选 115 Open 就行。在界面中点击"获取 Token（OpenList）"，拿到 Token 后直接填写即可。
+- 把 `library` 和数据库备份目录定期同步到 115 网盘
+- 尽量少依赖外部组件，优先通过 Web UI 完成配置
+- 需要增量备份、计划任务、实时日志和手机通知
+- 想按拍摄日期把 RAW / JPG 文件自动整理上传到 115
+- 希望部署方式足够简单，最好 Docker 跑起来就能用
 
 ### 核心能力
 
-| | 功能 | 说明 |
-| :-: | --- | --- |
-| ☁️ | **115 Open 直传** | Token 授权即用，支持大文件 multipart 上传 + manifest.db 增量索引 |
-| 📷 | **摄影文件上传** | 扫描本地 RAW + JPG，按 EXIF 拍摄日期自动分类上传到 115 网盘 |
-| 🔐 | **端到端加密** | Open115 本地加密（temp / stream）或 WebDAV Rclone Crypt |
-| ⏰ | **定时 + 增量备份** | 可视化 Cron 调度 + `copy`/`sync` 两种模式，`sync` 支持远端删除保护 |
-| 🧙 | **Setup Wizard** | 4 步引导式配置，WebDAV / 115 Open 双模式 |
-| 📡 | **实时可观测** | WebSocket 日志推送 + Bark 通知到手机 |
-| 🛡️ | **访问保护** | 管理员登录后签发 JWT Session + CSRF 保护，API 客户端兼容 Basic Auth 回退 |
-| 📦 | **单文件部署** | `go:embed` 内嵌前端，支持 `amd64` / `arm64`，Docker / systemd 一键启动 |
+- **115 Open 直传**：直接使用 `access_token` / `refresh_token`，Open115 模式内置 `manifest.db` 增量索引
+- **WebDAV 兼容模式**：适合已有 Rclone / WebDAV 环境的用户继续沿用现有链路
+- **定时与增量**：支持 `copy` / `sync` 两种模式，并提供远端删除保护
+- **可选加密**：支持 Open115 本地加密上传，或 WebDAV 模式下的 Rclone Crypt
+- **可观测性**：支持 WebSocket 实时日志流和 Bark 推送通知
+- **单文件部署**：前端通过 `go:embed` 内嵌进 Go 服务，适合 Docker、systemd 和裸机运行
 
----
+> [!TIP]
+> 如果你没有现成的 WebDAV 环境，大多数情况下直接选 `115 Open` 就够了，依赖更少，目录浏览和增量索引也更完整。
 
-## 🚀 快速开始
+## 接入模式
 
-### 接入方式对比
+| 对比项 | `115 Open` 模式 | `WebDAV + Rclone` 模式 |
+| --- | --- | --- |
+| 推荐程度 | ⭐ 推荐 | 适合已有环境 |
+| 接入方式 | 115 Open API（`access_token` / `refresh_token`） | `rclone` + WebDAV 协议 |
+| 增量索引 | 内置 `manifest.db` SQLite 索引 | 依赖 rclone 自身行为 |
+| 加密方式 | 本地加密上传（`temp` / `stream`） | Rclone Crypt |
+| 目录浏览 | 直接浏览 115 目录树 | 浏览 WebDAV 目录 |
+| 额外依赖 | 无 | 需要 `rclone` |
+| 典型用户 | 想快速上手、尽量少配置 | 已有稳定 WebDAV / Rclone 流程 |
 
-| 对比项   | WebDAV 模式                | 115 Open 模式 ⭐ 推荐                          |
-| -------- | -------------------------- | ---------------------------------------------- |
-| 接入方式 | `rclone` + WebDAV 协议     | 115 Open API（`access_token / refresh_token`） |
-| 增量索引 | 依赖 rclone 本身           | 内置 `manifest.db` SQLite 索引                 |
-| 加密     | Rclone Crypt               | 本地加密上传（`temp` / `stream`）              |
-| 目录浏览 | WebDAV 目录                | 直接浏览 115 目录树                            |
-| 依赖     | 需安装 rclone              | 无额外依赖                                     |
+## 3 分钟上手
 
+### 推荐路径：Docker Compose
 
-
-### 方式一：Docker Compose（推荐）
+可以直接使用仓库里的 [deploy/docker-compose.yml](deploy/docker-compose.yml) 作为模板，最常见的最小配置如下：
 
 ```yaml
-# docker-compose.yml
 services:
   immichto115:
     image: ghcr.io/ayenx/immichto115:latest
@@ -73,7 +67,6 @@ services:
     ports:
       - "8096:8096"
     volumes:
-      # ⬇️ 【必须修改】替换为你的 Immich 实际数据目录
       - /你的Immich照片库路径:/data/library:ro
       - /你的Immich数据库备份路径:/data/backups:ro
       - ./config:/app/config
@@ -87,124 +80,90 @@ services:
       start_period: 10s
 ```
 
+启动服务：
+
 ```bash
 docker compose up -d
 ```
 
-> 访问 `http://服务器IP:8096`，首次进入 Setup Wizard 完成配置。
+首次访问：
 
----
+```text
+http://服务器IP:8096
+```
 
-### 方式二：一键安装（Linux / systemd）
+首次进入会打开 **Setup Wizard**。按向导填写本地目录、远端目录，并完成 `115 Open` 或 `WebDAV` 接入配置即可。
+
+> [!NOTE]
+> `backup.library_dir` 和 `backup.backups_dir` 至少填写一个。上面的 Compose 示例同时挂载了两个目录，实际使用时可按你的 Immich 部署情况调整。
+
+<details>
+<summary>其他安装方式</summary>
+
+**Linux / systemd 一键安装**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/install.sh | sudo bash
 ```
 
-自动完成：检测架构 → 安装 Rclone → 下载二进制（SHA256 校验）→ 创建 systemd 服务 → 启动。
+安装脚本会自动完成架构检测、二进制下载、可选 Rclone 安装和 systemd 服务注册。
 
-<details>
-<summary>💡 安装脚本命令行选项</summary>
+**源码构建**
 
-```bash
-sudo bash install.sh [选项]
-
-选项:
-  --no-rclone    跳过 Rclone 检查与安装（适用于已使用 Open115 的用户）
-  --force        强制覆写 systemd 服务文件（默认更新时保留）
-  --help         显示帮助信息
-
-环境变量:
-  RELEASE_URL    自定义下载地址前缀
-                 示例: RELEASE_URL=https://mirror.example.com/releases/latest/download bash install.sh
-```
+开发或自定义构建请直接查看下方的[开发说明](#开发说明)。
 
 </details>
 
-<details>
-<summary>💡 更新 / 卸载</summary>
+## 配置要点
 
-```bash
-# 更新（重新运行安装脚本，自动保留 config.yaml 和 systemd 服务配置）
-curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/install.sh | sudo bash
+首次访问 Web UI 会进入 **Setup Wizard**，保存后自动生成 `config.yaml`。大多数用户直接用向导即可，只有需要版本管理或批量部署时才建议手写配置。
 
-# 卸载（交互式，默认保留配置目录）
-curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uninstall.sh | sudo bash
+### 推荐配置：115 Open
 
-# 卸载并删除配置
-curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uninstall.sh | sudo bash -s -- --purge
+下面是一份适合大多数用户的基础示例，重点覆盖最常见的 115 Open 备份场景：
 
-# 非交互式卸载（CI / 自动化）
-curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uninstall.sh | sudo bash -s -- --yes
+```yaml
+provider: open115
+
+server:
+  port: 8096
+
+open115:
+  enabled: true
+  access_token: your_access_token
+  refresh_token: your_refresh_token
+  root_id: "0"
+
+open115_encrypt:
+  enabled: false
+  mode: temp
+  filename_mode: plain
+  algorithm: aes256gcm-v1
+  temp_dir: /tmp/immichto115-open115-encrypt
+  min_free_space_mb: 1024
+
+backup:
+  library_dir: /data/library
+  backups_dir: /data/backups
+  remote_dir: /immich-backup
+  mode: copy
+  manifest_path: ./config/manifest.db
+
+cron:
+  enabled: false
+  expression: "0 2 * * *"
+
+photo_upload:
+  enabled: false
+  watch_dir: /data/photos
+  remote_dir: /摄影
+  extensions: cr2,cr3,nef,arw,dng,raf,rw2,orf,pef,srw,jpg,jpeg
+  date_format: "2006/01/02"
+  delete_after_upload: true
 ```
 
-</details>
-
----
-
-### 方式三：从源码构建
-
 <details>
-<summary>展开查看</summary>
-
-```bash
-# 依赖建议：Go 1.23.4+、Node.js 20+
-
-# 克隆仓库
-git clone https://github.com/aYenx/immichto115.git
-cd immichto115
-
-# 编译前端
-cd web && npm ci --include=dev && npm run build && cd ..
-
-# 编译后端（go:embed 内嵌前端资源，注入版本号）
-VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
-CGO_ENABLED=0 go build -tags embedfront -ldflags="-s -w -X main.version=${VERSION}" -o immichto115 ./cmd/server/
-
-# 运行
-./immichto115 --config /path/to/config.yaml --port 8096
-```
-
-</details>
-
-### 本地开发（前后端分离）
-
-```bash
-# 终端 1：启动后端
-go run ./cmd/server --config ./config/config.yaml --port 8096
-
-# 终端 2：启动前端开发服务器
-cd web
-npm ci
-npm run dev
-```
-
-> Vite 默认将 `/api` 和 `/ws` 代理到 `http://localhost:8096`。
-
-### 方式四：Docker 源码构建
-
-<details>
-<summary>展开查看</summary>
-
-```bash
-git clone https://github.com/aYenx/immichto115.git
-cd immichto115/deploy
-# 编辑 docker-compose.yml 修改 volumes 路径
-docker compose up -d --build
-```
-
-</details>
-
----
-
-## ⚙️ 配置说明
-
-首次访问 Web UI 会进入 **Setup Wizard**，配置完成后自动生成 `config.yaml`。
-
-### 配置示例
-
-<details>
-<summary>📋 方案 A：WebDAV</summary>
+<summary>WebDAV 模式示例</summary>
 
 ```yaml
 provider: webdav
@@ -224,151 +183,187 @@ backup:
 
 </details>
 
-<details open>
-<summary>📋 方案 B：115 Open（推荐）</summary>
+### 配置项速查
 
-```yaml
-provider: open115
+#### 必填项
 
-open115:
-  enabled: true
-  client_id: ""              # 仅在项目内扫码授权时需要
-  access_token: your_access_token
-  refresh_token: your_refresh_token
-  root_id: "0"
-  token_expires_at: 0
-  user_id: ""
+| 配置项 | 说明 |
+| --- | --- |
+| `provider` | 接入模式，`open115` 或 `webdav` |
+| `backup.remote_dir` | 远端备份根目录 |
+| `backup.library_dir` / `backup.backups_dir` | 两者至少填写一个 |
+| `open115.access_token` / `open115.refresh_token` | `open115` 模式必填 |
+| `webdav.url` / `webdav.user` / `webdav.password` / `webdav.vendor` | `webdav` 模式必填 |
 
-open115_encrypt:
-  enabled: false
-  password: ""
-  salt: ""
-  mode: temp # temp | stream
-  filename_mode: plain
-  algorithm: aes256gcm-v1
-  temp_dir: /tmp/immichto115-open115-encrypt
-  min_free_space_mb: 1024
+#### 常用项
 
-backup:
-  library_dir: /data/library
-  backups_dir: /data/backups
-  remote_dir: /immich-backup
-  mode: copy
-  manifest_path: ./config/manifest.db
-  allow_remote_delete: false
-  sync_delete_grace_period: 24h
-  sync_delete_dry_run: false
+| 配置项 | 默认值 / 说明 |
+| --- | --- |
+| `server.port` | 默认 `8096` |
+| `open115.root_id` | 默认 `"0"` |
+| `backup.mode` | 默认 `copy`，也支持 `sync` |
+| `backup.manifest_path` | Open115 模式的本地增量索引库路径 |
+| `cron.enabled` / `cron.expression` | 默认关闭，cron 默认值为 `0 2 * * *` |
+| `notify.enabled` / `notify.bark_url` | Bark 推送通知 |
+| `photo_upload.watch_dir` / `photo_upload.remote_dir` | 摄影文件自动上传目录 |
+| `photo_upload.extensions` / `date_format` / `delete_after_upload` | RAW / JPG 扩展名、日期目录格式与上传后清理策略 |
 
-# 摄影文件上传（可选）
-photo_upload:
-  enabled: true
-  watch_dir: /data/photos       # 本地摄影文件目录
-  remote_dir: /摄影              # 115 网盘目标目录
-  extensions: cr2,cr3,nef,arw,dng,raf,rw2,orf,pef,srw,jpg,jpeg
-  date_format: "2006/01/02"     # 远端子目录结构: 年/月/日
-  delete_after_upload: true     # 上传成功后删除本地文件
+#### 高级与安全项
+
+| 配置项 | 说明 |
+| --- | --- |
+| `server.auth_enabled` / `server.auth_user` | 是否启用访问保护以及管理员用户名 |
+| `server.auth_password_hash` | 管理员密码的 bcrypt 哈希；由 Web UI 自动生成 |
+| `server.jwt_secret` | JWT 签名密钥；首次登录后自动生成 |
+| `open115_encrypt.*` | Open115 本地加密上传配置 |
+| `encrypt.*` | WebDAV 模式下的 Rclone Crypt 配置 |
+| `backup.allow_remote_delete` | `sync` 模式下是否允许删除远端多余文件 |
+| `backup.sync_delete_grace_period` | 远端删除保护宽限期，默认 `24h` |
+| `backup.sync_delete_dry_run` | 仅演练远端删除，不真正执行 |
+| `updated_at` | 配置版本号，前端保存时用于乐观锁保护，自动维护 |
+
+### 路径与启动参数
+
+- 配置文件路径优先级：`--config` 参数 > `IMMICHTO115_CONFIG` 环境变量 > `{可执行文件目录}/config/config.yaml`
+- 可通过 `--port` 覆盖配置中的监听端口
+- 运行 `immichto115 --version` 可查看当前版本号
+
+> [!TIP]
+> 在 Web UI 中填写的是管理员明文密码，但保存到 `config.yaml` 时会自动转换为 `server.auth_password_hash`。浏览器登录成功后会使用 JWT Cookie + `X-CSRF-Token` 访问写接口。
+
+> [!WARNING]
+> 当 `backup.mode: sync` 且 `backup.allow_remote_delete: true` 时，系统会尝试删除远端存在但本地已删除的文件。建议先开启 `backup.sync_delete_dry_run: true` 演练，再决定是否放开真实删除。
+
+> [!IMPORTANT]
+> 建议限制 `config/` 目录访问权限，例如 `chmod 700`，避免敏感配置被其他用户读取。
+
+## 运维
+
+### 日常命令
+
+| 操作 | Docker | Systemd |
+| --- | --- | --- |
+| 查看日志 | `docker compose logs -f` | `journalctl -u immichto115 -f` |
+| 重启服务 | `docker compose restart` | `systemctl restart immichto115` |
+| 停止服务 | `docker compose down` | `systemctl stop immichto115` |
+| 查看状态 | `docker compose ps` | `systemctl status immichto115` |
+| 更新服务 | `docker compose pull && docker compose up -d` | 重新运行 `install.sh` |
+
+<details>
+<summary>Linux / systemd 一键脚本</summary>
+
+**安装**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/install.sh | sudo bash
+```
+
+**更新**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/install.sh | sudo bash
+```
+
+**卸载**
+
+```bash
+# 交互式卸载（默认保留配置目录）
+curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uninstall.sh | sudo bash
+
+# 卸载并删除配置
+curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uninstall.sh | sudo bash -s -- --purge
+
+# 非交互式卸载（CI / 自动化）
+curl -fsSL https://raw.githubusercontent.com/aYenx/immichto115/master/deploy/uninstall.sh | sudo bash -s -- --yes
+```
+
+**常用选项**
+
+- `install.sh --no-rclone`：跳过 Rclone 检查与安装
+- `install.sh --force`：强制覆写 systemd 服务文件
+- `uninstall.sh --purge`：卸载时同时删除配置目录
+- `uninstall.sh --yes`：跳过交互确认
+
+</details>
+
+## 开发说明
+
+开发环境默认采用前后端分离：Go 后端提供 API，Vite 负责前端开发服务器与代理。
+
+### 本地开发
+
+依赖建议：
+
+- Go `1.23.4+`
+- Node.js `20+`
+
+先准备一份可用的 `config.yaml`，然后分别启动后端与前端：
+
+```bash
+# 终端 1：启动后端
+go run ./cmd/server --config ./config/config.yaml --port 8096
+```
+
+```bash
+# 终端 2：启动前端
+cd web
+npm ci
+npm run dev
+```
+
+> Vite 默认会把 `/api` 代理到 `http://localhost:8096`，把 `/ws` 代理到 `ws://localhost:8096`。
+
+### 从源码构建单文件
+
+```bash
+git clone https://github.com/aYenx/immichto115.git
+cd immichto115
+
+cd web
+npm ci
+npm run build
+cd ..
+
+VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
+CGO_ENABLED=0 go build -tags embedfront -ldflags="-s -w -X main.version=${VERSION}" -o immichto115 ./cmd/server
+
+./immichto115 --config ./config/config.yaml --port 8096
+```
+
+`go build -tags embedfront` 会把 `web/dist` 打包进最终二进制；如果不带 `embedfront`，后端不会内嵌前端静态资源。
+
+### 前端目录
+
+前端位于 [web/](web/)，常用脚本如下：
+
+```bash
+cd web
+npm ci
+npm run dev
+npm run typecheck
+npm run build
+```
+
+更简短的前端目录说明见 [web/README.md](web/README.md)。
+
+<details>
+<summary>Docker 源码构建</summary>
+
+```bash
+git clone https://github.com/aYenx/immichto115.git
+cd immichto115/deploy
+docker compose up -d --build
 ```
 
 </details>
 
-> [!TIP]
-> 访问保护在界面中填写的是管理员明文密码，但落盘到 `config.yaml` 时会自动转换为 `server.auth_password_hash`。浏览器登录成功后会使用 JWT Cookie + `X-CSRF-Token` 访问写接口，`server.jwt_secret` 会在首次登录时自动生成。
-
-### 配置项速查
-
-| 配置项 | 说明 | 必填 |
-| ------ | ---- | :--: |
-| `provider` | `webdav` 或 `open115` | ✅ |
-| `server.port` | Web 服务监听端口，默认 `8096` | ⬜ |
-| `server.auth_enabled` | 是否启用访问保护 | ⬜ |
-| `server.auth_user` | 管理员用户名 | 启用访问保护时必填 |
-| `server.auth_password_hash` | 管理员密码的 bcrypt 哈希；由 Web UI 自动生成 | 启用访问保护时必填 |
-| `server.jwt_secret` | JWT 签名密钥；首次登录后自动生成 | ⬜ |
-| `webdav.*` | WebDAV URL / 用户名 / 密码 / vendor | WebDAV 模式必填 |
-| `open115.client_id` | 项目内扫码授权时使用的 Client ID | ⬜ |
-| `open115.access_token` / `refresh_token` | 115 Open 模式 Token | Open115 模式必填 |
-| `open115.root_id` | 115 Open 根目录 ID，默认 `"0"` | ⬜ |
-| `open115.token_expires_at` / `user_id` | 当前授权状态信息，扫码授权后自动写入 | ⬜ |
-| `open115_encrypt.enabled` | 是否启用 Open115 本地加密上传 | ⬜ |
-| `open115_encrypt.mode` | 加密模式：`temp` 或 `stream` | 启用时建议设置 |
-| `open115_encrypt.filename_mode` | 文件名处理模式，当前默认 `plain` | ⬜ |
-| `open115_encrypt.password` / `salt` | Open115 本地加密参数 | 启用时必填 |
-| `open115_encrypt.temp_dir` | `temp` 模式的临时目录 | ⬜ |
-| `open115_encrypt.min_free_space_mb` | 临时目录要求的最小剩余空间 | ⬜ |
-| `backup.library_dir` | Immich 照片库存储目录 | 与 `backup.backups_dir` 至少填写一个 |
-| `backup.backups_dir` | Immich 数据库备份目录 | 与 `backup.library_dir` 至少填写一个 |
-| `backup.remote_dir` | 远端备份根目录 | ✅ |
-| `backup.mode` | `copy`（增量，默认）或 `sync`（镜像同步） | ⬜ |
-| `backup.manifest_path` | Open115 模式下本地增量索引库路径 | ⬜ |
-| `backup.allow_remote_delete` | `sync` 模式下是否允许删除远端多余文件 | ⬜ |
-| `backup.sync_delete_grace_period` | `sync` 删除保护宽限期，默认 `24h` | ⬜ |
-| `backup.sync_delete_dry_run` | 仅演练远端删除，不真正执行 | ⬜ |
-| `cron.enabled` / `cron.expression` | 是否开启定时备份与 cron 表达式 | ⬜ |
-| `encrypt.enabled` / `encrypt.password` / `encrypt.salt` | WebDAV 模式下 Rclone Crypt 配置 | 启用时必填 |
-| `notify.enabled` / `notify.bark_url` | Bark 推送配置 | 启用时必填 |
-| `photo_upload.watch_dir` | 本地摄影文件目录 | 启用摄影上传时必填 |
-| `photo_upload.remote_dir` | 115 网盘目标目录 | 启用摄影上传时必填 |
-| `photo_upload.extensions` | 监控的文件扩展名（逗号分隔） | ⬜ |
-| `photo_upload.date_format` | 远端日期子目录格式（Go time 格式） | ⬜ |
-| `photo_upload.delete_after_upload` | 上传成功后是否删除本地文件 | ⬜ |
-| `updated_at` | 配置版本号，用于前端保存时的乐观锁 | 自动维护 |
-
-> [!WARNING]
-> `sync` 模式下如果开启 `allow_remote_delete: true`，系统会尝试删除远端存在但本地已删除的文件。建议先配合 `sync_delete_dry_run: true` 演练，再根据需要调短或关闭 `sync_delete_grace_period`。
-
-> [!IMPORTANT]
-> 建议限制 `config/` 目录访问权限（`chmod 700`），避免敏感配置被其他用户读取。
-
-> 配置文件路径优先级：`--config` 参数 > `IMMICHTO115_CONFIG` 环境变量 > `{可执行文件目录}/config/config.yaml`
->
-> 可通过 `--port` 参数覆盖配置中的监听端口。运行 `immichto115 --version` 可查看当前版本号。
-
----
-
-## 🔧 运维手册
-
-### 日常操作
-
-| 操作     | Docker                                             | Systemd（一键安装）                    |
-| -------- | -------------------------------------------------- | -------------------------------------- |
-| 查看日志 | `docker compose logs -f`                           | `journalctl -u immichto115 -f`        |
-| 重启服务 | `docker compose restart`                           | `systemctl restart immichto115`        |
-| 停止服务 | `docker compose down`                              | `systemctl stop immichto115`           |
-| 查看状态 | `docker compose ps`                                | `systemctl status immichto115`         |
-| 更新     | `docker compose pull && docker compose up -d`      | 重新运行 `install.sh`                 |
-
-### 卸载
-
-**Docker**
-
-```bash
-docker compose down --rmi all
-```
-
-**Systemd（一键安装）**
-
-```bash
-# 交互式卸载（默认保留配置目录）
-sudo bash deploy/uninstall.sh
-
-# 卸载并清除配置
-sudo bash deploy/uninstall.sh --purge
-
-# 非交互式（自动化 / CI）
-sudo bash deploy/uninstall.sh --yes --purge
-```
-
-> 卸载不会影响 115 网盘上已备份的文件。
-
----
-
-## 📋 API 文档
+## 附录
 
 <details>
-<summary>📡 完整 API 列表</summary>
+<summary>API 参考</summary>
 
 | 方法 | 路径 | 说明 | 访问要求 |
-| :--: | ---- | ---- | :------: |
+| --- | --- | --- | --- |
 | `GET` | `/api/health` | 健康检查，返回 `status` / `version` / `checks` | 公开 |
 | `POST` | `/api/v1/auth/login` | 管理员登录，签发 JWT Cookie 并返回 `csrf_token` | 公开 |
 | `POST` | `/api/v1/auth/logout` | 清理当前登录态 | 已登录 |
@@ -396,84 +391,63 @@ sudo bash deploy/uninstall.sh --yes --purge
 | `POST` | `/api/v1/notify/test` | 测试 Bark 推送通知 | 已登录 |
 | `WS` | `/ws/logs` | 实时备份日志流 | 已登录 |
 
-> 开启访问保护后，浏览器先通过 `/api/v1/auth/login` 获取 JWT Cookie；所有写操作在 JWT 模式下还需要携带 `X-CSRF-Token`。命令行或外部 API 客户端仍可使用 HTTP Basic Auth 作为回退方式。
+> 浏览器登录后采用 JWT Session Cookie；所有写操作在 JWT 模式下还需要携带 `X-CSRF-Token`。命令行或其他 API 客户端仍可用 HTTP Basic Auth 作为回退方式。
 
 </details>
 
----
+<details>
+<summary>项目结构</summary>
 
-## 🏗️ 项目结构
-
-```
+```text
 immichto115/
-├── cmd/server/              # Go 入口（main.go）
+├── cmd/server/              # Go 服务入口
 ├── internal/
-│   ├── api/                 # Gin 路由 + WebSocket Hub + JWT/CSRF + 登录限流
-│   ├── backup/              # 备份后端抽象 (WebDAV / Open115)
-│   ├── config/              # 配置管理 + DTO 安全视图 + 乐观锁 + rclone.conf 生成
-│   ├── cron/                # 定时任务调度 (robfig/cron)
-│   ├── manifest/            # Open115 增量索引 (SQLite)
-│   ├── notify/              # Bark 推送通知
-│   ├── open115/             # 115 Open Client: 授权 / 上传 / 目录 / 删除
-│   ├── open115crypt/        # Open115 本地加密 (AES-256-GCM)
-│   ├── photoupload/         # 摄影文件扫描 + EXIF 日期提取 + 上传
-│   └── rclone/              # Rclone CLI 封装 (os/exec)
+│   ├── api/                 # Gin 路由、认证、WebSocket、备份控制接口
+│   ├── backup/              # 备份后端抽象（WebDAV / Open115）
+│   ├── config/              # 配置结构、默认值、DTO、安全视图
+│   ├── cron/                # 定时任务调度
+│   ├── manifest/            # Open115 增量索引（SQLite）
+│   ├── notify/              # Bark 推送
+│   ├── open115/             # 115 Open 客户端与上传逻辑
+│   ├── open115crypt/        # Open115 本地加密
+│   ├── photoupload/         # 摄影文件扫描与上传
+│   └── rclone/              # Rclone CLI 封装
 ├── web/                     # Vue 3 + Vite + TypeScript 前端
-│   └── src/
-│       ├── views/           # Dashboard · Wizard · Settings · PhotoUpload · RestoreExplorer
-│       ├── components/      # Layout · CronScheduler · GlobalToast
-│       ├── composables/     # 目录选择器 / Open115 授权 / Toast 等逻辑复用
-│       ├── api.ts           # 类型化 API 客户端
-│       └── style.css        # 全局样式 (CSS Variables + Dark Mode)
-├── web_embed.go             # go:embed 前端资源入口
-├── deploy/
-│   ├── Dockerfile           # 多阶段构建 (amd64 / arm64)
-│   ├── docker-compose.yml   # Docker Compose 参考配置
-│   ├── common.sh            # 部署脚本公共工具库
-│   ├── install.sh           # Linux 一键安装 / 更新
-│   └── uninstall.sh         # 卸载脚本
-└── .github/workflows/
-    ├── ci.yml               # vet + typecheck + race tests + build smoke test
-    └── release.yml          # tag 构建 + Docker 多架构镜像 + GitHub Release
+├── deploy/                  # Docker 与 systemd 部署脚本
+├── web_embed.go             # 非 embedfront 构建入口
+├── web_embed_prod.go        # embedfront 构建入口
+└── .github/workflows/       # CI / Release 工作流
 ```
 
----
+</details>
 
-## 📦 技术栈
+<details>
+<summary>自检与发布</summary>
 
-| 层         | 技术                                                                                                 |
-| ---------- | ---------------------------------------------------------------------------------------------------- |
-| **后端**   | Go 1.23 · Gin · Viper · gorilla/websocket · robfig/cron · modernc.org/sqlite                        |
-| **前端**   | Vue 3 · Vite · TypeScript · Vue Router · Lucide Icons · CSS Variables (Dark Mode)                    |
-| **认证**   | bcrypt 密码哈希 · JWT Session Cookie · CSRF 保护 · 登录限流                                          |
-| **备份**   | WebDAV 模式：Rclone CLI / Open115 模式：115 Open API + manifest 增量索引 + AES-256-GCM 本地加密     |
-| **构建**   | go:embed 内嵌前端 · 多阶段 Docker · GitHub Actions CI/CD                                            |
-
----
-
-## 🏷️ 发布
+本地自检命令：
 
 ```bash
-# 本地自检（与 CI 基本对齐）
 go vet ./...
 go test ./... -race -count=1
 
 cd web
 npm ci
-npx vue-tsc --noEmit
+npm run typecheck
 npm run build
 cd ..
+```
 
-# 打 tag 触发 CI
+打标签发布：
+
+```bash
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
+</details>
 
-## 📄 License
+## License
 
 [MIT](LICENSE)
 
-**如果这个项目对你有帮助，欢迎 ⭐️ Star 支持！**
-
-</div>
+如果这个项目对你有帮助，欢迎 Star 支持。
