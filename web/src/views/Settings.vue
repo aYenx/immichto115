@@ -6,11 +6,11 @@
         <h1 class="settings-title">配置中心</h1>
         <p class="settings-subtitle">按模块管理所有配置项，点击卡片即可编辑对应设置。</p>
         <div class="settings-status-strip">
-          <span :class="['status-chip', (systemStatus?.provider || config.provider) === 'open115' || systemStatus?.rclone_installed ? 'healthy' : 'warning']">
-            {{ (systemStatus?.provider || config.provider) === 'open115' ? 'Open115 已启用' : (systemStatus?.rclone_installed ? 'Rclone 已就绪' : 'Rclone 未安装') }}
+          <span :class="['status-chip', (systemStatus?.provider || config.provider) === Provider.Open115 || systemStatus?.rclone_installed ? 'healthy' : 'warning']">
+            {{ (systemStatus?.provider || config.provider) === Provider.Open115 ? 'Open115 已启用' : (systemStatus?.rclone_installed ? 'Rclone 已就绪' : 'Rclone 未安装') }}
           </span>
-          <span :class="['status-chip', systemStatus?.backup_status === 'running' ? 'info' : 'neutral']">
-            {{ systemStatus?.backup_status === 'running' ? '备份进行中' : '当前空闲' }}
+          <span :class="['status-chip', systemStatus?.backup_status === BackupStatus.Running ? 'info' : 'neutral']">
+            {{ systemStatus?.backup_status === BackupStatus.Running ? '备份进行中' : '当前空闲' }}
           </span>
           <span :class="['status-chip', systemStatus?.cron_enabled ? 'healthy' : 'warning']">
             {{ systemStatus?.cron_enabled ? '自动备份已开启' : '自动备份未开启' }}
@@ -626,10 +626,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-import { api, getErrorMessage, handleAuthFailure, type AppConfig, type DirEntry, type SystemStatus, type Open115AuthStartResponse } from '../api'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { api, getErrorMessage, handleAuthFailure, safeConfigToAppConfig, appConfigToUpdateRequest, type AppConfig, type SafeConfigResponse, type SystemStatus } from '../api'
+import { BackupStatus, Provider } from '../constants'
 import CronScheduler from '../components/CronScheduler.vue'
 import { showToast } from '../composables/toast'
+import { useLocalDirPicker } from '../composables/useLocalDirPicker'
+import { useRemoteDirPicker } from '../composables/useRemoteDirPicker'
+import { useOpen115Auth } from '../composables/useOpen115Auth'
 import { openOpenListPopup, parseOpenListTokenData } from '../utils/openlistToken'
 import {
   LucideGlobe,
@@ -658,6 +662,7 @@ const cloneConfig = (value: AppConfig): AppConfig => JSON.parse(JSON.stringify(v
 
 const config = reactive<AppConfig>(createDefaultConfig())
 const draftConfig = ref<AppConfig>(createDefaultConfig())
+const safeResponse = ref<SafeConfigResponse | null>(null)
 const systemStatus = ref<SystemStatus | null>(null)
 
 const activeSection = ref<SectionKey | null>(null)
@@ -665,15 +670,43 @@ const isRefreshing = ref(false)
 const isSaving = ref(false)
 const isTesting = ref(false)
 const isTestingNotify = ref(false)
-const isOpen115AuthLoading = ref(false)
-const isOpen115Finishing = ref(false)
 const testResult = ref('')
 const testSuccess = ref(false)
 const validationError = ref('')
-const open115Auth = reactive<Open115AuthStartResponse>({ uid: '', time: 0, sign: '', qrcode: '', created_at: '' })
-const open115AuthStatusText = ref('未开始')
-const open115Authorized = ref<boolean | null>(null)
-let authPollTimer: number | null = null
+
+// Composables
+const localPicker = useLocalDirPicker()
+const remotePicker = useRemoteDirPicker()
+const open115 = useOpen115Auth()
+
+// Aliases — local picker
+const showFolderPicker = localPicker.showModal
+const showPathInput = localPicker.showPathInput
+const currentLocalPath = localPicker.currentPath
+const localDirs = localPicker.entries
+const isLoadingLocal = localPicker.loading
+const pathSegments = localPicker.pathSegments
+const canGoUp = localPicker.canGoUp
+const loadLocalDir = localPicker.loadDir
+const enterLocalDir = localPicker.enterDir
+const goUpLocalDir = localPicker.goUp
+const navigateToSegment = localPicker.navigateToSegment
+const isWindowsPath = localPicker.isWindowsPath
+
+// Aliases — remote picker
+const showRemoteFolderPicker = remotePicker.showModal
+const currentRemotePath = remotePicker.currentPath
+const remoteDirs = remotePicker.entries
+const isLoadingRemote = remotePicker.loading
+const remotePathSegments = remotePicker.pathSegments
+const remoteCanGoUp = remotePicker.canGoUp
+const loadRemoteDir = remotePicker.loadDir
+const enterRemoteDir = remotePicker.enterDir
+const goUpRemoteDir = remotePicker.goUp
+const navigateToRemoteSegment = remotePicker.navigateToSegment
+
+// Aliases — auth
+const { authData: open115Auth, statusText: open115AuthStatusText, authorized: open115Authorized, isLoading: isOpen115AuthLoading, isFinishing: isOpen115Finishing } = open115
 
 const sectionMeta = computed<Record<SectionKey, { title: string; kicker: string; description: string }>>(() => ({
   webdav: {
@@ -708,8 +741,9 @@ const sectionMeta = computed<Record<SectionKey, { title: string; kicker: string;
 const refreshConfig = async () => {
   isRefreshing.value = true
   try {
-    const [data, status] = await Promise.all([api.getConfig(), api.getSystemStatus()])
-    Object.assign(config, data)
+    const [safe, status] = await Promise.all([api.getConfig(), api.getSystemStatus()])
+    safeResponse.value = safe
+    Object.assign(config, safeConfigToAppConfig(safe))
     systemStatus.value = status
   } catch (error) {
     if (handleAuthFailure(error)) return
@@ -747,54 +781,13 @@ const handlePasteToken = () => {
   }
 }
 
-const stopAuthPolling = () => {
-  if (authPollTimer != null) {
-    window.clearInterval(authPollTimer)
-    authPollTimer = null
-  }
-}
-
-const pollOpen115Auth = async () => {
-  if (!open115Auth.uid) return
-  try {
-    const status = await api.open115AuthStatus(open115Auth.uid)
-    open115AuthStatusText.value = status.message || `status=${status.status}`
-    open115Authorized.value = status.authorized
-    if (status.authorized) {
-      stopAuthPolling()
-      showToast('success', '扫码已确认', '已收到 115 授权确认，请点击“完成授权”。')
-    }
-  } catch (error) {
-    if (handleAuthFailure(error)) return
-    open115AuthStatusText.value = '状态查询失败：' + getErrorMessage(error)
-    stopAuthPolling()
-  }
-}
-
 const startOpen115Auth = async () => {
   if (!draftConfig.value.open115.client_id.trim()) {
     validationError.value = '请输入 115 Open Client ID'
     return
   }
   validationError.value = ''
-  isOpen115AuthLoading.value = true
-  open115Authorized.value = null
-  open115AuthStatusText.value = '正在生成二维码...'
-  try {
-    const result = await api.open115AuthStart({ client_id: draftConfig.value.open115.client_id.trim() })
-    Object.assign(open115Auth, result)
-    open115AuthStatusText.value = '等待扫码'
-    stopAuthPolling()
-    authPollTimer = window.setInterval(() => {
-      void pollOpen115Auth()
-    }, 2500)
-  } catch (error) {
-    if (handleAuthFailure(error)) return
-    showToast('error', '启动扫码失败', getErrorMessage(error))
-    open115AuthStatusText.value = '启动失败'
-  } finally {
-    isOpen115AuthLoading.value = false
-  }
+  await open115.start(draftConfig.value.open115.client_id.trim())
 }
 
 const finishOpen115Auth = async () => {
@@ -802,26 +795,16 @@ const finishOpen115Auth = async () => {
     validationError.value = '请先开始扫码授权'
     return
   }
-  isOpen115Finishing.value = true
-  try {
-    const result = await api.open115AuthFinish({ uid: open115Auth.uid })
-    draftConfig.value.open115 = { ...draftConfig.value.open115, ...result.state }
-    open115Authorized.value = true
-    open115AuthStatusText.value = '授权完成'
+  const state = await open115.finish()
+  if (state) {
+    draftConfig.value.open115 = { ...draftConfig.value.open115, ...state }
     showToast('success', '授权成功', '115 Open token 已保存，可以点击保存设置。')
-  } catch (error) {
-    if (handleAuthFailure(error)) return
-    showToast('error', '完成授权失败', getErrorMessage(error))
-  } finally {
-    isOpen115Finishing.value = false
   }
 }
 
 onMounted(async () => {
   await refreshConfig()
 })
-
-onUnmounted(() => stopAuthPolling())
 
 const openSection = (section: SectionKey) => {
   activeSection.value = section
@@ -897,7 +880,7 @@ const encryptCardState = computed(() => {
 })
 
 const automationCardState = computed(() => {
-  if (systemStatus.value?.backup_status === 'running') return createCardState('运行中', 'info')
+  if (systemStatus.value?.backup_status === BackupStatus.Running) return createCardState('运行中', 'info')
   if (!config.cron.enabled && !config.server.auth_enabled) return createCardState('基础模式', 'neutral')
   if (config.cron.enabled && systemStatus.value?.cron_enabled) return createCardState('已自动化', 'healthy')
   return createCardState('待检查', 'warning')
@@ -957,7 +940,7 @@ const automationSignals = computed(() => {
   const signals: string[] = []
   signals.push(config.cron.enabled ? `自动备份: ${config.cron.expression}` : '自动备份当前关闭')
   signals.push(config.server.auth_enabled ? `访问保护: ${config.server.auth_user || '已启用（默认账号）'}` : '访问保护未开启')
-  if (systemStatus.value?.backup_status === 'running') {
+  if (systemStatus.value?.backup_status === BackupStatus.Running) {
     signals.push('当前有备份任务在运行，修改配置后建议下次任务生效')
   } else if (systemStatus.value?.next_run) {
     signals.push(`下次执行: ${systemStatus.value.next_run}`)
@@ -1020,7 +1003,7 @@ const testNotify = async () => {
   isTestingNotify.value = true
   try {
     // 先保存当前配置以确保后端有最新的 Bark 地址
-    await api.saveConfig(draftConfig.value)
+    await api.saveConfig(appConfigToUpdateRequest(draftConfig.value, safeResponse.value!))
     Object.assign(config, cloneConfig(draftConfig.value))
     await api.testNotify()
     showToast('success', '测试通知已发送', '请检查 Bark App；你会看到更明确的状态字段，例如触发方式、当前阶段和结果。')
@@ -1045,7 +1028,7 @@ const saveSection = async () => {
   isSaving.value = true
   const authRefreshNeeded = requiresAuthRefresh(config, draftConfig.value)
   try {
-    await api.saveConfig(draftConfig.value)
+    await api.saveConfig(appConfigToUpdateRequest(draftConfig.value, safeResponse.value!))
     Object.assign(config, cloneConfig(draftConfig.value))
 
     if (authRefreshNeeded) {
@@ -1106,45 +1089,11 @@ const testConnection = async () => {
   }
 }
 
-const showFolderPicker = ref(false)
-const showPathInput = ref(false)
 const targetLocalField = ref<LocalField>('library_dir')
-const currentLocalPath = ref('')
-const localDirs = ref<DirEntry[]>([])
-const isLoadingLocal = ref(false)
-
-const showRemoteFolderPicker = ref(false)
-const currentRemotePath = ref('/')
-const remoteDirs = ref<DirEntry[]>([])
-const isLoadingRemote = ref(false)
-
-const isWindowsPath = computed(() => currentLocalPath.value.includes('\\'))
-const pathSegments = computed(() => {
-  const path = currentLocalPath.value
-  if (!path) return []
-  const separator = path.includes('\\') ? '\\' : '/'
-  return path.split(separator).filter((segment) => segment !== '')
-})
-const canGoUp = computed(() => {
-  const path = currentLocalPath.value
-  return path !== '/' && path !== 'C:\\' && path !== ''
-})
-const remotePathSegments = computed(() => currentRemotePath.value.split('/').filter((segment) => segment !== ''))
-const remoteCanGoUp = computed(() => currentRemotePath.value !== '/')
-
-const normalizeRemotePath = (path: string) => {
-  if (!path || path.trim() === '') return '/'
-  const normalized = path.replace(/\\/g, '/').trim()
-  if (normalized === '/') return '/'
-  return normalized.startsWith('/') ? normalized : `/${normalized}`
-}
 
 const openFolderPicker = (field: LocalField) => {
   targetLocalField.value = field
-  showFolderPicker.value = true
-  showPathInput.value = false
-  currentLocalPath.value = draftConfig.value.backup[field] || ''
-  void loadLocalDir(currentLocalPath.value)
+  void localPicker.open(draftConfig.value.backup[field] || '')
 }
 
 const openRemoteFolderPicker = () => {
@@ -1159,132 +1108,26 @@ const openRemoteFolderPicker = () => {
       return
     }
   }
-  showRemoteFolderPicker.value = true
-  currentRemotePath.value = normalizeRemotePath(draftConfig.value.backup.remote_dir)
-  void loadRemoteDir(currentRemotePath.value)
-}
-
-const loadLocalDir = async (path: string) => {
-  isLoadingLocal.value = true
-  try {
-    const items = await api.listLocal(path)
-    localDirs.value = items.filter((item) => item.IsDir).sort((left, right) => left.Name.localeCompare(right.Name))
-    if (path === '') {
-      currentLocalPath.value = items.length > 0 && items[0]?.Path.includes('\\') ? 'C:\\' : '/'
-    }
-  } catch (error) {
-    if (handleAuthFailure(error)) return
-    showToast('error', '加载目录失败', getErrorMessage(error))
-  } finally {
-    isLoadingLocal.value = false
-  }
-}
-
-const loadRemoteDir = async (path: string) => {
-  isLoadingRemote.value = true
-  try {
-    const normalizedPath = normalizeRemotePath(path)
-    const items = draftConfig.value.provider === 'open115'
-      ? await api.open115List(normalizedPath)
-      : await api.listWebDAV({
-          url: draftConfig.value.webdav.url,
-          user: draftConfig.value.webdav.user,
-          password: draftConfig.value.webdav.password,
-          vendor: draftConfig.value.webdav.vendor,
-          path: normalizedPath,
-        })
-    currentRemotePath.value = normalizedPath
-    remoteDirs.value = items.filter((item) => item.IsDir).sort((left, right) => left.Name.localeCompare(right.Name))
-  } catch (error) {
-    if (handleAuthFailure(error)) return
-    showToast('error', draftConfig.value.provider === 'open115' ? '加载 115 目录失败' : '加载远端目录失败', getErrorMessage(error))
-  } finally {
-    isLoadingRemote.value = false
-  }
-}
-
-const resolveLocalEntryPath = (item: DirEntry) => {
-  const candidate = (item.Path || '').trim()
-  if (candidate.startsWith('/') || /^[A-Za-z]:[\\/]/.test(candidate)) {
-    return candidate
-  }
-
-  const separator = currentLocalPath.value.includes('\\') ? '\\' : '/'
-  let nextPath = currentLocalPath.value
-  if (nextPath === '' || nextPath.endsWith(separator)) {
-    nextPath += item.Name
-  } else {
-    nextPath += separator + item.Name
-  }
-  return nextPath
-}
-
-const enterLocalDir = (item: DirEntry) => {
-  const nextPath = resolveLocalEntryPath(item)
-  currentLocalPath.value = nextPath
-  void loadLocalDir(nextPath)
-}
-
-const resolveRemoteEntryPath = (item: DirEntry) => {
-  const candidate = normalizeRemotePath((item.Path || '').trim())
-  if (candidate !== '/' || (item.Path || '').trim().startsWith('/')) {
-    return candidate
-  }
-
-  return currentRemotePath.value === '/' ? `/${item.Name}` : `${currentRemotePath.value}/${item.Name}`
-}
-
-const enterRemoteDir = (item: DirEntry) => {
-  const nextPath = resolveRemoteEntryPath(item)
-  void loadRemoteDir(nextPath)
-}
-
-const goUpLocalDir = () => {
-  const separator = currentLocalPath.value.includes('\\') ? '\\' : '/'
-  const parts = currentLocalPath.value.split(separator)
-  if (parts.length > 0 && parts[parts.length - 1] === '') parts.pop()
-  parts.pop()
-  let nextPath = parts.join(separator)
-  if (nextPath === '' || (separator === '\\' && !nextPath.includes('\\'))) nextPath += separator
-  currentLocalPath.value = nextPath
-  void loadLocalDir(nextPath)
-}
-
-const goUpRemoteDir = () => {
-  if (currentRemotePath.value === '/') return
-  const parts = currentRemotePath.value.split('/').filter(Boolean)
-  parts.pop()
-  const nextPath = parts.length === 0 ? '/' : `/${parts.join('/')}`
-  void loadRemoteDir(nextPath)
-}
-
-const navigateToSegment = (index: number) => {
-  const separator = isWindowsPath.value ? '\\' : '/'
-  const segments = pathSegments.value.slice(0, index + 1)
-  let nextPath = segments.join(separator)
-  if (isWindowsPath.value) {
-    if (!nextPath.endsWith('\\')) nextPath += '\\'
-  } else {
-    nextPath = '/' + nextPath
-  }
-  currentLocalPath.value = nextPath
-  void loadLocalDir(nextPath)
-}
-
-const navigateToRemoteSegment = (index: number) => {
-  const segments = remotePathSegments.value.slice(0, index + 1)
-  const nextPath = segments.length === 0 ? '/' : `/${segments.join('/')}`
-  void loadRemoteDir(nextPath)
+  const listFn = draftConfig.value.provider === 'open115'
+    ? (path: string) => api.open115List(path)
+    : (path: string) => api.listWebDAV({
+        url: draftConfig.value.webdav.url,
+        user: draftConfig.value.webdav.user,
+        password: draftConfig.value.webdav.password,
+        vendor: draftConfig.value.webdav.vendor,
+        path,
+      })
+  void remotePicker.open(draftConfig.value.backup.remote_dir, listFn)
 }
 
 const confirmFolder = () => {
-  draftConfig.value.backup[targetLocalField.value] = currentLocalPath.value
-  showFolderPicker.value = false
+  const selected = localPicker.confirm()
+  draftConfig.value.backup[targetLocalField.value] = selected
 }
 
 const confirmRemoteFolder = () => {
-  draftConfig.value.backup.remote_dir = normalizeRemotePath(currentRemotePath.value)
-  showRemoteFolderPicker.value = false
+  const selected = remotePicker.confirm()
+  draftConfig.value.backup.remote_dir = selected
 }
 </script>
 

@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -27,53 +26,36 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const maskedSecret = "********"
-
-// maskSecret 如果字段非空则替换为遮蔽值。
-func maskSecret(field *string) {
-	if *field != "" {
-		*field = maskedSecret
-	}
-}
-
-// restoreSecret 如果新值是遮蔽值，则从旧配置还原。
-// 空字符串视为用户主动清除该值，不做还原。
-func restoreSecret(newField *string, oldValue string) {
-	if *newField == maskedSecret {
-		*newField = oldValue
-	}
-}
-
+// normalizeRemoteDir delegates to config package.
 func normalizeRemoteDir(remoteDir string) string {
-	cleaned := path.Clean("/" + strings.TrimSpace(remoteDir))
-	if cleaned == "." || cleaned == "" {
-		return "/"
-	}
-	return cleaned
+	return config.NormalizeRemoteDir(remoteDir)
 }
 
+// normalizeCronExpression delegates to config package.
 func normalizeCronExpression(expr string) string {
-	expr = strings.TrimSpace(expr)
-	if expr == "" {
-		return ""
-	}
-	parts := strings.Fields(expr)
-	if len(parts) == 5 {
-		return "0 " + expr
-	}
-	return expr
+	return config.NormalizeCronExpression(expr)
 }
 
 // Server 持有所有 API 依赖。
+// BuildInfo carries version metadata injected at compile time via ldflags.
+type BuildInfo struct {
+	Version   string `json:"version"`
+	Commit    string `json:"commit"`
+	BuildTime string `json:"build_time"`
+	Dirty     bool   `json:"dirty"`
+}
+
 type Server struct {
 	Runner    *rclone.Runner
 	Hub       *Hub
 	Config    *config.Manager
 	Open115   *open115.Service
 	Scheduler *appCron.Scheduler
+	Build     BuildInfo
 
 	authSessionMu sync.RWMutex
 	authSessions  map[string]*open115.AuthSession
+	authLimit     *authLimiter
 
 	backupMu      sync.RWMutex
 	backupCancel  context.CancelFunc
@@ -86,13 +68,15 @@ type Server struct {
 }
 
 // NewServer 创建 API Server 实例。
-func NewServer(cfgMgr *config.Manager) *Server {
+func NewServer(cfgMgr *config.Manager, build BuildInfo) *Server {
 	s := &Server{
 		Runner:       rclone.NewRunner(),
 		Hub:          NewHub(),
 		Config:       cfgMgr,
 		Open115:      open115.NewService(cfgMgr),
+		Build:        build,
 		authSessions: make(map[string]*open115.AuthSession),
+		authLimit:    newAuthLimiter(),
 	}
 
 	// 定时任务：触发时执行备份
@@ -492,11 +476,61 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		user, pass, ok := c.Request.BasicAuth()
-		if ok && subtle.ConstantTimeCompare([]byte(user), []byte(cfg.Server.AuthUser)) == 1 && config.VerifyPassword(cfg.Server.AuthPasswordHash, pass) {
+		// Allow login endpoint without authentication
+		if c.Request.URL.Path == "/api/v1/auth/login" && c.Request.Method == http.MethodPost {
 			c.Next()
 			return
 		}
+
+		// --- JWT authentication (cookie / Bearer / query) ---
+		if token := getTokenFromRequest(c); token != "" && cfg.Server.JWTSecret != "" {
+			claims, err := validateToken(token, cfg.Server.JWTSecret)
+			if err == nil {
+				// CSRF validation for mutating requests
+				if isMutatingMethod(c.Request.Method) {
+					csrfHeader := c.GetHeader(csrfHeaderName)
+					if csrfHeader == "" || csrfHeader != claims.CSRF {
+						c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "CSRF token 无效或缺失"})
+						return
+					}
+				}
+				c.Set("auth_method", "jwt")
+				c.Set("auth_user", claims.Sub)
+				c.Next()
+				return
+			}
+			// JWT present but invalid → don't fall through for cookie auth to avoid confusion,
+			// but do allow Basic Auth fallback (e.g., API clients)
+			if _, _, hasBasic := c.Request.BasicAuth(); !hasBasic {
+				clearTokenCookie(c)
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "会话已过期，请重新登录"})
+				return
+			}
+		}
+
+		// --- Basic Auth fallback ---
+		// 暴力破解防护：检查 IP 是否被锁定
+		clientIP := c.ClientIP()
+		if blocked, retryAfter := s.authLimit.check(clientIP); blocked {
+			c.Header("Retry-After", fmt.Sprintf("%d", retryAfter))
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"error": fmt.Sprintf("登录尝试过多，请 %d 秒后重试", retryAfter),
+			})
+			return
+		}
+
+		user, pass, ok := c.Request.BasicAuth()
+		if ok && subtle.ConstantTimeCompare([]byte(user), []byte(cfg.Server.AuthUser)) == 1 && config.VerifyPassword(cfg.Server.AuthPasswordHash, pass) {
+			s.authLimit.recordSuccess(clientIP)
+			c.Set("auth_method", "basic")
+			c.Set("auth_user", user)
+			c.Next()
+			return
+		}
+
+		// 认证失败：记录 + 渐进延迟
+		delay := s.authLimit.recordFail(clientIP)
+		time.Sleep(delay)
 
 		c.Header("WWW-Authenticate", `Basic realm="immichto115"`)
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "需要管理员账号密码"})
@@ -515,22 +549,25 @@ func isSetupWhitelisted(r *http.Request) bool {
 	setupPaths := map[string][]string{
 		"/api/v1/system/status":       {"GET"},
 		"/api/v1/config":              {"GET", "POST"},
+		"/api/v1/auth/login":          {"POST"},
+		"/api/v1/auth/logout":         {"POST"},
 		"/api/v1/webdav/test":         {"POST"},
 		"/api/v1/webdav/ls":           {"POST"},
-		"/api/v1/local/ls":            {"GET"},
-		"/api/v1/remote/ls":           {"GET"},
 		"/api/v1/open115/auth/start":  {"POST"},
 		"/api/v1/open115/auth/status": {"GET"},
 		"/api/v1/open115/auth/finish": {"POST"},
 		"/api/v1/open115/test":        {"POST"},
-		"/api/v1/open115/ls":          {"GET"},
+		"/api/v1/local/ls":            {"GET"},
+		"/api/v1/open115/ls":          {"POST"},
 	}
 	methods, ok := setupPaths[path]
 	if !ok {
 		// 前端静态资源与 WebSocket 也需要放行
+		// 静态前端资源放行，API 和 WebSocket 路径在 setup 阶段一律拒绝
 		if !strings.HasPrefix(path, "/api/") && !strings.HasPrefix(path, "/ws/") {
 			return true
 		}
+		// WebSocket 在 setup 阶段明确拒绝
 		return false
 	}
 	for _, m := range methods {
@@ -550,7 +587,17 @@ func (s *Server) SetupRouter() *gin.Engine {
 
 	// --- Health Check (Docker / 监控探针) ---
 	r.GET("/api/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		_, rcloneErr := rclone.GetVersion()
+		checks := gin.H{
+			"config_loaded":    s.Config.Get().Server.Port > 0,
+			"rclone_available": rcloneErr == nil,
+			"setup_complete":   s.Config.IsSetupComplete(),
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "ok",
+			"version": s.Build.Version,
+			"checks":  checks,
+		})
 	})
 
 	// --- API v1 ---
@@ -567,6 +614,11 @@ func (s *Server) SetupRouter() *gin.Engine {
 		v1.GET("/config", s.handleGetConfig)
 		v1.POST("/config", s.handleSaveConfig)
 
+		// 认证管理 (JWT session)
+		v1.POST("/auth/login", s.handleAuthLogin)
+		v1.POST("/auth/logout", s.handleAuthLogout)
+		v1.GET("/auth/csrf", s.handleAuthCSRF)
+
 		// WebDAV 测试
 		v1.POST("/webdav/test", s.handleWebDAVTest)
 		v1.POST("/webdav/ls", s.handleWebDAVList)
@@ -576,7 +628,7 @@ func (s *Server) SetupRouter() *gin.Engine {
 		v1.GET("/open115/auth/status", s.handleOpen115AuthStatus)
 		v1.POST("/open115/auth/finish", s.handleOpen115AuthFinish)
 		v1.POST("/open115/test", s.handleOpen115Test)
-		v1.GET("/open115/ls", s.handleOpen115List)
+		v1.POST("/open115/ls", s.handleOpen115List)
 		v1.POST("/open115/debug/stream-measure", s.handleOpen115DebugStreamMeasure)
 		v1.POST("/open115/debug/stream-upload", s.handleOpen115DebugStreamUpload)
 
@@ -600,7 +652,7 @@ func (s *Server) SetupRouter() *gin.Engine {
 	}
 
 	// --- WebSocket（使用 auth 中间件保护）---
-	r.GET("/ws/logs", HandleWebSocket(s.Hub))
+	r.GET("/ws/logs", HandleWebSocket(s.Hub, s))
 
 	return r
 }
@@ -619,13 +671,19 @@ func (s *Server) InitCron() {
 
 // ===== Handler 实现 =====
 
+// Status constants used in /api/v1/system/status JSON responses.
+const (
+	StatusIdle    = "idle"
+	StatusRunning = "running"
+)
+
 func (s *Server) handleSystemStatus(c *gin.Context) {
 	version, err := rclone.GetVersion()
 	rcloneInstalled := err == nil
 
-	status := "idle"
+	status := StatusIdle
 	if s.IsBackupActive() {
-		status = "running"
+		status = StatusRunning
 	}
 
 	nextRun := s.Scheduler.NextRun()
@@ -643,117 +701,56 @@ func (s *Server) handleSystemStatus(c *gin.Context) {
 		"cron_enabled":     cronRunning,
 		"next_run":         nextRun,
 		"setup_complete":   s.Config.IsSetupComplete(),
+		"version":          s.Build.Version,
+		"commit":           s.Build.Commit,
+		"build_time":       s.Build.BuildTime,
+		"dirty":            s.Build.Dirty,
 	})
 }
 
 func (s *Server) handleGetConfig(c *gin.Context) {
 	cfg := s.Config.Get()
-	// 隐藏敏感信息
-	maskSecret(&cfg.WebDAV.Password)
-	maskSecret(&cfg.Open115.AccessToken)
-	maskSecret(&cfg.Open115.RefreshToken)
-	maskSecret(&cfg.Encrypt.Password)
-	maskSecret(&cfg.Encrypt.Salt)
-	maskSecret(&cfg.Open115Encrypt.Password)
-	maskSecret(&cfg.Open115Encrypt.Salt)
-	if cfg.Server.AuthPasswordHash != "" {
-		cfg.Server.AuthPassword = maskedSecret
-	}
-	c.JSON(http.StatusOK, cfg)
+	c.JSON(http.StatusOK, cfg.ToSafe())
 }
 
 func (s *Server) handleSaveConfig(c *gin.Context) {
-	var newCfg config.AppConfig
-	if err := c.ShouldBindJSON(&newCfg); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	var req config.ConfigUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": sanitizeError(err)})
 		return
 	}
 
-	newCfg.Provider = strings.ToLower(strings.TrimSpace(newCfg.Provider))
-	newCfg.WebDAV.URL = strings.TrimSpace(newCfg.WebDAV.URL)
-	newCfg.WebDAV.User = strings.TrimSpace(newCfg.WebDAV.User)
-	newCfg.WebDAV.Vendor = strings.TrimSpace(newCfg.WebDAV.Vendor)
-	newCfg.Open115.ClientID = strings.TrimSpace(newCfg.Open115.ClientID)
-	newCfg.Open115.AccessToken = strings.TrimSpace(newCfg.Open115.AccessToken)
-	newCfg.Open115.RefreshToken = strings.TrimSpace(newCfg.Open115.RefreshToken)
-	newCfg.Open115.RootID = strings.TrimSpace(newCfg.Open115.RootID)
-	newCfg.Backup.LibraryDir = strings.TrimSpace(newCfg.Backup.LibraryDir)
-	newCfg.Backup.BackupsDir = strings.TrimSpace(newCfg.Backup.BackupsDir)
-	newCfg.Backup.RemoteDir = normalizeRemoteDir(newCfg.Backup.RemoteDir)
-	newCfg.Backup.Mode = strings.ToLower(strings.TrimSpace(newCfg.Backup.Mode))
-	newCfg.Backup.ManifestPath = strings.TrimSpace(newCfg.Backup.ManifestPath)
-	newCfg.Open115Encrypt.Mode = strings.ToLower(strings.TrimSpace(newCfg.Open115Encrypt.Mode))
-	newCfg.Open115Encrypt.FilenameMode = strings.ToLower(strings.TrimSpace(newCfg.Open115Encrypt.FilenameMode))
-	newCfg.Open115Encrypt.Algorithm = strings.TrimSpace(newCfg.Open115Encrypt.Algorithm)
-	newCfg.Open115Encrypt.TempDir = strings.TrimSpace(newCfg.Open115Encrypt.TempDir)
-	newCfg.Cron.Expression = normalizeCronExpression(newCfg.Cron.Expression)
-	newCfg.Notify.BarkURL = strings.TrimSpace(newCfg.Notify.BarkURL)
-
-	newCfg.PhotoUpload.WatchDir = strings.TrimSpace(newCfg.PhotoUpload.WatchDir)
-	newCfg.PhotoUpload.RemoteDir = strings.TrimSpace(newCfg.PhotoUpload.RemoteDir)
-	newCfg.PhotoUpload.Extensions = strings.TrimSpace(newCfg.PhotoUpload.Extensions)
-	newCfg.PhotoUpload.DateFormat = strings.TrimSpace(newCfg.PhotoUpload.DateFormat)
-	if newCfg.PhotoUpload.RemoteDir == "" {
-		newCfg.PhotoUpload.RemoteDir = "/摄影"
-	}
-	if newCfg.PhotoUpload.DateFormat == "" {
-		newCfg.PhotoUpload.DateFormat = "2006/01/02"
-	}
-
-	// 如果前端传了 "********" 则保留旧密钥；显式清空字符串则视为用户要清除该值。
-	oldCfg := s.Config.Get()
-	restoreSecret(&newCfg.WebDAV.Password, oldCfg.WebDAV.Password)
-	restoreSecret(&newCfg.Open115.AccessToken, oldCfg.Open115.AccessToken)
-	restoreSecret(&newCfg.Open115.RefreshToken, oldCfg.Open115.RefreshToken)
-	restoreSecret(&newCfg.Encrypt.Password, oldCfg.Encrypt.Password)
-	restoreSecret(&newCfg.Encrypt.Salt, oldCfg.Encrypt.Salt)
-	restoreSecret(&newCfg.Open115Encrypt.Password, oldCfg.Open115Encrypt.Password)
-	restoreSecret(&newCfg.Open115Encrypt.Salt, oldCfg.Open115Encrypt.Salt)
-
-	newCfg.Server.AuthUser = strings.TrimSpace(newCfg.Server.AuthUser)
-	if newCfg.Server.AuthPassword == maskedSecret || newCfg.Server.AuthPassword == "" {
-		newCfg.Server.AuthPasswordHash = oldCfg.Server.AuthPasswordHash
-	} else {
-		hash, err := config.HashPassword(newCfg.Server.AuthPassword)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		newCfg.Server.AuthPasswordHash = hash
-	}
-	newCfg.Server.AuthPassword = ""
-
-	if newCfg.Server.AuthEnabled {
-		if newCfg.Server.AuthUser == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "启用访问保护时必须填写管理员用户名"})
-			return
-		}
-		if newCfg.Server.AuthPasswordHash == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "启用访问保护时必须填写管理员密码"})
-			return
-		}
-	}
-
-	if err := s.Config.Update(newCfg); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := req.Validate(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": sanitizeError(err)})
 		return
 	}
 
-	// 配置更新后重置 115 Open 客户端缓存，确保后续使用新 token
+	newCfg, err := s.Config.ApplyUpdate(req)
+	if err != nil {
+		// 并发冲突返回 409
+		if strings.Contains(err.Error(), "请刷新后重试") {
+			c.JSON(http.StatusConflict, gin.H{"error": sanitizeError(err)})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": sanitizeError(err)})
+		return
+	}
+
+	// 配置更新后重置 115 Open 客户端缓存
 	s.Open115.ResetClient()
 
 	// 更新定时任务
 	if newCfg.Cron.Enabled && newCfg.Cron.Expression != "" {
-		expr := normalizeCronExpression(newCfg.Cron.Expression)
+		expr := config.NormalizeCronExpression(newCfg.Cron.Expression)
 		if err := s.Scheduler.Start(expr); err != nil {
-			c.JSON(http.StatusOK, gin.H{"message": "配置已保存，但定时任务启动失败：" + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "配置已保存，但定时任务启动失败：" + sanitizeError(err)})
 			return
 		}
 	} else {
 		s.Scheduler.Stop()
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "配置已保存"})
+	c.JSON(http.StatusOK, gin.H{"message": "配置已保存", "updated_at": newCfg.UpdatedAt})
 }
 
 // WebDAVTestRequest 测试 WebDAV 连接的请求体。
@@ -773,7 +770,7 @@ type WebDAVListRequest struct {
 }
 
 func (s *Server) resolveWebDAVPassword(password string) string {
-	if password == maskedSecret {
+	if password == "" {
 		return s.Config.Get().WebDAV.Password
 	}
 	return password
@@ -782,7 +779,7 @@ func (s *Server) resolveWebDAVPassword(password string) string {
 func (s *Server) handleWebDAVTest(c *gin.Context) {
 	var req WebDAVTestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": sanitizeError(err)})
 		return
 	}
 
@@ -798,7 +795,7 @@ func (s *Server) handleWebDAVTest(c *gin.Context) {
 	if obscErr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"message": "处理 WebDAV 密码失败：" + obscErr.Error(),
+			"message": "处理 WebDAV 密码失败：" + sanitizeError(obscErr),
 		})
 		return
 	}
@@ -821,7 +818,9 @@ func (s *Server) handleWebDAVTest(c *gin.Context) {
 	if err != nil {
 		detail := strings.TrimSpace(string(out))
 		if detail == "" {
-			detail = err.Error()
+			detail = sanitizeError(err)
+		} else {
+			detail = SanitizeString(detail)
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -839,7 +838,7 @@ func (s *Server) handleWebDAVTest(c *gin.Context) {
 func (s *Server) handleWebDAVList(c *gin.Context) {
 	var req WebDAVListRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": sanitizeError(err)})
 		return
 	}
 
@@ -868,12 +867,12 @@ func (s *Server) handleWebDAVList(c *gin.Context) {
 
 	confPath, err := config.GenerateRcloneConf(tmpCfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成 rclone 配置失败：" + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成 rclone 配置失败：" + sanitizeError(err)})
 		return
 	}
 	defer config.CleanupRcloneConf(confPath)
 
-	cleanPath := path.Clean("/" + req.Path)
+	cleanPath := config.CleanRemotePath(req.Path)
 	if cleanPath == "." {
 		cleanPath = "/"
 	}
@@ -887,7 +886,9 @@ func (s *Server) handleWebDAVList(c *gin.Context) {
 	if err != nil {
 		detail := strings.TrimSpace(string(out))
 		if detail == "" {
-			detail = err.Error()
+			detail = sanitizeError(err)
+		} else {
+			detail = SanitizeString(detail)
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取 WebDAV 目录失败：" + detail})
 		return
@@ -973,19 +974,19 @@ func (s *Server) StartAuthCleanup(ctx context.Context) {
 func (s *Server) handleOpen115AuthStart(c *gin.Context) {
 	var req open115AuthStartRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": sanitizeError(err)})
 		return
 	}
 	s.cleanupExpiredAuthSessions()
 	session, err := s.Open115.StartAuth(c.Request.Context(), req.ClientID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": sanitizeError(err)})
 		return
 	}
 	updated := s.Config.Get()
 	updated.Open115.ClientID = strings.TrimSpace(req.ClientID)
 	if err := s.Config.Update(updated); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": sanitizeError(err)})
 		return
 	}
 	s.storeAuthSession(session)
@@ -1012,7 +1013,7 @@ func (s *Server) handleOpen115AuthStatus(c *gin.Context) {
 	}
 	status, err := s.Open115.CheckAuthStatus(c.Request.Context(), session)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadGateway, gin.H{"error": sanitizeError(err)})
 		return
 	}
 	c.JSON(http.StatusOK, status)
@@ -1021,7 +1022,7 @@ func (s *Server) handleOpen115AuthStatus(c *gin.Context) {
 func (s *Server) handleOpen115AuthFinish(c *gin.Context) {
 	var req open115AuthFinishRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": sanitizeError(err)})
 		return
 	}
 	session, ok := s.loadAuthSession(req.UID)
@@ -1031,7 +1032,7 @@ func (s *Server) handleOpen115AuthFinish(c *gin.Context) {
 	}
 	state, err := s.Open115.FinishAuth(c.Request.Context(), session)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadGateway, gin.H{"error": sanitizeError(err)})
 		return
 	}
 	s.deleteAuthSession(req.UID)
@@ -1042,17 +1043,63 @@ func (s *Server) handleOpen115AuthFinish(c *gin.Context) {
 }
 
 func (s *Server) handleOpen115Test(c *gin.Context) {
-	if err := s.Open115.TestConnection(c.Request.Context()); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+	// 支持传入 token 直接测试（不修改后端配置），也兼容无参调用（用已保存配置）
+	var req struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	_ = c.ShouldBindJSON(&req) // optional; ignore bind errors for backward compat
+
+	var testErr error
+	if strings.TrimSpace(req.AccessToken) != "" && strings.TrimSpace(req.RefreshToken) != "" {
+		testErr = open115.TestConnectionDirect(c.Request.Context(), req.AccessToken, req.RefreshToken)
+	} else {
+		testErr = s.Open115.TestConnection(c.Request.Context())
+	}
+
+	if testErr != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": sanitizeError(testErr)})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "115 Open 连接成功"})
 }
 
 func (s *Server) handleOpen115List(c *gin.Context) {
-	remotePath := strings.TrimSpace(c.Query("path"))
+	var req struct {
+		Path         string `json:"path"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		RootID       string `json:"root_id"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	remotePath := strings.TrimSpace(req.Path)
 	if remotePath == "" {
 		remotePath = "/"
+	}
+
+	accessToken := strings.TrimSpace(req.AccessToken)
+	refreshToken := strings.TrimSpace(req.RefreshToken)
+	rootID := strings.TrimSpace(req.RootID)
+
+	if accessToken != "" && refreshToken != "" {
+		// 使用传入的 token 直接列目录（不修改后端配置）
+		items, err := open115.ListRemoteDirect(c.Request.Context(), accessToken, refreshToken, rootID, remotePath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": sanitizeError(err)})
+			return
+		}
+		entries := make([]gin.H, 0, len(items))
+		for _, item := range items {
+			entries = append(entries, gin.H{
+				"Name":    item.Name,
+				"Path":    item.Path,
+				"IsDir":   item.IsDir,
+				"Size":    item.Size,
+				"ModTime": item.ModTime.Format(time.RFC3339),
+			})
+		}
+		c.JSON(http.StatusOK, entries)
+		return
 	}
 	s.listOpen115Entries(c, remotePath)
 }
@@ -1062,7 +1109,7 @@ func (s *Server) listOpen115Entries(c *gin.Context, remotePath string) {
 	backend := backup.NewOpen115Backend(s.Open115)
 	items, err := backend.ListRemote(c.Request.Context(), remotePath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": sanitizeError(err)})
 		return
 	}
 	entries := make([]gin.H, 0, len(items))
@@ -1090,7 +1137,7 @@ type open115DebugStreamUploadRequest struct {
 func (s *Server) handleOpen115DebugStreamMeasure(c *gin.Context) {
 	var req open115DebugStreamMeasureRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": sanitizeError(err)})
 		return
 	}
 	cfg := s.Config.Get()
@@ -1105,7 +1152,7 @@ func (s *Server) handleOpen115DebugStreamMeasure(c *gin.Context) {
 	}
 	info, err := open115crypt.DebugMeasure(strings.TrimSpace(req.LocalPath), encCfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": sanitizeError(err)})
 		return
 	}
 	c.JSON(http.StatusOK, info)
@@ -1114,7 +1161,7 @@ func (s *Server) handleOpen115DebugStreamMeasure(c *gin.Context) {
 func (s *Server) handleOpen115DebugStreamUpload(c *gin.Context) {
 	var req open115DebugStreamUploadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": sanitizeError(err)})
 		return
 	}
 	cfg := s.Config.Get()
@@ -1130,7 +1177,7 @@ func (s *Server) handleOpen115DebugStreamUpload(c *gin.Context) {
 	uploader := open115.NewUploader(s.Open115)
 	result, err := uploader.DebugStreamUpload(c.Request.Context(), strings.TrimSpace(req.LocalPath), strings.TrimSpace(req.RemotePath), encCfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "result": result})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": sanitizeError(err), "result": result})
 		return
 	}
 	c.JSON(http.StatusOK, result)
@@ -1158,7 +1205,7 @@ type RemoteListRequest struct {
 func (s *Server) handleRemoteList(c *gin.Context) {
 	var req RemoteListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": sanitizeError(err)})
 		return
 	}
 
@@ -1178,7 +1225,7 @@ func (s *Server) handleRemoteList(c *gin.Context) {
 
 	confPath, err := config.GenerateRcloneConf(cfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成 rclone 配置失败：" + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成 rclone 配置失败：" + sanitizeError(err)})
 		return
 	}
 	defer config.CleanupRcloneConf(confPath)
@@ -1193,7 +1240,9 @@ func (s *Server) handleRemoteList(c *gin.Context) {
 	if err != nil {
 		detail := strings.TrimSpace(string(out))
 		if detail == "" {
-			detail = err.Error()
+			detail = sanitizeError(err)
+		} else {
+			detail = SanitizeString(detail)
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取远端目录失败：" + detail})
 		return
@@ -1210,17 +1259,36 @@ type LocalListRequest struct {
 func (s *Server) handleLocalList(c *gin.Context) {
 	var req LocalListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": sanitizeError(err)})
 		return
 	}
 
 	localPath := req.Path
 	if localPath == "" {
 		if runtime.GOOS == "windows" {
-			localPath = "C:\\"
-		} else {
-			localPath = "/"
+			// 枚举所有可用盘符
+			type localEntry struct {
+				Path    string `json:"Path"`
+				Name    string `json:"Name"`
+				IsDir   bool   `json:"IsDir"`
+				Size    int64  `json:"Size,omitempty"`
+				ModTime string `json:"ModTime,omitempty"`
+			}
+			var drives []localEntry
+			for letter := 'A'; letter <= 'Z'; letter++ {
+				root := string(letter) + ":\\"
+				if _, err := os.Stat(root); err == nil {
+					drives = append(drives, localEntry{
+						Path:  root,
+						Name:  string(letter) + ":",
+						IsDir: true,
+					})
+				}
+			}
+			c.JSON(http.StatusOK, drives)
+			return
 		}
+		localPath = "/"
 	}
 
 	// 安全校验：在路径规范化之前先检查原始输入
@@ -1234,14 +1302,14 @@ func (s *Server) handleLocalList(c *gin.Context) {
 
 	absPath, err := filepath.Abs(localPath)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效路径: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效路径: " + sanitizeError(err)})
 		return
 	}
 	localPath = absPath
 
 	entries, err := os.ReadDir(localPath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取本地目录失败：" + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取本地目录失败：" + sanitizeError(err)})
 		return
 	}
 
@@ -1292,7 +1360,7 @@ func (s *Server) handleNotifyTest(c *gin.Context) {
 	}
 	err := notify.SendBark(cfg.Notify.BarkURL, "🔔 测试通知", "应用：ImmichTo115\n结果：通知服务连接正常\n说明：后续会推送备份成功、失败、手动停止等状态")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "推送失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "推送失败: " + sanitizeError(err)})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "测试通知已发送"})
@@ -1410,3 +1478,96 @@ func (s *Server) handlePhotoUploadStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": status})
 }
 
+// --- Auth handlers (JWT session) ---
+
+// handleAuthLogin validates username/password and returns a JWT session cookie.
+// POST /api/v1/auth/login
+// Body: {"username": "...", "password": "..."}
+func (s *Server) handleAuthLogin(c *gin.Context) {
+	cfg := s.Config.Get()
+
+	if !cfg.Server.AuthEnabled {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "认证未启用"})
+		return
+	}
+
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请提供 username 和 password"})
+		return
+	}
+
+	// Rate limit check
+	clientIP := c.ClientIP()
+	if blocked, retryAfter := s.authLimit.check(clientIP); blocked {
+		c.Header("Retry-After", fmt.Sprintf("%d", retryAfter))
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"error": fmt.Sprintf("登录尝试过多，请 %d 秒后重试", retryAfter),
+		})
+		return
+	}
+
+	// Validate credentials
+	if subtle.ConstantTimeCompare([]byte(req.Username), []byte(cfg.Server.AuthUser)) != 1 ||
+		!config.VerifyPassword(cfg.Server.AuthPasswordHash, req.Password) {
+		delay := s.authLimit.recordFail(clientIP)
+		time.Sleep(delay)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
+		return
+	}
+
+	s.authLimit.recordSuccess(clientIP)
+
+	// Ensure JWT secret exists (auto-generate on first use)
+	jwtSecret := cfg.Server.JWTSecret
+	if jwtSecret == "" {
+		jwtSecret = generateJWTSecret()
+		updated := s.Config.Get()
+		updated.Server.JWTSecret = jwtSecret
+		if err := s.Config.Update(updated); err != nil {
+			log.Printf("[auth] failed to persist JWT secret: %v", err)
+		}
+	}
+
+	// Generate CSRF token and JWT
+	csrfToken := generateCSRFToken()
+	token, err := createToken(req.Username, csrfToken, jwtSecret, jwtDefaultTTL)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成认证令牌失败"})
+		return
+	}
+
+	setTokenCookie(c, token, int(jwtDefaultTTL.Seconds()))
+	c.JSON(http.StatusOK, gin.H{
+		"csrf_token": csrfToken,
+		"expires_at": time.Now().Add(jwtDefaultTTL).Unix(),
+	})
+}
+
+// handleAuthLogout clears the JWT session cookie.
+// POST /api/v1/auth/logout
+func (s *Server) handleAuthLogout(c *gin.Context) {
+	clearTokenCookie(c)
+	c.JSON(http.StatusOK, gin.H{"message": "已退出登录"})
+}
+
+// handleAuthCSRF returns the CSRF token from the current JWT session.
+// GET /api/v1/auth/csrf
+func (s *Server) handleAuthCSRF(c *gin.Context) {
+	cfg := s.Config.Get()
+
+	token := getTokenFromRequest(c)
+	if token == "" || cfg.Server.JWTSecret == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未登录"})
+		return
+	}
+	claims, err := validateToken(token, cfg.Server.JWTSecret)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "会话已过期"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"csrf_token": claims.CSRF})
+}

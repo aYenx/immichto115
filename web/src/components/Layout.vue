@@ -4,6 +4,7 @@
     <div class="sidebar">
       <div class="sidebar-header">
         <h1 class="logo">ImmichTo115</h1>
+        <div class="sidebar-accent"></div>
       </div>
       
       <div class="nav-menu">
@@ -35,6 +36,10 @@
 
     <!-- Main Content -->
     <div class="main-content">
+      <button class="theme-fab" @click="toggleTheme" :title="isDark ? '切换到白天模式' : '切换到夜间模式'">
+        <LucideMoon v-if="!isDark" :size="18" />
+        <LucideSun v-else :size="18" />
+      </button>
       <router-view />
     </div>
 
@@ -62,11 +67,30 @@
 
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
-import { LucideLayout, LucideHardDrive, LucideSettings, LucideCamera } from 'lucide-vue-next'
+import { LucideLayout, LucideHardDrive, LucideSettings, LucideCamera, LucideSun, LucideMoon } from 'lucide-vue-next'
 import { api, handleAuthFailure } from '../api'
 
 const serviceHealthy = ref(true)
 let statusTimer: ReturnType<typeof setInterval> | null = null
+
+// Theme toggle
+const isDark = ref(false)
+
+const applyTheme = (dark: boolean) => {
+  isDark.value = dark
+  document.documentElement.classList.toggle('dark', dark)
+}
+
+const toggleTheme = () => {
+  const newDark = !isDark.value
+  applyTheme(newDark)
+  localStorage.setItem('theme', newDark ? 'dark' : 'light')
+}
+
+const initTheme = () => {
+  // main.ts 已经初始化过 class, 这里只需同步 isDark ref
+  isDark.value = document.documentElement.classList.contains('dark')
+}
 
 const checkServiceHealth = async () => {
   try {
@@ -81,6 +105,7 @@ const checkServiceHealth = async () => {
 }
 
 onMounted(() => {
+  initTheme()
   checkServiceHealth()
   statusTimer = setInterval(checkServiceHealth, 5000)
 })
@@ -123,6 +148,14 @@ onUnmounted(() => {
   letter-spacing: -0.5px;
 }
 
+.sidebar-accent {
+  height: 2px;
+  margin-top: 16px;
+  background: linear-gradient(90deg, #6366F1, #3B82F6, #06B6D4);
+  border-radius: 1px;
+  opacity: 0.6;
+}
+
 .nav-menu {
   display: flex;
   flex-direction: column;
@@ -156,6 +189,31 @@ onUnmounted(() => {
 .sidebar-footer {
   padding: 24px;
   border-top: 1px solid var(--border-subtle);
+}
+
+.theme-fab {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.theme-fab:hover {
+  color: var(--text-primary);
+  background-color: var(--border-subtle);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 
 .status-indicator {

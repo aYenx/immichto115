@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"text/template"
@@ -67,7 +66,7 @@ func GenerateRcloneConf(cfg AppConfig) (string, error) {
 	webdavCfg.Vendor = vendor
 
 	backupCfg := cfg.Backup
-	backupCfg.RemoteDir = path.Clean("/" + strings.TrimSpace(backupCfg.RemoteDir))
+	backupCfg.RemoteDir = CleanRemotePath(backupCfg.RemoteDir)
 	if backupCfg.RemoteDir == "." || backupCfg.RemoteDir == "" {
 		backupCfg.RemoteDir = "/"
 	}
@@ -123,7 +122,7 @@ func GetRemoteName(cfg AppConfig) string {
 	if cfg.Encrypt.Enabled {
 		return "crypt115:"
 	}
-	cleanRemoteDir := path.Clean("/" + strings.TrimSpace(cfg.Backup.RemoteDir))
+	cleanRemoteDir := CleanRemotePath(cfg.Backup.RemoteDir)
 	if cleanRemoteDir == "." || cleanRemoteDir == "" {
 		cleanRemoteDir = "/"
 	}
@@ -132,7 +131,7 @@ func GetRemoteName(cfg AppConfig) string {
 
 // BuildRemotePath 根据配置和请求路径拼出可用于 rclone 的完整远端路径。
 func BuildRemotePath(cfg AppConfig, reqPath string) string {
-	cleanPath := path.Clean("/" + strings.TrimSpace(reqPath))
+	cleanPath := CleanRemotePath(reqPath)
 	if cleanPath == "." || cleanPath == "" {
 		cleanPath = "/"
 	}

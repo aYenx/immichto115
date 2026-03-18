@@ -1,11 +1,14 @@
 package api
 
 import (
+	"crypto/subtle"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/aYenx/immichto115/internal/config"
 	"github.com/aYenx/immichto115/internal/rclone"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -23,9 +26,13 @@ var upgrader = websocket.Upgrader{
 		if origin == "http://"+host || origin == "https://"+host {
 			return true
 		}
-		// 允许本地开发常见端口
-		for _, prefix := range []string{"http://localhost:", "http://127.0.0.1:", "http://[::1]:"} {
-			if len(origin) > len(prefix) && origin[:len(prefix)] == prefix {
+		// 仅允许 Vite 默认开发端口，不做全局 localhost 放行
+		for _, allowed := range []string{
+			"http://localhost:5173",
+			"http://127.0.0.1:5173",
+			"http://[::1]:5173",
+		} {
+			if origin == allowed {
 				return true
 			}
 		}
@@ -156,8 +163,46 @@ func (c *wsClient) readPump(hub *Hub) {
 
 // HandleWebSocket 处理 WebSocket 连接升级请求。
 // 对应路由: GET /ws/logs
-func HandleWebSocket(hub *Hub) gin.HandlerFunc {
+// 在升级前验证 Basic Auth 凭证（如果已启用认证）。
+func HandleWebSocket(hub *Hub, srv *Server) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// --- Auth gate: verify credentials before upgrade ---
+		cfg := srv.Config.Get()
+		if cfg.Server.AuthEnabled {
+			if strings.TrimSpace(cfg.Server.AuthUser) == "" || cfg.Server.AuthPasswordHash == "" {
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "访问保护已启用，但管理员账号配置不完整"})
+				return
+			}
+
+			authenticated := false
+
+			// Try JWT auth first (cookie or query param)
+			if cfg.Server.JWTSecret != "" {
+				token := ""
+				// Cookie (automatically sent with HTTP upgrade)
+				if cookie, err := c.Cookie(jwtCookieName); err == nil && cookie != "" {
+					token = cookie
+				}
+				if token != "" {
+					if _, err := validateToken(token, cfg.Server.JWTSecret); err == nil {
+						authenticated = true
+					}
+				}
+			}
+
+			// Fall back to Basic Auth
+			if !authenticated {
+				user, pass, ok := c.Request.BasicAuth()
+				if !ok ||
+					subtle.ConstantTimeCompare([]byte(user), []byte(cfg.Server.AuthUser)) != 1 ||
+					!config.VerifyPassword(cfg.Server.AuthPasswordHash, pass) {
+					c.Header("WWW-Authenticate", `Basic realm="immichto115"`)
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "需要管理员账号密码"})
+					return
+				}
+			}
+		}
+
 		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
 			log.Printf("[ws] upgrade error: %v", err)

@@ -19,8 +19,8 @@ func generateCodeVerifier() (string, error) {
 	return base64.StdEncoding.EncodeToString(buf), nil
 }
 
-func newAuthClient() *sdk.Client {
-	return sdk.New()
+func newAuthClient() Open115API {
+	return newSDKClient(sdk.New())
 }
 
 // StartAuth 启动扫码授权流程。
@@ -84,7 +84,7 @@ func (s *Service) CheckAuthStatus(ctx context.Context, session *AuthSession) (*A
 }
 
 // FinishAuth 完成扫码授权并换取 token。
-func (s *Service) FinishAuth(ctx context.Context, session *AuthSession) (*TokenState, error) {
+func (s *Service) FinishAuth(ctx context.Context, session *AuthSession) (*SafeTokenState, error) {
 	if s == nil || s.cfg == nil {
 		return nil, fmt.Errorf("open115 service not initialized")
 	}
@@ -105,6 +105,7 @@ func (s *Service) FinishAuth(ctx context.Context, session *AuthSession) (*TokenS
 	}
 
 	updated := s.cfg.Get()
+	oldConfig := updated // snapshot for rollback
 	updated.Provider = "open115"
 	updated.Open115.Enabled = true
 	updated.Open115.ClientID = strings.TrimSpace(updated.Open115.ClientID)
@@ -114,15 +115,20 @@ func (s *Service) FinishAuth(ctx context.Context, session *AuthSession) (*TokenS
 	if strings.TrimSpace(updated.Open115.RootID) == "" {
 		updated.Open115.RootID = "0"
 	}
+
+	// 先写入新 token，验证通过后才算完成；验证失败则回滚
 	if err := s.cfg.Update(updated); err != nil {
 		return nil, err
 	}
-
 	s.ResetClient()
-	state := s.TokenState()
+
 	if err := s.TestConnection(ctx); err != nil {
+		// 验证失败：回滚到旧配置
+		_ = s.cfg.Update(oldConfig)
+		s.ResetClient()
 		return nil, err
 	}
-	state = s.TokenState()
+
+	state := s.SafeTokenState()
 	return &state, nil
 }

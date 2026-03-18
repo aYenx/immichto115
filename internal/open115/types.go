@@ -30,6 +30,15 @@ type TokenState struct {
 	UserID         string `json:"user_id"`
 }
 
+// SafeTokenState 是 TokenState 的脱敏版本，不包含 access_token 和 refresh_token，用于 API 响应。
+type SafeTokenState struct {
+	Enabled        bool   `json:"enabled"`
+	ClientID       string `json:"client_id"`
+	RootID         string `json:"root_id"`
+	TokenExpiresAt int64  `json:"token_expires_at"`
+	UserID         string `json:"user_id"`
+}
+
 // RemoteEntry 表示 Open115 远端目录项的通用结构。
 type RemoteEntry struct {
 	ID       string    `json:"id"`

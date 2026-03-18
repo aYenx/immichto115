@@ -244,6 +244,19 @@ download_binary() {
     info "二进制已安装到 ${INSTALL_DIR}/${APP_NAME}"
 }
 
+# ---- 服务用户 -----------------------------------------------
+create_service_user() {
+    local svc_user="${APP_NAME}"
+    if id "${svc_user}" &>/dev/null; then
+        info "服务用户 ${svc_user} 已存在"
+    else
+        step "创建系统用户 ${svc_user} ..."
+        useradd --system --no-create-home --shell /usr/sbin/nologin "${svc_user}" \
+            || error "创建用户 ${svc_user} 失败"
+        info "已创建系统用户: ${svc_user}"
+    fi
+}
+
 # ---- 配置目录 -----------------------------------------------
 setup_config() {
     if [[ -d "${CONFIG_DIR}" ]]; then
@@ -251,6 +264,12 @@ setup_config() {
     else
         mkdir -p "${CONFIG_DIR}"
         info "已创建配置目录: ${CONFIG_DIR}"
+    fi
+    # 限制配置目录权限，防止敏感信息泄露
+    chown -R "${APP_NAME}:${APP_NAME}" "${CONFIG_DIR}"
+    chmod 700 "${CONFIG_DIR}"
+    if [[ -f "${CONFIG_DIR}/config.yaml" ]]; then
+        chmod 600 "${CONFIG_DIR}/config.yaml"
     fi
 }
 
@@ -272,7 +291,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=${APP_NAME}
+Group=${APP_NAME}
 ExecStart=${INSTALL_DIR}/${APP_NAME} --config ${CONFIG_DIR}/config.yaml
 Restart=on-failure
 RestartSec=10
@@ -357,6 +377,7 @@ main() {
     fi
 
     download_binary
+    create_service_user
     setup_config
     setup_systemd
     post_install_check

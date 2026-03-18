@@ -16,11 +16,18 @@ type Service struct {
 	cfg *config.Manager
 
 	mu     sync.Mutex
-	client *sdk.Client
+	client Open115API
 }
 
 func NewService(cfg *config.Manager) *Service {
 	return &Service{cfg: cfg}
+}
+
+// SetClient 允许注入自定义的 Open115API 实现（通常用于测试）。
+func (s *Service) SetClient(c Open115API) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.client = c
 }
 
 func (s *Service) Config() config.Open115Config {
@@ -43,12 +50,23 @@ func (s *Service) TokenState() TokenState {
 	}
 }
 
+func (s *Service) SafeTokenState() SafeTokenState {
+	cfg := s.Config()
+	return SafeTokenState{
+		Enabled:        cfg.Enabled,
+		ClientID:       cfg.ClientID,
+		RootID:         cfg.RootID,
+		TokenExpiresAt: cfg.TokenExpiresAt,
+		UserID:         cfg.UserID,
+	}
+}
+
 func (s *Service) HasUsableToken() bool {
 	cfg := s.Config()
 	return strings.TrimSpace(cfg.AccessToken) != "" && strings.TrimSpace(cfg.RefreshToken) != ""
 }
 
-func (s *Service) buildClient() (*sdk.Client, error) {
+func (s *Service) buildClient() (Open115API, error) {
 	if s == nil || s.cfg == nil {
 		return nil, fmt.Errorf("open115 service not initialized")
 	}
@@ -58,7 +76,7 @@ func (s *Service) buildClient() (*sdk.Client, error) {
 		return nil, fmt.Errorf("open115 access_token / refresh_token 未配置")
 	}
 
-	client := sdk.New(
+	raw := sdk.New(
 		sdk.WithAccessToken(openCfg.AccessToken),
 		sdk.WithRefreshToken(openCfg.RefreshToken),
 		sdk.WithOnRefreshToken(func(accessToken string, refreshToken string) {
@@ -73,10 +91,10 @@ func (s *Service) buildClient() (*sdk.Client, error) {
 		}),
 	)
 
-	return client, nil
+	return newSDKClient(raw), nil
 }
 
-func (s *Service) Client() (*sdk.Client, error) {
+func (s *Service) Client() (Open115API, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -119,7 +137,7 @@ func (s *Service) TestConnection(ctx context.Context) error {
 		return err
 	}
 	pacer := NewPacer()
-	user, err := Call(ctx, pacer, "UserInfo", defaultMaxRetries, func() (*sdk.UserInfoResp, error) {
+	user, err := Call(ctx, pacer, "UserInfo", defaultMaxRetries, func() (*UserInfoResp, error) {
 		return client.UserInfo(ctx)
 	})
 	if err != nil {
@@ -130,6 +148,29 @@ func (s *Service) TestConnection(ctx context.Context) error {
 	}
 	if err := s.updateUserState(user.UserID); err != nil {
 		return err
+	}
+	return nil
+}
+
+// TestConnectionDirect 使用传入的 token 验证连接，不依赖也不修改已保存的配置。
+// 供设置页/向导页在用户点击"测试连接"时使用当前表单值而非后端旧值。
+func TestConnectionDirect(ctx context.Context, accessToken, refreshToken string) error {
+	if strings.TrimSpace(accessToken) == "" || strings.TrimSpace(refreshToken) == "" {
+		return fmt.Errorf("access_token / refresh_token 不能为空")
+	}
+	api := newSDKClient(sdk.New(
+		sdk.WithAccessToken(accessToken),
+		sdk.WithRefreshToken(refreshToken),
+	))
+	pacer := NewPacer()
+	user, err := Call(ctx, pacer, "UserInfo", defaultMaxRetries, func() (*UserInfoResp, error) {
+		return api.UserInfo(ctx)
+	})
+	if err != nil {
+		return err
+	}
+	if user == nil || user.UserID <= 0 {
+		return fmt.Errorf("open115 用户信息为空")
 	}
 	return nil
 }

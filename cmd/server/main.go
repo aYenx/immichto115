@@ -16,8 +16,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// version 由构建时 -ldflags "-X main.version=vX.Y.Z" 注入
-var version = "dev"
+// version / buildCommit / buildTime 由构建时 -ldflags 注入
+var (
+	version     = "dev"
+	buildCommit = "unknown"
+	buildTime   = "unknown"
+	buildDirty  = "false"
+)
 
 func main() {
 	// 命令行参数
@@ -68,7 +73,12 @@ func main() {
 	}
 
 	// 创建 Server
-	srv := api.NewServer(cfgMgr)
+	srv := api.NewServer(cfgMgr, api.BuildInfo{
+		Version:   version,
+		Commit:    buildCommit,
+		BuildTime: buildTime,
+		Dirty:     buildDirty == "true",
+	})
 
 	// 初始化定时任务
 	srv.InitCron()

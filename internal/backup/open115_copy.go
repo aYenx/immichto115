@@ -22,9 +22,17 @@ import (
 type LogEmitter func(stream string, text string)
 
 type Open115CopySummary struct {
-	Scanned  int
-	Uploaded int
-	Skipped  int
+	Scanned       int
+	Uploaded      int
+	Skipped       int
+	ScanSkipped   int      // files/dirs skipped due to I/O errors during scan
+	MissingDirs   []string // configured dirs that were not found (mount loss etc.)
+	ScanComplete  bool     // true only when scan had no errors and no missing dirs
+	DeleteSkipped bool     // true if sync-delete was blocked for safety
+	DeleteReason  string   // human-readable reason sync-delete was skipped
+	Deleted       int      // number of remote files deleted in sync mode
+	PendingDelete int      // number of files newly marked for pending deletion
+	DryRun        bool     // true if sync-delete ran in dry-run mode
 }
 
 // numWorkers 并发上传 worker 数，模仿 rclone --transfers 4。
@@ -42,12 +50,16 @@ type Open115CopyRunner struct {
 }
 
 func defaultManifestPath(cfg config.AppConfig, cfgPath string) string {
-	if strings.TrimSpace(cfg.Backup.ManifestPath) != "" {
-		return strings.TrimSpace(cfg.Backup.ManifestPath)
-	}
 	baseDir := "."
 	if strings.TrimSpace(cfgPath) != "" {
 		baseDir = filepath.Dir(cfgPath)
+	}
+	if mp := strings.TrimSpace(cfg.Backup.ManifestPath); mp != "" {
+		if filepath.IsAbs(mp) {
+			return mp
+		}
+		// 相对路径按配置文件所在目录解析，避免依赖进程 cwd
+		return filepath.Join(baseDir, mp)
 	}
 	return filepath.Join(baseDir, "manifest.db")
 }
@@ -97,24 +109,39 @@ type localFile struct {
 	MTime   int64
 }
 
-func scanLocalFiles(baseDir string, prefix string) ([]localFile, error) {
+// ScanResult aggregates the outcome of scanning a local directory tree.
+type ScanResult struct {
+	Files      []localFile
+	Skipped    int      // files/dirs skipped due to permission or I/O errors
+	MissingDir string   // non-empty if the configured dir did not exist
+	Complete   bool     // true only when Skipped==0 && MissingDir==""
+}
+
+// scanLocalFiles walks baseDir and returns a ScanResult. When the directory
+// does not exist (e.g. mount point lost), MissingDir is set and Complete is
+// false so that callers can block sync-delete.
+func scanLocalFiles(baseDir string, prefix string) (ScanResult, error) {
 	baseDir = strings.TrimSpace(baseDir)
 	if baseDir == "" {
-		return nil, nil
+		return ScanResult{Complete: true}, nil
 	}
 	info, err := os.Stat(baseDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			// 配置了目录但目录不存在（挂载点丢失等），视为扫描不完整
+			log.Printf("[backup] scan skipped: configured directory does not exist: %s", baseDir)
+			return ScanResult{Skipped: 1, MissingDir: baseDir}, nil
 		}
-		return nil, err
+		return ScanResult{}, err
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("%s 不是目录", baseDir)
+		return ScanResult{}, fmt.Errorf("%s 不是目录", baseDir)
 	}
 	files := make([]localFile, 0)
+	skippedCount := 0
 	err = filepath.WalkDir(baseDir, func(current string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			skippedCount++
 			// 权限不足等非致命错误：跳过该文件/目录，继续扫描
 			if os.IsPermission(walkErr) {
 				log.Printf("[backup] scan skipped (permission denied): %s", current)
@@ -129,6 +156,7 @@ func scanLocalFiles(baseDir string, prefix string) ([]localFile, error) {
 		}
 		stat, err := d.Info()
 		if err != nil {
+			skippedCount++
 			log.Printf("[backup] scan skipped (info error): %s: %v", current, err)
 			return nil
 		}
@@ -145,7 +173,14 @@ func scanLocalFiles(baseDir string, prefix string) ([]localFile, error) {
 		})
 		return nil
 	})
-	return files, err
+	if err != nil {
+		return ScanResult{}, err
+	}
+	return ScanResult{
+		Files:    files,
+		Skipped:  skippedCount,
+		Complete: skippedCount == 0,
+	}, nil
 }
 
 // uploadResult 是 worker 上传单个文件后的结果。
@@ -371,9 +406,42 @@ func (r *Open115CopyRunner) listAllManifestRecords(ctx context.Context) ([]manif
 	return all, nil
 }
 
-func (r *Open115CopyRunner) syncDeleteRemoved(ctx context.Context, currentFiles []localFile, remoteRoot string) error {
+// maxDeleteRatio is the safety threshold: if more than 20% of active manifest
+// records would be deleted, sync-delete is blocked to prevent data loss from
+// incomplete scans (e.g. mount point temporarily missing).
+const maxDeleteRatio = 0.20
+
+// syncDeleteResult carries the outcome of a sync-delete attempt.
+type syncDeleteResult struct {
+	Deleted       int
+	PendingMarked int
+	Skipped       bool
+	SkipReason    string
+	DryRun        bool
+}
+
+// syncDeleteOpts carries options for syncDeleteRemoved.
+type syncDeleteOpts struct {
+	GracePeriod time.Duration
+	DryRun      bool
+}
+
+// parseGracePeriod parses a Go duration string, defaulting to 24h on error.
+func parseGracePeriod(s string) time.Duration {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 24 * time.Hour
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d < 0 {
+		return 24 * time.Hour
+	}
+	return d
+}
+
+func (r *Open115CopyRunner) syncDeleteRemoved(ctx context.Context, currentFiles []localFile, remoteRoot string, opts syncDeleteOpts) (syncDeleteResult, error) {
 	if r == nil || r.manifest == nil {
-		return nil
+		return syncDeleteResult{}, nil
 	}
 	existing := make(map[string]struct{}, len(currentFiles))
 	for _, file := range currentFiles {
@@ -381,35 +449,100 @@ func (r *Open115CopyRunner) syncDeleteRemoved(ctx context.Context, currentFiles 
 	}
 	records, err := r.listAllManifestRecords(ctx)
 	if err != nil {
-		return err
+		return syncDeleteResult{}, err
 	}
+
+	// Count active (non-deleted) records and delete candidates
+	var activeCount, candidateCount int
+	for _, rec := range records {
+		if rec.Deleted {
+			continue
+		}
+		activeCount++
+		if _, ok := existing[rec.Path]; !ok {
+			candidateCount++
+		}
+	}
+
+	// Delete protection threshold: refuse if too many files would be deleted
+	if activeCount > 0 && float64(candidateCount)/float64(activeCount) > maxDeleteRatio {
+		reason := fmt.Sprintf("待删除 %d 条（占 %d 条总记录的 %.0f%%），超出 %.0f%% 安全阈值，已跳过删除阶段",
+			candidateCount, activeCount,
+			float64(candidateCount)/float64(activeCount)*100,
+			maxDeleteRatio*100)
+		r.log("stderr", "[immichto115] Open115 sync 安全保护："+reason)
+		return syncDeleteResult{Skipped: true, SkipReason: reason}, nil
+	}
+
+	now := time.Now()
+
+	// --- Phase 1: Mark candidates / clear reappeared ---
+	pendingMarked := 0
 	for _, rec := range records {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return syncDeleteResult{PendingMarked: pendingMarked}, ctx.Err()
 		}
 		if rec.Deleted {
 			continue
 		}
-		if _, ok := existing[rec.Path]; ok {
-			continue
+		_, stillExists := existing[rec.Path]
+
+		if !stillExists && rec.PendingDeleteAt == 0 {
+			// File missing locally and not yet pending → mark pending
+			if err := r.manifest.MarkPendingDelete(ctx, rec.Path, now.Unix()); err != nil {
+				return syncDeleteResult{PendingMarked: pendingMarked}, err
+			}
+			pendingMarked++
+			r.log("stdout", fmt.Sprintf("[immichto115] Open115 sync 标记待删除: %s (grace period: %s)", rec.Path, opts.GracePeriod))
+		} else if stillExists && rec.PendingDeleteAt > 0 {
+			// File reappeared → clear pending mark
+			if err := r.manifest.ClearPendingDelete(ctx, rec.Path); err != nil {
+				return syncDeleteResult{PendingMarked: pendingMarked}, err
+			}
+			r.log("stdout", fmt.Sprintf("[immichto115] Open115 sync 文件重新出现，取消待删除: %s", rec.Path))
 		}
+	}
+
+	// --- Phase 2: Confirm and delete files past grace period ---
+	cutoff := now.Add(-opts.GracePeriod).Unix()
+	pendingRecords, err := r.manifest.ListPendingDeletes(ctx, cutoff)
+	if err != nil {
+		return syncDeleteResult{PendingMarked: pendingMarked}, err
+	}
+
+	deleted := 0
+	for _, rec := range pendingRecords {
+		if ctx.Err() != nil {
+			return syncDeleteResult{Deleted: deleted, PendingMarked: pendingMarked, DryRun: opts.DryRun}, ctx.Err()
+		}
+
 		remotePath := rec.RemotePath
 		if strings.TrimSpace(remotePath) == "" {
 			remotePath = path.Join(remoteRoot, rec.Path)
 		}
-		r.log("stdout", fmt.Sprintf("[immichto115] Open115 sync 删除远端文件: %s", remotePath))
+
+		if opts.DryRun {
+			r.log("stdout", fmt.Sprintf("[immichto115] Open115 sync [DRY-RUN] 将删除远端文件: %s (pending since %s)",
+				remotePath, time.Unix(rec.PendingDeleteAt, 0).Format("2006-01-02 15:04:05")))
+			deleted++
+			continue
+		}
+
+		r.log("stdout", fmt.Sprintf("[immichto115] Open115 sync 删除远端文件: %s (pending since %s)",
+			remotePath, time.Unix(rec.PendingDeleteAt, 0).Format("2006-01-02 15:04:05")))
 		if err := r.backend.DeleteRemote(ctx, remotePath); err != nil {
 			if strings.Contains(err.Error(), "远端条目不存在") {
 				r.log("stderr", fmt.Sprintf("[immichto115] Open115 sync 删除跳过：远端文件不存在，按已删除处理: %s", remotePath))
 			} else {
-				return err
+				return syncDeleteResult{Deleted: deleted, PendingMarked: pendingMarked, DryRun: opts.DryRun}, err
 			}
 		}
 		if err := r.manifest.MarkDeleted(ctx, rec.Path, true); err != nil {
-			return err
+			return syncDeleteResult{Deleted: deleted, PendingMarked: pendingMarked, DryRun: opts.DryRun}, err
 		}
+		deleted++
 	}
-	return nil
+	return syncDeleteResult{Deleted: deleted, PendingMarked: pendingMarked, DryRun: opts.DryRun}, nil
 }
 
 func (r *Open115CopyRunner) Run(ctx context.Context) (*Open115CopySummary, error) {
@@ -427,50 +560,107 @@ func (r *Open115CopyRunner) Run(ctx context.Context) (*Open115CopySummary, error
 	if strings.TrimSpace(remoteRoot) == "" {
 		remoteRoot = "/immich-backup"
 	}
-	libraryFiles, err := scanLocalFiles(cfg.Backup.LibraryDir, "library")
+
+	// Phase 1: Scan local files
+	libScan, err := scanLocalFiles(cfg.Backup.LibraryDir, "library")
 	if err != nil {
 		return nil, err
 	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	backupFiles, err := scanLocalFiles(cfg.Backup.BackupsDir, "backups")
+	bkpScan, err := scanLocalFiles(cfg.Backup.BackupsDir, "backups")
 	if err != nil {
 		return nil, err
 	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	allFiles := make([]localFile, 0, len(libraryFiles)+len(backupFiles))
-	allFiles = append(allFiles, libraryFiles...)
-	allFiles = append(allFiles, backupFiles...)
+
+	// Merge scan results
+	scanSkipped := libScan.Skipped + bkpScan.Skipped
+	scanComplete := libScan.Complete && bkpScan.Complete
+	var missingDirs []string
+	if libScan.MissingDir != "" {
+		missingDirs = append(missingDirs, libScan.MissingDir)
+	}
+	if bkpScan.MissingDir != "" {
+		missingDirs = append(missingDirs, bkpScan.MissingDir)
+	}
+
+	allFiles := make([]localFile, 0, len(libScan.Files)+len(bkpScan.Files))
+	allFiles = append(allFiles, libScan.Files...)
+	allFiles = append(allFiles, bkpScan.Files...)
+
 	if len(allFiles) == 0 {
 		r.log("stderr", "[immichto115] Open115 未发现可备份文件")
 	} else {
 		r.log("stdout", fmt.Sprintf("[immichto115] Open115 增量扫描完成，共 %d 个文件待检查", len(allFiles)))
 	}
-	uploaded, skipped := 0, 0
+	if scanSkipped > 0 {
+		r.log("stderr", fmt.Sprintf("[immichto115] 扫描期间跳过 %d 个无法读取的文件/目录", scanSkipped))
+	}
+	for _, d := range missingDirs {
+		r.log("stderr", fmt.Sprintf("[immichto115] 配置的目录不存在（挂载点丢失？）: %s", d))
+	}
+
+	summary := &Open115CopySummary{
+		Scanned:      len(allFiles),
+		ScanSkipped:  scanSkipped,
+		MissingDirs:  missingDirs,
+		ScanComplete: scanComplete,
+	}
+
+	// Phase 2: Upload changed files
 	if len(allFiles) > 0 {
-		var err error
-		uploaded, skipped, err = r.uploadChangedFiles(ctx, allFiles, remoteRoot)
+		uploaded, skipped, err := r.uploadChangedFiles(ctx, allFiles, remoteRoot)
 		if err != nil {
 			return nil, err
 		}
+		summary.Uploaded = uploaded
+		summary.Skipped = skipped
 	}
+
+	// Phase 3: Sync-delete (if applicable)
 	if strings.TrimSpace(cfg.Backup.Mode) == "sync" {
 		if !cfg.Backup.AllowRemoteDelete {
-			r.log("stderr", "[immichto115] 当前为 sync 模式，但未启用 allow_remote_delete，已跳过远端删除阶段")
+			reason := "当前为 sync 模式，但未启用 allow_remote_delete，已跳过远端删除阶段"
+			r.log("stderr", "[immichto115] "+reason)
+			summary.DeleteSkipped = true
+			summary.DeleteReason = reason
+		} else if !scanComplete {
+			reason := fmt.Sprintf("当前为 sync 模式，但扫描不完整（跳过 %d 个文件/目录），为避免误删远端数据，已跳过远端删除阶段", scanSkipped)
+			r.log("stderr", "[immichto115] "+reason)
+			summary.DeleteSkipped = true
+			summary.DeleteReason = reason
 		} else {
-			if err := r.syncDeleteRemoved(ctx, allFiles, remoteRoot); err != nil {
+			opts := syncDeleteOpts{
+				GracePeriod: parseGracePeriod(cfg.Backup.SyncDeleteGracePeriod),
+				DryRun:      cfg.Backup.SyncDeleteDryRun,
+			}
+			if opts.DryRun {
+				r.log("stdout", "[immichto115] Open115 sync 删除阶段运行在 DRY-RUN 模式（不会实际删除）")
+			}
+			r.log("stdout", fmt.Sprintf("[immichto115] Open115 sync 删除阶段 grace period: %s", opts.GracePeriod))
+			delResult, err := r.syncDeleteRemoved(ctx, allFiles, remoteRoot, opts)
+			if err != nil {
 				return nil, err
 			}
-			r.log("stdout", "[immichto115] Open115 sync 删除阶段执行完成")
+			summary.Deleted = delResult.Deleted
+			summary.PendingDelete = delResult.PendingMarked
+			summary.DryRun = delResult.DryRun
+			summary.DeleteSkipped = delResult.Skipped
+			summary.DeleteReason = delResult.SkipReason
+			if !delResult.Skipped {
+				r.log("stdout", fmt.Sprintf("[immichto115] Open115 sync 删除阶段执行完成 (新标记待删除: %d, 确认删除: %d, dry-run: %v)",
+					delResult.PendingMarked, delResult.Deleted, delResult.DryRun))
+			}
 		}
 	}
 
 	// 备份结束后清理目录 ID 缓存
 	r.backend.Uploader().ClearDirCache()
 
-	r.log("stdout", fmt.Sprintf("[immichto115] Open115 copy 完成：上传 %d，跳过 %d", uploaded, skipped))
-	return &Open115CopySummary{Scanned: len(allFiles), Uploaded: uploaded, Skipped: skipped}, nil
+	r.log("stdout", fmt.Sprintf("[immichto115] Open115 copy 完成：上传 %d，跳过 %d", summary.Uploaded, summary.Skipped))
+	return summary, nil
 }

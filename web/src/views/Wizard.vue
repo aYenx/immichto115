@@ -379,7 +379,7 @@
           <div class="modal-body">
             <div class="breadcrumb-bar">
               <div class="breadcrumb-inner">
-                <button class="breadcrumb-item" @click="loadLocalDir(isWindowsPath ? 'C:\\' : '/')">
+                <button class="breadcrumb-item" @click="loadLocalDir('')">
                   <LucideHardDrive :size="14" />
                 </button>
                 <template v-for="(seg, idx) in pathSegments" :key="idx">
@@ -521,7 +521,7 @@
 import { ref, computed, onMounted, reactive, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { LucideCheck, LucideFolder, LucideFolderOpen, LucideX, LucideHardDrive, LucidePencil, LucideLoader2, LucideCornerLeftUp, LucideExternalLink, LucideKey } from 'lucide-vue-next'
-import { api, getErrorMessage, handleAuthFailure, type AppConfig, type DirEntry, type Open115AuthStartResponse } from '../api'
+import { api, getErrorMessage, handleAuthFailure, safeConfigToAppConfig, appConfigToUpdateRequest, type AppConfig, type SafeConfigResponse, type DirEntry, type Open115AuthStartResponse } from '../api'
 import { showToast } from '../composables/toast'
 import { markSetupComplete } from '../router'
 import CronScheduler from '../components/CronScheduler.vue'
@@ -537,6 +537,7 @@ const isTesting = ref(false)
 const isSaving = ref(false)
 const isSettingsMode = computed(() => route.name === 'settings')
 const config = reactive<AppConfig>(createDefaultConfig())
+const safeResponse = ref<SafeConfigResponse | null>(null)
 
 const isOpen115AuthLoading = ref(false)
 const isOpen115Finishing = ref(false)
@@ -644,8 +645,9 @@ const finishOpen115Auth = async () => {
 
 onMounted(async () => {
   try {
-    const data = await api.getConfig()
-    Object.assign(config, data)
+    const safe = await api.getConfig()
+    safeResponse.value = safe
+    Object.assign(config, safeConfigToAppConfig(safe))
   } catch (error) {
     console.warn('无法读取现有配置，已回退到默认值。', error)
   }
@@ -674,7 +676,7 @@ const pathSegments = computed(() => {
 })
 const canGoUp = computed(() => {
   const p = currentLocalPath.value
-  return p !== '/' && p !== 'C:\\' && p !== ''
+  return p !== '/' && p !== ''
 })
 const remotePathSegments = computed(() => currentRemotePath.value.split('/').filter(s => s !== ''))
 const remoteCanGoUp = computed(() => currentRemotePath.value !== '/')
@@ -730,7 +732,7 @@ const loadLocalDir = async (path: string) => {
     const items = await api.listLocal(path)
     localDirs.value = items.filter(i => i.IsDir).sort((a, b) => a.Name.localeCompare(b.Name))
     if (path === '') {
-      currentLocalPath.value = items.length > 0 && items[0]!.Path.includes('\\') ? 'C:\\' : '/'
+      currentLocalPath.value = ''
     }
   } catch (err: any) {
     if (handleAuthFailure(err)) return
@@ -745,7 +747,11 @@ const loadRemoteDir = async (path: string) => {
   try {
     const normalizedPath = normalizeRemotePath(path)
     const items = config.provider === 'open115'
-      ? await api.open115List(normalizedPath)
+      ? await api.open115List(normalizedPath, {
+          access_token: config.open115.access_token,
+          refresh_token: config.open115.refresh_token,
+          root_id: config.open115.root_id,
+        })
       : await api.listWebDAV({
           url: config.webdav.url,
           user: config.webdav.user,
@@ -798,6 +804,14 @@ const goUpLocalDir = () => {
   if (parts.length > 0 && parts[parts.length - 1] === '') parts.pop()
   parts.pop()
   let newPath = parts.join(sep)
+  // On Windows, empty result means we were already at drive root → go to drive list
+  if (sep === '\\' && newPath === '') {
+    currentLocalPath.value = ''
+    void loadLocalDir('')
+    return
+  }
+  // Normalize Windows drive-only path "C:" → "C:\"
+  if (sep === '\\' && /^[A-Za-z]:$/.test(newPath)) newPath += '\\'
   if (newPath === '' || (sep === '\\' && !newPath.includes('\\'))) newPath += sep
   currentLocalPath.value = newPath
   void loadLocalDir(newPath)
@@ -888,7 +902,11 @@ const testConnection = async () => {
       testResult.value = '连接成功!'
       showToast('success', '连接成功', 'WebDAV 已通过测试，可以继续下一步配置。')
     } else {
-      const result = await api.open115Test()
+      // 传入当前向导表单里的 token，不修改后端配置
+      const result = await api.open115Test({
+        access_token: config.open115.access_token,
+        refresh_token: config.open115.refresh_token,
+      })
       if (!result.success) throw new Error(result.message || '115 Open 连接失败')
       testSuccess.value = true
       testResult.value = '连接成功!'
@@ -907,7 +925,12 @@ const testConnection = async () => {
 const finishSetup = async () => {
   isSaving.value = true
   try {
-    await api.saveConfig(config)
+    if (!safeResponse.value) {
+      // 首次设置，没有旧配置可对比，创建一个最小 safe response
+      const defaultSafe = (await api.getConfig())
+      safeResponse.value = defaultSafe
+    }
+    await api.saveConfig(appConfigToUpdateRequest(config, safeResponse.value))
     markSetupComplete()
     if (config.server.auth_enabled) {
       window.location.replace('/dashboard')
@@ -934,13 +957,13 @@ const finishSetup = async () => {
 .step-list { display:flex; flex-direction:column; gap:32px; }
 .step-item { display:flex; align-items:center; gap:16px; }
 .step-icon { width:32px; height:32px; border-radius:999px; display:flex; align-items:center; justify-content:center; font-weight:700; }
-.step-icon.active { background:#111827; color:#fff; }
+.step-icon.active { background:var(--text-primary); color:var(--text-inverted); }
 .step-icon.completed { background:#16a34a; color:#fff; }
-.step-icon.pending { background:#e5e7eb; color:#6b7280; }
+.step-icon.pending { background:var(--border-strong); color:var(--text-secondary); }
 .step-text { font-size:15px; }
 .active-text { color:var(--text-primary); }
 .pending-text { color:var(--text-secondary); }
-.right-col { width:min(780px, 100%); background:#fff; border-radius:24px; box-shadow:0 20px 50px rgba(0,0,0,.08); padding:40px; }
+.right-col { width:min(780px, 100%); background:var(--bg-primary); border:1px solid var(--border-strong); border-radius:24px; box-shadow:0 20px 50px rgba(0,0,0,.08); padding:40px; }
 .step-content { display:flex; flex-direction:column; gap:28px; }
 .header-group { display:flex; flex-direction:column; gap:8px; }
 .content-title { font-size:28px; font-weight:800; color:var(--text-primary); }
@@ -948,10 +971,13 @@ const finishSetup = async () => {
 .form-group { display:flex; flex-direction:column; gap:18px; }
 .input-field { display:flex; flex-direction:column; gap:8px; }
 .input-label { font-size:14px; font-weight:700; color:var(--text-primary); }
-.input-control { width:100%; border:1px solid #d1d5db; border-radius:14px; padding:12px 14px; font-size:14px; }
+.input-control { width:100%; border:1px solid var(--border-strong); border-radius:14px; padding:12px 14px; font-size:14px; background:var(--bg-primary); color:var(--text-primary); }
 .input-hint { color:var(--text-secondary); font-size:13px; }
 .success-hint { color:#15803d; }
 .path-input-row, .buttons, .buttons.space-between, .settings-inline-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.path-input-row { flex-wrap:nowrap !important; }
+.path-input-row .input-control { width:auto; flex:1; min-width:0; }
+.browse-btn { flex-shrink:0; white-space:nowrap; display:flex; align-items:center; gap:6px; }
 .open115-actions-area { display:flex; flex-direction:column; gap:4px; padding:16px; border-radius:12px; background:var(--bg-card); }
 .action-primary-row { display:flex; flex-direction:column; gap:8px; }
 .action-primary-btn { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; font-size:15px; }
@@ -966,39 +992,39 @@ const finishSetup = async () => {
 .action-group-hint { font-size:12px; color:var(--text-secondary); opacity:0.7; }
 .buttons.space-between { justify-content:space-between; }
 .btn { border:none; border-radius:14px; padding:12px 18px; cursor:pointer; font-weight:700; }
-.btn.primary { background:#111827; color:#fff; }
-.btn.secondary { background:#eef2ff; color:#111827; }
+.btn.primary { background:var(--text-primary); color:var(--text-inverted); }
+.btn.secondary { background:var(--bg-card); color:var(--text-primary); }
 .validation-error { color:#dc2626; font-size:14px; }
 .radio-group { display:flex; flex-direction:column; gap:12px; }
-.radio-option { display:flex; gap:12px; border:1px solid #d1d5db; border-radius:16px; padding:14px; cursor:pointer; }
-.radio-option.active { border-color:#111827; background:#f9fafb; }
+.radio-option { display:flex; gap:12px; border:1px solid var(--border-strong); border-radius:16px; padding:14px; cursor:pointer; }
+.radio-option.active { border-color:var(--text-primary); background:var(--bg-card); }
 .radio-option-text { display:flex; flex-direction:column; gap:4px; }
-.toggle-field { display:flex; align-items:center; justify-content:space-between; gap:18px; border:1px solid #e5e7eb; border-radius:18px; padding:16px; cursor:pointer; }
+.toggle-field { display:flex; align-items:center; justify-content:space-between; gap:18px; border:1px solid var(--border-strong); border-radius:18px; padding:16px; cursor:pointer; }
 .toggle-info { display:flex; flex-direction:column; gap:6px; }
-.switch { width:52px; height:30px; border-radius:999px; background:#d1d5db; position:relative; transition:.2s; }
-.switch.active { background:#111827; }
-.thumb { width:24px; height:24px; border-radius:999px; background:#fff; position:absolute; top:3px; left:3px; transition:.2s; }
+.switch { width:52px; height:30px; border-radius:999px; background:var(--border-strong); position:relative; transition:.2s; }
+.switch.active { background:var(--text-primary); }
+.thumb { width:24px; height:24px; border-radius:999px; background:var(--bg-primary); position:absolute; top:3px; left:3px; transition:.2s; }
 .switch.active .thumb { left:25px; }
 .modal-overlay { position:fixed; inset:0; background:rgba(17,24,39,.45); display:flex; align-items:center; justify-content:center; padding:24px; z-index:50; }
-.modal { width:min(760px, 100%); max-height:min(88vh, 920px); background:#fff; border-radius:24px; overflow:hidden; display:flex; flex-direction:column; }
-.modal-header, .modal-footer { padding:20px 24px; border-bottom:1px solid #f3f4f6; }
-.modal-footer { border-top:1px solid #f3f4f6; border-bottom:none; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.modal { width:min(760px, 100%); max-height:min(88vh, 920px); background:var(--bg-primary); border-radius:24px; overflow:hidden; display:flex; flex-direction:column; }
+.modal-header, .modal-footer { padding:20px 24px; border-bottom:1px solid var(--border-subtle); }
+.modal-footer { border-top:1px solid var(--border-subtle); border-bottom:none; display:flex; align-items:center; justify-content:space-between; gap:16px; }
 .modal-body { padding:20px 24px; display:flex; flex-direction:column; gap:16px; overflow:auto; flex:1; min-height:0; }
 .btn-icon, .breadcrumb-edit-btn { border:none; background:none; cursor:pointer; }
-.breadcrumb-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; background:#f9fafb; border-radius:14px; }
+.breadcrumb-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; background:var(--bg-card); border-radius:14px; }
 .breadcrumb-inner { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-.breadcrumb-item { border:none; background:none; cursor:pointer; color:#111827; display:flex; align-items:center; gap:6px; }
-.breadcrumb-sep { color:#9ca3af; }
-.folder-list { min-height:240px; max-height:48vh; border:1px solid #e5e7eb; border-radius:16px; padding:12px; overflow:hidden; }
+.breadcrumb-item { border:none; background:none; cursor:pointer; color:var(--text-primary); display:flex; align-items:center; gap:6px; }
+.breadcrumb-sep { color:var(--text-tertiary); }
+.folder-list { min-height:240px; max-height:48vh; border:1px solid var(--border-strong); border-radius:16px; padding:12px; overflow:hidden; }
 .folder-scroll { display:flex; flex-direction:column; gap:8px; max-height:calc(48vh - 24px); overflow-y:auto; }
 .folder-item { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; cursor:pointer; }
-.folder-item:hover { background:#f3f4f6; }
-.folder-empty { min-height:200px; display:flex; align-items:center; justify-content:center; gap:10px; color:#6b7280; }
-.selected-path-preview { display:flex; align-items:center; gap:8px; color:#111827; font-size:14px; }
+.folder-item:hover { background:var(--border-subtle); }
+.folder-empty { min-height:200px; display:flex; align-items:center; justify-content:center; gap:10px; color:var(--text-secondary); }
+.selected-path-preview { display:flex; align-items:center; gap:8px; color:var(--text-primary); font-size:14px; }
 .modal-footer-btns { display:flex; gap:10px; }
 .spin-icon { animation:spin 1s linear infinite; }
 .qrcode-panel { display:flex; flex-direction:column; gap:10px; align-items:flex-start; }
-.qrcode-image { width:220px; height:220px; object-fit:contain; border:1px solid #e5e7eb; border-radius:16px; padding:12px; background:#fff; }
+.qrcode-image { width:220px; height:220px; object-fit:contain; border:1px solid var(--border-strong); border-radius:16px; padding:12px; background:var(--bg-primary); }
 @keyframes spin { from { transform:rotate(0deg) } to { transform:rotate(360deg) } }
 @media (max-width: 1100px) {
   .wizard-container { flex-direction:column; height:auto; min-height:100vh; gap:32px; padding:24px; }

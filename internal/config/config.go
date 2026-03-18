@@ -7,10 +7,24 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/spf13/viper"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// nextUpdatedAt returns a monotonically increasing version number:
+// max(prev+1, now). This ensures that consecutive updates within the
+// same second still produce distinct versions, so optimistic locking
+// can detect all conflicts.
+func nextUpdatedAt(prev int64) int64 {
+	now := time.Now().Unix()
+	next := prev + 1
+	if now > next {
+		next = now
+	}
+	return next
+}
 
 // AppConfig 应用全局配置结构。
 type AppConfig struct {
@@ -24,6 +38,7 @@ type AppConfig struct {
 	Cron           CronConfig           `mapstructure:"cron"     json:"cron"     yaml:"cron"`
 	Notify         NotifyConfig         `mapstructure:"notify"   json:"notify"   yaml:"notify"`
 	PhotoUpload    PhotoUploadConfig    `mapstructure:"photo_upload" json:"photo_upload" yaml:"photo_upload"`
+	UpdatedAt      int64                `mapstructure:"updated_at" json:"updated_at" yaml:"updated_at"`
 }
 
 // ServerConfig 服务器配置。
@@ -33,6 +48,7 @@ type ServerConfig struct {
 	AuthUser         string `mapstructure:"auth_user" json:"auth_user" yaml:"auth_user"`
 	AuthPasswordHash string `mapstructure:"auth_password_hash" json:"-" yaml:"auth_password_hash"`
 	AuthPassword     string `mapstructure:"-" json:"auth_password,omitempty" yaml:"-"`
+	JWTSecret        string `mapstructure:"jwt_secret" json:"-" yaml:"jwt_secret"`
 }
 
 // WebDAVConfig WebDAV 连接配置。
@@ -68,12 +84,14 @@ type Open115EncryptConfig struct {
 
 // BackupConfig 备份源和目标配置。
 type BackupConfig struct {
-	LibraryDir        string `mapstructure:"library_dir" json:"library_dir" yaml:"library_dir"`
-	BackupsDir        string `mapstructure:"backups_dir" json:"backups_dir" yaml:"backups_dir"`
-	RemoteDir         string `mapstructure:"remote_dir"  json:"remote_dir"  yaml:"remote_dir"`
-	Mode              string `mapstructure:"mode"        json:"mode"        yaml:"mode"` // "copy" (增量) 或 "sync" (镜像)
-	ManifestPath      string `mapstructure:"manifest_path" json:"manifest_path" yaml:"manifest_path"`
-	AllowRemoteDelete bool   `mapstructure:"allow_remote_delete" json:"allow_remote_delete" yaml:"allow_remote_delete"`
+	LibraryDir            string `mapstructure:"library_dir" json:"library_dir" yaml:"library_dir"`
+	BackupsDir            string `mapstructure:"backups_dir" json:"backups_dir" yaml:"backups_dir"`
+	RemoteDir             string `mapstructure:"remote_dir"  json:"remote_dir"  yaml:"remote_dir"`
+	Mode                  string `mapstructure:"mode"        json:"mode"        yaml:"mode"` // "copy" (增量) 或 "sync" (镜像)
+	ManifestPath          string `mapstructure:"manifest_path" json:"manifest_path" yaml:"manifest_path"`
+	AllowRemoteDelete     bool   `mapstructure:"allow_remote_delete" json:"allow_remote_delete" yaml:"allow_remote_delete"`
+	SyncDeleteGracePeriod string `mapstructure:"sync_delete_grace_period" json:"sync_delete_grace_period" yaml:"sync_delete_grace_period"`
+	SyncDeleteDryRun      bool   `mapstructure:"sync_delete_dry_run" json:"sync_delete_dry_run" yaml:"sync_delete_dry_run"`
 }
 
 // EncryptConfig Rclone Crypt 加密配置。
@@ -149,6 +167,8 @@ func NewManager(configPath string) (*Manager, error) {
 	v.SetDefault("backup.mode", "copy")
 	v.SetDefault("backup.manifest_path", "")
 	v.SetDefault("backup.allow_remote_delete", false)
+	v.SetDefault("backup.sync_delete_grace_period", "24h")
+	v.SetDefault("backup.sync_delete_dry_run", false)
 	v.SetDefault("cron.expression", "0 2 * * *")
 	v.SetDefault("cron.enabled", false)
 	v.SetDefault("encrypt.enabled", false)
@@ -158,6 +178,7 @@ func NewManager(configPath string) (*Manager, error) {
 	v.SetDefault("photo_upload.date_format", "2006/01/02")
 	v.SetDefault("photo_upload.delete_after_upload", true)
 	v.SetDefault("photo_upload.remote_dir", "/摄影")
+	v.SetDefault("updated_at", 0)
 
 	// 尝试读取已有配置
 	if err := v.ReadInConfig(); err != nil {
@@ -199,10 +220,20 @@ func (m *Manager) FilePath() string {
 }
 
 // Update 更新配置并持久化到文件。
+// 自动推进 UpdatedAt 版本号（单调递增），使乐观锁覆盖所有写入路径。
 func (m *Manager) Update(cfg AppConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	cfg.UpdatedAt = nextUpdatedAt(m.cfg.UpdatedAt)
+	if err := m.persistLocked(cfg); err != nil {
+		return err
+	}
+	m.cfg = &cfg
+	return nil
+}
 
+// persistLocked 将配置写入 viper 并落盘。调用方必须持有 mu 锁。
+func (m *Manager) persistLocked(cfg AppConfig) error {
 	v := m.v
 
 	v.Set("provider", cfg.Provider)
@@ -210,6 +241,7 @@ func (m *Manager) Update(cfg AppConfig) error {
 	v.Set("server.auth_enabled", cfg.Server.AuthEnabled)
 	v.Set("server.auth_user", cfg.Server.AuthUser)
 	v.Set("server.auth_password_hash", cfg.Server.AuthPasswordHash)
+	v.Set("server.jwt_secret", cfg.Server.JWTSecret)
 
 	v.Set("webdav.url", cfg.WebDAV.URL)
 	v.Set("webdav.user", cfg.WebDAV.User)
@@ -239,6 +271,8 @@ func (m *Manager) Update(cfg AppConfig) error {
 	v.Set("backup.mode", cfg.Backup.Mode)
 	v.Set("backup.manifest_path", cfg.Backup.ManifestPath)
 	v.Set("backup.allow_remote_delete", cfg.Backup.AllowRemoteDelete)
+	v.Set("backup.sync_delete_grace_period", cfg.Backup.SyncDeleteGracePeriod)
+	v.Set("backup.sync_delete_dry_run", cfg.Backup.SyncDeleteDryRun)
 
 	v.Set("encrypt.enabled", cfg.Encrypt.Enabled)
 	v.Set("encrypt.password", cfg.Encrypt.Password)
@@ -257,11 +291,11 @@ func (m *Manager) Update(cfg AppConfig) error {
 	v.Set("photo_upload.date_format", cfg.PhotoUpload.DateFormat)
 	v.Set("photo_upload.delete_after_upload", cfg.PhotoUpload.DeleteAfterUpload)
 
+	v.Set("updated_at", cfg.UpdatedAt)
+
 	if err := v.WriteConfig(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
-
-	m.cfg = &cfg
 	return nil
 }
 
