@@ -11,6 +11,9 @@ import (
 	"time"
 )
 
+// nowFunc 可注入的时钟，测试可替换为固定时间。
+var nowFunc = time.Now
+
 // BarkPayload Bark 推送请求体。
 type BarkPayload struct {
 	Title string `json:"title"`
@@ -70,15 +73,23 @@ func SendBark(barkURL, title, body string) error {
 	return nil
 }
 
-// BackupNotification 描述一次备份通知的关键信息。
-type BackupNotification struct {
-	Success    bool
-	Trigger    string
-	Mode       string
-	Stage      string
-	RemotePath string
-	Detail     string
+// TaskNotification 描述一次任务通知的关键信息。
+type TaskNotification struct {
+	Success         bool
+	TaskType        string   // "备份" / "摄影上传"
+	Trigger         string   // "手动" / "定时任务"
+	Mode            string   // "增量备份（copy）" / "摄影文件上传"
+	Stage           string   // 回退用笼统阶段名
+	RemotePath      string
+	CompletedStages []string // 已完成阶段
+	FailedStage     string   // 失败的阶段名
+	Reason          string   // 失败原因（原始 error）
+	Summary         string   // 成功时摘要
+	CompletedAt     time.Time
 }
+
+// BackupNotification 兼容别名，保持现有代码编译通过。
+type BackupNotification = TaskNotification
 
 func fallbackText(value, fallback string) string {
 	value = strings.TrimSpace(value)
@@ -88,34 +99,36 @@ func fallbackText(value, fallback string) string {
 	return value
 }
 
-func formatBackupTitle(info BackupNotification) string {
-	trigger := fallbackText(info.Trigger, "手动")
-	stage := fallbackText(info.Stage, "备份")
+// formatTitle 生成通知标题。
+// 成功时：✅ {TaskType}完成
+// 失败时：❌ {FailedStage|Stage|TaskType}失败
+func formatTitle(info TaskNotification) string {
+	taskType := fallbackText(info.TaskType, "备份")
 	if info.Success {
-		return fmt.Sprintf("✅ %s%s完成", trigger, stage)
+		return "✅ " + taskType + "完成"
 	}
-	return fmt.Sprintf("❌ %s%s失败", trigger, stage)
+	stage := strings.TrimSpace(info.FailedStage)
+	if stage == "" {
+		stage = fallbackText(info.Stage, taskType)
+	}
+	return "❌ " + stage + "失败"
 }
 
+// classifyFailureReason 将原始错误文本归类为更友好的故障描述。
 func classifyFailureReason(detail string) string {
 	detail = strings.TrimSpace(detail)
 	if detail == "" {
 		return "请打开 ImmichTo115 实时日志查看详细报错"
 	}
 
-	segments := strings.Split(detail, "；")
-	core := detail
-	if len(segments) > 0 {
-		core = strings.TrimSpace(segments[len(segments)-1])
-	}
-	lower := strings.ToLower(core)
+	lower := strings.ToLower(detail)
 
 	switch {
-	case strings.Contains(core, "任务已被手动停止"):
+	case strings.Contains(detail, "任务已被手动停止"):
 		return "这是一次手动停止，不是系统异常"
-	case strings.Contains(lower, "already running") || strings.Contains(core, "已有备份任务正在运行"):
+	case strings.Contains(lower, "already running") || strings.Contains(detail, "已有备份任务正在运行"):
 		return "已有备份任务在运行，本次请求被跳过，请等待当前任务完成"
-	case strings.Contains(lower, "permission denied") || strings.Contains(core, "权限"):
+	case strings.Contains(lower, "permission denied") || strings.Contains(detail, "权限"):
 		return "权限不足：请检查本地目录、WebDAV 目录或容器挂载权限"
 	case strings.Contains(lower, "authentication") || strings.Contains(lower, "unauthorized") || strings.Contains(lower, "forbidden"):
 		return "认证失败：请检查 WebDAV 用户名、密码或授权信息"
@@ -125,53 +138,118 @@ func classifyFailureReason(detail string) string {
 		return "连接失败：请检查 WebDAV 地址、端口、域名解析或服务是否在线"
 	case strings.Contains(lower, "directory not found") || strings.Contains(lower, "file does not exist") || strings.Contains(lower, "not found"):
 		return "目录不存在：请检查本地备份路径或远端目录是否填写正确"
-	case strings.Contains(lower, "config") || strings.Contains(core, "未配置") || strings.Contains(core, "生成 rclone 配置失败"):
+	case strings.Contains(lower, "config") || strings.Contains(detail, "未配置") || strings.Contains(detail, "生成 rclone 配置失败"):
 		return "配置有误：请检查 WebDAV、远端目录、加密参数和备份路径是否填写完整"
 	default:
 		return detail
 	}
 }
 
-func formatBackupBody(info BackupNotification) string {
-	parts := []string{
-		"应用：ImmichTo115",
-		"触发方式：" + fallbackText(info.Trigger, "手动"),
-		"备份模式：" + fallbackText(info.Mode, "增量备份"),
-		"当前阶段：" + fallbackText(info.Stage, "备份"),
+// formatBody 生成通知正文。
+func formatBody(info TaskNotification) string {
+	ts := info.CompletedAt
+	if ts.IsZero() {
+		ts = nowFunc()
+	}
+
+	var b strings.Builder
+
+	// 头部摘要区
+	b.WriteString("📋 任务摘要\n")
+	b.WriteString("━━━━━━━━━━━━━━\n")
+	b.WriteString("⏰ " + ts.Format("01-02 15:04") + "\n")
+
+	trigger := fallbackText(info.Trigger, "手动")
+	mode := strings.TrimSpace(info.Mode)
+	if mode != "" {
+		b.WriteString("🔄 " + trigger + " · " + mode + "\n")
+	} else {
+		b.WriteString("🔄 " + trigger + "\n")
 	}
 
 	if remote := strings.TrimSpace(info.RemotePath); remote != "" {
-		parts = append(parts, "远端位置："+remote)
+		b.WriteString("📂 " + remote + "\n")
 	}
 
+	b.WriteString("\n")
+
+	// 结果区
 	if info.Success {
-		parts = append(parts, "结果：本次任务已完成")
-		if detail := strings.TrimSpace(info.Detail); detail != "" {
-			parts = append(parts, "说明："+detail)
+		b.WriteString("✅ 任务完成")
+		if summary := strings.TrimSpace(info.Summary); summary != "" {
+			b.WriteString("\n" + summary)
 		}
 	} else {
-		parts = append(parts, "结果：本次任务未完成")
-		parts = append(parts, "失败原因："+classifyFailureReason(info.Detail))
-		if detail := strings.TrimSpace(info.Detail); detail != "" && classifyFailureReason(info.Detail) != detail {
-			parts = append(parts, "原始信息："+detail)
+		// 失败标题行
+		failedStage := strings.TrimSpace(info.FailedStage)
+		if failedStage != "" {
+			b.WriteString("❌ " + failedStage + "失败")
+		} else {
+			b.WriteString("❌ 任务未完成")
+		}
+
+		// 失败原因
+		reason := classifyFailureReason(info.Reason)
+		b.WriteString("\n" + reason)
+
+		// 如分类结果与原始信息不同，附上原始信息
+		if rawReason := strings.TrimSpace(info.Reason); rawReason != "" && reason != rawReason {
+			b.WriteString("\n\n📎 原始信息：" + rawReason)
 		}
 	}
 
-	return strings.Join(parts, "\n")
+	// 已完成阶段（失败时显示，帮助用户了解进度）
+	if !info.Success && len(info.CompletedStages) > 0 {
+		b.WriteString("\n\n📊 已完成：" + strings.Join(info.CompletedStages, "、"))
+	}
+
+	return b.String()
 }
 
-// NotifyBackupResult 根据备份结果发送通知。
-func NotifyBackupResult(barkURL string, info BackupNotification) {
+// NotifyBackupResult 根据任务结果发送通知。
+func NotifyBackupResult(barkURL string, info TaskNotification) {
 	if barkURL == "" {
 		return
 	}
 
-	title := formatBackupTitle(info)
-	body := formatBackupBody(info)
+	title := formatTitle(info)
+	body := formatBody(info)
 
 	if err := SendBark(barkURL, title, body); err != nil {
 		log.Printf("[notify] failed to send bark notification: %v", err)
 	} else {
 		log.Printf("[notify] bark notification sent: %s", title)
 	}
+}
+
+// FormatTestNotification 生成测试通知的标题和正文。
+// 复用同一套 formatTitle + formatBody 渲染逻辑，确保与真实通知排版一致。
+func FormatTestNotification(at time.Time) (title, body string) {
+	info := TaskNotification{
+		Success:     true,
+		TaskType:    "通知测试",
+		Trigger:     "手动测试",
+		Mode:        "",
+		Summary:     "🔔 通知服务连接正常\n\n后续会推送任务结果，包括：\n• 成功 / 失败状态\n• 触发方式与任务模式\n• 失败原因与建议",
+		CompletedAt: at,
+	}
+	return formatTitle(info), formatBody(info)
+}
+
+// FormatNotification 导出的格式化入口，返回标题和正文。
+// 供外部包（如 api 测试）验证通知格式化结果。
+func FormatNotification(info TaskNotification) (title, body string) {
+	return formatTitle(info), formatBody(info)
+}
+
+// NowFuncForTest 返回当前的 nowFunc，供测试保存原始值。
+func NowFuncForTest() func() time.Time {
+	return nowFunc
+}
+
+// SetNowFuncForTest 设置 nowFunc，供测试注入固定时钟。返回原始值的 setter 以便 defer 还原。
+func SetNowFuncForTest(fn func() time.Time) func() time.Time {
+	old := nowFunc
+	nowFunc = fn
+	return old
 }
