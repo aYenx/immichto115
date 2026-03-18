@@ -1,0 +1,31 @@
+# ============================================================
+# CI-optimized Dockerfile: uses pre-compiled binaries from CI
+# For local development builds, use deploy/Dockerfile instead.
+# ============================================================
+FROM alpine:3.20
+
+ARG TARGETARCH
+
+RUN apk add --no-cache \
+    ca-certificates \
+    tzdata \
+    fuse3 \
+    curl \
+    rclone
+
+RUN rclone version
+
+RUN mkdir -p /app/config /data/library /data/backups
+
+WORKDIR /app
+
+# Binary is injected from CI artifacts via --build-context
+COPY immichto115-linux-${TARGETARCH} /app/immichto115
+RUN chmod +x /app/immichto115
+
+ENV TZ=Asia/Shanghai
+ENV IMMICHTO115_CONFIG=/app/config/config.yaml
+
+EXPOSE 8096
+
+ENTRYPOINT ["/app/immichto115"]
