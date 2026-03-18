@@ -114,22 +114,6 @@ func (s *Server) runBackupBody(jobCtx context.Context) {
 		modeLabel = "镜像同步（sync）"
 	}
 	completedStages := make([]string, 0, 2)
-	plannedStages := make([]string, 0, 2)
-	summarizeProgress := func(failedStage string) string {
-		parts := make([]string, 0, 3)
-		if len(plannedStages) > 0 {
-			parts = append(parts, "计划阶段："+strings.Join(plannedStages, "、"))
-		}
-		if len(completedStages) > 0 {
-			parts = append(parts, "已完成："+strings.Join(completedStages, "、"))
-		} else {
-			parts = append(parts, "已完成：无")
-		}
-		if failedStage != "" {
-			parts = append(parts, "失败阶段："+failedStage)
-		}
-		return strings.Join(parts, "；")
-	}
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 备份任务已启动，正在检查配置与目标路径..."})
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 触发方式: " + trigger})
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 备份模式: " + modeLabel})
@@ -153,40 +137,27 @@ func (s *Server) runBackupBody(jobCtx context.Context) {
 			if errors.Is(err, context.Canceled) {
 				msg := "[immichto115] Open115 备份已手动停止"
 				s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: msg})
-				s.sendBackupNotify(cfg, notify.BackupNotification{
-					Success:    false,
-					Trigger:    trigger,
-					Mode:       modeLabel,
-					Stage:      "Open115 备份",
-					RemotePath: cfg.Backup.RemoteDir,
-					Detail:     "任务已被手动停止",
-				})
+				s.sendBackupNotify(cfg, buildFailureNotification(
+					"备份", trigger, modeLabel, "Open115 备份",
+					"任务已被手动停止", nil, cfg.Backup.RemoteDir,
+				))
 				return
 			}
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] Open115 备份失败：" + err.Error()})
-			s.sendBackupNotify(cfg, notify.BackupNotification{
-				Success:    false,
-				Trigger:    trigger,
-				Mode:       modeLabel,
-				Stage:      "Open115 备份",
-				RemotePath: cfg.Backup.RemoteDir,
-				Detail:     err.Error(),
-			})
+			s.sendBackupNotify(cfg, buildFailureNotification(
+				"备份", trigger, modeLabel, "Open115 备份",
+				err.Error(), nil, cfg.Backup.RemoteDir,
+			))
 			return
 		}
 		detail := "Open115 copy 增量备份执行完成"
 		if summary != nil {
-			detail = fmt.Sprintf("Open115 copy 增量备份执行完成；扫描 %d，上传 %d，跳过 %d", summary.Scanned, summary.Uploaded, summary.Skipped)
-			log.Printf("[backup] %s", detail)
+			detail = fmt.Sprintf("扫描 %d，上传 %d，跳过 %d", summary.Scanned, summary.Uploaded, summary.Skipped)
+			log.Printf("[backup] Open115 copy done: %s", detail)
 		}
-		s.sendBackupNotify(cfg, notify.BackupNotification{
-			Success:    true,
-			Trigger:    trigger,
-			Mode:       modeLabel,
-			Stage:      "Open115 备份",
-			RemotePath: cfg.Backup.RemoteDir,
-			Detail:     detail,
-		})
+		s.sendBackupNotify(cfg, buildSuccessNotification(
+			"备份", trigger, modeLabel, detail, cfg.Backup.RemoteDir,
+		))
 		return
 	}
 
@@ -197,14 +168,10 @@ func (s *Server) runBackupBody(jobCtx context.Context) {
 	if err != nil {
 		log.Printf("[backup] failed to generate rclone.conf: %v", err)
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 生成 rclone 配置失败：" + err.Error()})
-		s.sendBackupNotify(cfg, notify.BackupNotification{
-			Success:    false,
-			Trigger:    trigger,
-			Mode:       modeLabel,
-			Stage:      "准备阶段",
-			RemotePath: config.GetRemoteName(cfg),
-			Detail:     "生成 rclone 配置失败：" + err.Error(),
-		})
+		s.sendBackupNotify(cfg, buildFailureNotification(
+			"备份", trigger, modeLabel, "准备阶段",
+			"生成 rclone 配置失败："+err.Error(), nil, config.GetRemoteName(cfg),
+		))
 		return
 	}
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] rclone 配置生成完成，开始执行同步任务"})
@@ -227,7 +194,6 @@ func (s *Server) runBackupBody(jobCtx context.Context) {
 
 	// 备份 Library 目录
 	if libraryDir != "" {
-		plannedStages = append(plannedStages, "照片库备份")
 		hasSyncTarget = true
 		if jobCtx.Err() != nil {
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 任务已停止，照片库备份尚未开始"})
@@ -248,14 +214,10 @@ func (s *Server) runBackupBody(jobCtx context.Context) {
 		if err != nil {
 			log.Printf("[backup] failed to start library backup: %v", err)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 无法启动照片库备份: " + err.Error()})
-			s.sendBackupNotify(cfg, notify.BackupNotification{
-				Success:    false,
-				Trigger:    trigger,
-				Mode:       modeLabel,
-				Stage:      "照片库备份",
-				RemotePath: dest,
-				Detail:     summarizeProgress("照片库备份") + "；启动失败：" + err.Error(),
-			})
+			s.sendBackupNotify(cfg, buildFailureNotification(
+				"备份", trigger, modeLabel, "照片库备份",
+				err.Error(), completedStages, dest,
+			))
 			return
 		}
 		s.Hub.BroadcastFromChannel(logCh) // 阻塞直到完成
@@ -263,26 +225,18 @@ func (s *Server) runBackupBody(jobCtx context.Context) {
 			if errors.Is(runErr, rclone.ErrCancelled) {
 				log.Printf("[backup] library backup cancelled by user")
 				s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 照片库备份已手动停止"})
-				s.sendBackupNotify(cfg, notify.BackupNotification{
-					Success:    false,
-					Trigger:    trigger,
-					Mode:       modeLabel,
-					Stage:      "照片库备份",
-					RemotePath: dest,
-					Detail:     summarizeProgress("照片库备份") + "；任务已被手动停止",
-				})
+				s.sendBackupNotify(cfg, buildFailureNotification(
+					"备份", trigger, modeLabel, "照片库备份",
+					"任务已被手动停止", completedStages, dest,
+				))
 				return
 			}
 			log.Printf("[backup] library backup failed: %v", runErr)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 照片库备份失败: " + runErr.Error()})
-			s.sendBackupNotify(cfg, notify.BackupNotification{
-				Success:    false,
-				Trigger:    trigger,
-				Mode:       modeLabel,
-				Stage:      "照片库备份",
-				RemotePath: dest,
-				Detail:     summarizeProgress("照片库备份") + "；" + runErr.Error(),
-			})
+			s.sendBackupNotify(cfg, buildFailureNotification(
+				"备份", trigger, modeLabel, "照片库备份",
+				runErr.Error(), completedStages, dest,
+			))
 			return
 		}
 		completedStages = append(completedStages, "照片库备份")
@@ -297,7 +251,6 @@ func (s *Server) runBackupBody(jobCtx context.Context) {
 
 	// 备份 Database Dumps 目录
 	if backupsDir != "" {
-		plannedStages = append(plannedStages, "数据库备份")
 		hasSyncTarget = true
 		if jobCtx.Err() != nil {
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 任务已停止，数据库备份尚未开始"})
@@ -318,14 +271,10 @@ func (s *Server) runBackupBody(jobCtx context.Context) {
 		if err != nil {
 			log.Printf("[backup] failed to start backups backup: %v", err)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 无法启动数据库备份目录同步: " + err.Error()})
-			s.sendBackupNotify(cfg, notify.BackupNotification{
-				Success:    false,
-				Trigger:    trigger,
-				Mode:       modeLabel,
-				Stage:      "数据库备份",
-				RemotePath: dest,
-				Detail:     summarizeProgress("数据库备份") + "；启动失败：" + err.Error(),
-			})
+			s.sendBackupNotify(cfg, buildFailureNotification(
+				"备份", trigger, modeLabel, "数据库备份",
+				err.Error(), completedStages, dest,
+			))
 			return
 		}
 		s.Hub.BroadcastFromChannel(logCh) // 阻塞直到完成
@@ -333,26 +282,18 @@ func (s *Server) runBackupBody(jobCtx context.Context) {
 			if errors.Is(runErr, rclone.ErrCancelled) {
 				log.Printf("[backup] backups backup cancelled by user")
 				s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 数据库备份已手动停止"})
-				s.sendBackupNotify(cfg, notify.BackupNotification{
-					Success:    false,
-					Trigger:    trigger,
-					Mode:       modeLabel,
-					Stage:      "数据库备份",
-					RemotePath: dest,
-					Detail:     summarizeProgress("数据库备份") + "；任务已被手动停止",
-				})
+				s.sendBackupNotify(cfg, buildFailureNotification(
+					"备份", trigger, modeLabel, "数据库备份",
+					"任务已被手动停止", completedStages, dest,
+				))
 				return
 			}
 			log.Printf("[backup] backups backup failed: %v", runErr)
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 数据库备份失败: " + runErr.Error()})
-			s.sendBackupNotify(cfg, notify.BackupNotification{
-				Success:    false,
-				Trigger:    trigger,
-				Mode:       modeLabel,
-				Stage:      "数据库备份",
-				RemotePath: dest,
-				Detail:     summarizeProgress("数据库备份") + "；" + runErr.Error(),
-			})
+			s.sendBackupNotify(cfg, buildFailureNotification(
+				"备份", trigger, modeLabel, "数据库备份",
+				runErr.Error(), completedStages, dest,
+			))
 			return
 		}
 		completedStages = append(completedStages, "数据库备份")
@@ -367,27 +308,18 @@ func (s *Server) runBackupBody(jobCtx context.Context) {
 
 	if !hasSyncTarget {
 		s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[immichto115] 未配置任何可备份目录，请先在设置中填写照片库或数据库备份目录"})
-		s.sendBackupNotify(cfg, notify.BackupNotification{
-			Success:    false,
-			Trigger:    trigger,
-			Mode:       modeLabel,
-			Stage:      "准备阶段",
-			RemotePath: remote,
-			Detail:     summarizeProgress("准备阶段") + "；未配置任何可备份目录，请先填写照片库或数据库备份目录",
-		})
+		s.sendBackupNotify(cfg, buildFailureNotification(
+			"备份", trigger, modeLabel, "准备阶段",
+			"未配置任何可备份目录，请先填写照片库或数据库备份目录", nil, remote,
+		))
 		return
 	}
 
 	s.Hub.Broadcast(rclone.LogLine{Stream: "stdout", Text: "[immichto115] 所有备份阶段执行完毕"})
-	s.sendBackupNotify(cfg, notify.BackupNotification{
-		Success:    true,
-		Trigger:    trigger,
-		Mode:       modeLabel,
-		Stage:      "全部备份",
-		RemotePath: remote,
-		Detail:     summarizeProgress("") + "；照片库与数据库备份阶段都已执行完成",
-	})
-
+	n := buildSuccessNotification("备份", trigger, modeLabel,
+		"照片库与数据库备份阶段均已完成", remote)
+	n.CompletedStages = completedStages
+	s.sendBackupNotify(cfg, n)
 }
 
 func (s *Server) beginBackupJob(trigger string) (context.Context, bool) {
@@ -1351,6 +1283,34 @@ func (s *Server) sendBackupNotify(cfg config.AppConfig, info notify.BackupNotifi
 	go notify.NotifyBackupResult(cfg.Notify.BarkURL, info)
 }
 
+// buildFailureNotification 构造失败通知。
+func buildFailureNotification(taskType, trigger, mode, failedStage, reason string, completedStages []string, remotePath string) notify.TaskNotification {
+	return notify.TaskNotification{
+		Success:         false,
+		TaskType:        taskType,
+		Trigger:         trigger,
+		Mode:            mode,
+		FailedStage:     failedStage,
+		Reason:          reason,
+		CompletedStages: completedStages,
+		RemotePath:      remotePath,
+		CompletedAt:     time.Now(),
+	}
+}
+
+// buildSuccessNotification 构造成功通知。
+func buildSuccessNotification(taskType, trigger, mode, summary, remotePath string) notify.TaskNotification {
+	return notify.TaskNotification{
+		Success:     true,
+		TaskType:    taskType,
+		Trigger:     trigger,
+		Mode:        mode,
+		Summary:     summary,
+		RemotePath:  remotePath,
+		CompletedAt: time.Now(),
+	}
+}
+
 // handleNotifyTest 测试 Bark 推送通知。
 func (s *Server) handleNotifyTest(c *gin.Context) {
 	cfg := s.Config.Get()
@@ -1358,7 +1318,8 @@ func (s *Server) handleNotifyTest(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "通知未启用或 Bark 地址为空，请先保存通知配置"})
 		return
 	}
-	err := notify.SendBark(cfg.Notify.BarkURL, "🔔 测试通知", "应用：ImmichTo115\n结果：通知服务连接正常\n说明：后续会推送备份成功、失败、手动停止等状态")
+	title, body := notify.FormatTestNotification(time.Now())
+	err := notify.SendBark(cfg.Notify.BarkURL, title, body)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "推送失败: " + sanitizeError(err)})
 		return
@@ -1428,35 +1389,25 @@ func (s *Server) handlePhotoUploadStart(c *gin.Context) {
 		if err != nil {
 			if ctx_err := jobCtx.Err(); ctx_err != nil {
 				s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[photo-upload] 任务已手动停止"})
-				s.sendBackupNotify(cfg, notify.BackupNotification{
-					Success: false,
-					Trigger: "摄影上传",
-					Mode:    "摄影文件上传",
-					Stage:   "摄影上传",
-					Detail:  "任务已被手动停止",
-				})
+				s.sendBackupNotify(cfg, buildFailureNotification(
+					"摄影上传", "摄影上传", "摄影文件上传", "摄影上传",
+					"任务已被手动停止", nil, "",
+				))
 				return
 			}
 			s.Hub.Broadcast(rclone.LogLine{Stream: "stderr", Text: "[photo-upload] 上传失败：" + err.Error()})
-			s.sendBackupNotify(cfg, notify.BackupNotification{
-				Success: false,
-				Trigger: "摄影上传",
-				Mode:    "摄影文件上传",
-				Stage:   "摄影上传",
-				Detail:  err.Error(),
-			})
+			s.sendBackupNotify(cfg, buildFailureNotification(
+				"摄影上传", "摄影上传", "摄影文件上传", "摄影上传",
+				err.Error(), nil, "",
+			))
 			return
 		}
 
-		detail := fmt.Sprintf("摄影文件上传完成；扫描 %d，上传 %d，失败 %d，删除 %d",
+		detail := fmt.Sprintf("扫描 %d，上传 %d，失败 %d，删除 %d",
 			summary.Scanned, summary.Uploaded, summary.Failed, summary.Deleted)
-		s.sendBackupNotify(cfg, notify.BackupNotification{
-			Success: true,
-			Trigger: "摄影上传",
-			Mode:    "摄影文件上传",
-			Stage:   "摄影上传",
-			Detail:  detail,
-		})
+		s.sendBackupNotify(cfg, buildSuccessNotification(
+			"摄影上传", "摄影上传", "摄影文件上传", detail, "",
+		))
 	}()
 
 	c.JSON(http.StatusOK, gin.H{"message": "摄影文件上传已开始"})

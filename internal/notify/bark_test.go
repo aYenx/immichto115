@@ -1,10 +1,11 @@
 package notify
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestSendBark_EmptyURL(t *testing.T) {
@@ -43,34 +44,64 @@ func TestSendBark_POST_NonOKStatus(t *testing.T) {
 	}
 }
 
-func TestFormatBackupTitle(t *testing.T) {
+// fixedTime 用于所有格式化测试的固定时间。
+var fixedTime = time.Date(2026, 3, 19, 1, 30, 0, 0, time.Local)
+
+func setupFixedClock(t *testing.T) {
+	t.Helper()
+	orig := nowFunc
+	nowFunc = func() time.Time { return fixedTime }
+	t.Cleanup(func() { nowFunc = orig })
+}
+
+func TestFormatTitle(t *testing.T) {
 	tests := []struct {
 		name string
-		info BackupNotification
+		info TaskNotification
 		want string
 	}{
 		{
-			name: "success default trigger",
-			info: BackupNotification{Success: true},
-			want: "✅ 手动备份完成",
+			name: "backup success",
+			info: TaskNotification{Success: true, TaskType: "备份"},
+			want: "✅ 备份完成",
 		},
 		{
-			name: "success with trigger",
-			info: BackupNotification{Success: true, Trigger: "定时", Stage: "同步"},
-			want: "✅ 定时同步完成",
+			name: "backup success default tasktype",
+			info: TaskNotification{Success: true},
+			want: "✅ 备份完成",
+		},
+		{
+			name: "photo upload success",
+			info: TaskNotification{Success: true, TaskType: "摄影上传"},
+			want: "✅ 摄影上传完成",
+		},
+		{
+			name: "failure with failed stage",
+			info: TaskNotification{Success: false, TaskType: "备份", FailedStage: "照片库备份"},
+			want: "❌ 照片库备份失败",
+		},
+		{
+			name: "failure with stage fallback",
+			info: TaskNotification{Success: false, TaskType: "备份", Stage: "数据库备份"},
+			want: "❌ 数据库备份失败",
 		},
 		{
 			name: "failure default",
-			info: BackupNotification{Success: false},
-			want: "❌ 手动备份失败",
+			info: TaskNotification{Success: false},
+			want: "❌ 备份失败",
+		},
+		{
+			name: "photo upload failure",
+			info: TaskNotification{Success: false, TaskType: "摄影上传", FailedStage: "摄影上传"},
+			want: "❌ 摄影上传失败",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := formatBackupTitle(tt.info)
+			got := formatTitle(tt.info)
 			if got != tt.want {
-				t.Fatalf("formatBackupTitle() = %q, want %q", got, tt.want)
+				t.Fatalf("formatTitle() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -99,47 +130,141 @@ func TestClassifyFailureReason(t *testing.T) {
 	}
 }
 
-func TestFormatBackupBody_SuccessContainsExpected(t *testing.T) {
-	info := BackupNotification{
-		Success:    true,
-		Trigger:    "定时",
-		Mode:       "增量备份",
-		Stage:      "备份",
-		RemotePath: "/backup/photos",
-		Detail:     "上传了 5 个文件",
+func TestFormatBody_Success(t *testing.T) {
+	setupFixedClock(t)
+
+	info := TaskNotification{
+		Success:     true,
+		TaskType:    "备份",
+		Trigger:     "定时任务",
+		Mode:        "增量备份（copy）",
+		RemotePath:  "/backup/photos",
+		Summary:     "扫描 120，上传 5，跳过 115",
+		CompletedAt: fixedTime,
 	}
-	body := formatBackupBody(info)
-	for _, want := range []string{"定时", "增量备份", "/backup/photos", "上传了 5 个文件", "已完成"} {
-		if !contains(body, want) {
-			t.Fatalf("formatBackupBody() missing %q in:\n%s", want, body)
+	body := formatBody(info)
+
+	for _, want := range []string{
+		"📋 任务摘要",
+		"━━━━━━━━━━━━━━",
+		"⏰ 03-19 01:30",
+		"🔄 定时任务 · 增量备份（copy）",
+		"📂 /backup/photos",
+		"✅ 任务完成",
+		"扫描 120，上传 5，跳过 115",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("formatBody() missing %q in:\n%s", want, body)
 		}
 	}
 }
 
-func TestFormatBackupBody_FailureContainsReason(t *testing.T) {
-	info := BackupNotification{
-		Success: false,
-		Detail:  "timeout",
+func TestFormatBody_Failure(t *testing.T) {
+	setupFixedClock(t)
+
+	info := TaskNotification{
+		Success:         false,
+		TaskType:        "备份",
+		Trigger:         "定时任务",
+		Mode:            "增量备份（copy）",
+		RemotePath:      "/backup",
+		FailedStage:     "照片库备份",
+		Reason:          "timeout",
+		CompletedStages: []string{"数据库备份"},
+		CompletedAt:     fixedTime,
 	}
-	body := formatBackupBody(info)
-	if !contains(body, "超时") {
-		t.Fatalf("expected classified reason in body, got:\n%s", body)
-	}
-}
+	body := formatBody(info)
 
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsStr(s, sub))
-}
-
-func containsStr(s, sub string) bool {
-	return fmt.Sprintf("%s", s) != "" && len(sub) > 0 && stringContains(s, sub)
-}
-
-func stringContains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
+	for _, want := range []string{
+		"⏰ 03-19 01:30",
+		"❌ 照片库备份失败",
+		"超时", // classifyFailureReason result
+		"📊 已完成：数据库备份",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("formatBody() missing %q in:\n%s", want, body)
 		}
 	}
-	return false
+
+	// 原始信息也应展示
+	if !strings.Contains(body, "📎 原始信息：timeout") {
+		t.Fatalf("formatBody() should contain original reason, got:\n%s", body)
+	}
+}
+
+func TestFormatBody_FailureNoCompletedStages(t *testing.T) {
+	setupFixedClock(t)
+
+	info := TaskNotification{
+		Success:     false,
+		Reason:      "任务已被手动停止",
+		CompletedAt: fixedTime,
+	}
+	body := formatBody(info)
+
+	if !strings.Contains(body, "❌ 任务未完成") {
+		t.Fatalf("expected generic failure header, got:\n%s", body)
+	}
+	if strings.Contains(body, "📊 已完成") {
+		t.Fatalf("should not show completed stages when empty, got:\n%s", body)
+	}
+}
+
+func TestFormatBody_PhotoUploadSuccess(t *testing.T) {
+	setupFixedClock(t)
+
+	info := TaskNotification{
+		Success:     true,
+		TaskType:    "摄影上传",
+		Trigger:     "摄影上传",
+		Mode:        "摄影文件上传",
+		Summary:     "扫描 10，上传 8，失败 0，删除 8",
+		CompletedAt: fixedTime,
+	}
+	body := formatBody(info)
+
+	for _, want := range []string{
+		"🔄 摄影上传 · 摄影文件上传",
+		"✅ 任务完成",
+		"扫描 10，上传 8",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("formatBody() missing %q in:\n%s", want, body)
+		}
+	}
+}
+
+func TestFormatBody_CompletedAtZeroFallback(t *testing.T) {
+	setupFixedClock(t)
+
+	info := TaskNotification{
+		Success: true,
+		// CompletedAt is zero value
+	}
+	body := formatBody(info)
+
+	// Should fallback to nowFunc which returns fixedTime
+	if !strings.Contains(body, "⏰ 03-19 01:30") {
+		t.Fatalf("expected fallback timestamp, got:\n%s", body)
+	}
+}
+
+func TestFormatTestNotification(t *testing.T) {
+	title, body := FormatTestNotification(fixedTime)
+
+	if !strings.Contains(title, "✅") {
+		t.Fatalf("test notification title should indicate success, got: %s", title)
+	}
+	if !strings.Contains(title, "通知测试") {
+		t.Fatalf("test notification title should contain task type, got: %s", title)
+	}
+	if !strings.Contains(body, "⏰ 03-19 01:30") {
+		t.Fatalf("test notification body should contain timestamp, got:\n%s", body)
+	}
+	if !strings.Contains(body, "通知服务连接正常") {
+		t.Fatalf("test notification body should confirm connectivity, got:\n%s", body)
+	}
+	if !strings.Contains(body, "📋 任务摘要") {
+		t.Fatalf("test notification should use same layout as real notifications, got:\n%s", body)
+	}
 }
