@@ -93,3 +93,97 @@ func TestIsSetupComplete(t *testing.T) {
 		}
 	})
 }
+
+func TestUpdateMonotonicVersion(t *testing.T) {
+	cfgPath := t.TempDir() + "/config.yaml"
+	mgr, err := NewManager(cfgPath)
+	if err != nil {
+		t.Fatalf("NewManager error: %v", err)
+	}
+
+	// First update
+	cfg := mgr.Get()
+	cfg.Provider = "webdav"
+	if err := mgr.Update(cfg); err != nil {
+		t.Fatalf("first Update error: %v", err)
+	}
+	v1 := mgr.Get().UpdatedAt
+
+	// Second update immediately (same second)
+	cfg2 := mgr.Get()
+	cfg2.Server.Port = 9999
+	if err := mgr.Update(cfg2); err != nil {
+		t.Fatalf("second Update error: %v", err)
+	}
+	v2 := mgr.Get().UpdatedAt
+
+	if v2 <= v1 {
+		t.Fatalf("expected monotonic increase: v1=%d, v2=%d", v1, v2)
+	}
+
+	// Third update immediately
+	cfg3 := mgr.Get()
+	cfg3.Server.Port = 8888
+	if err := mgr.Update(cfg3); err != nil {
+		t.Fatalf("third Update error: %v", err)
+	}
+	v3 := mgr.Get().UpdatedAt
+
+	if v3 <= v2 {
+		t.Fatalf("expected monotonic increase: v2=%d, v3=%d", v2, v3)
+	}
+}
+
+func TestApplyUpdateStaleConflict(t *testing.T) {
+	cfgPath := t.TempDir() + "/config.yaml"
+	mgr, err := NewManager(cfgPath)
+	if err != nil {
+		t.Fatalf("NewManager error: %v", err)
+	}
+
+	// Set up initial config
+	cfg := mgr.Get()
+	cfg.Provider = "webdav"
+	cfg.WebDAV = WebDAVConfig{URL: "https://dav.example.com", User: "user", Password: "pass"}
+	cfg.Backup = BackupConfig{RemoteDir: "/backup", LibraryDir: "/lib"}
+	if err := mgr.Update(cfg); err != nil {
+		t.Fatalf("initial Update error: %v", err)
+	}
+	staleVersion := mgr.Get().UpdatedAt
+
+	// Simulate a background Update (e.g., token refresh) that bumps the version
+	cfg2 := mgr.Get()
+	cfg2.Open115.AccessToken = "refreshed-token"
+	if err := mgr.Update(cfg2); err != nil {
+		t.Fatalf("background Update error: %v", err)
+	}
+	newVersion := mgr.Get().UpdatedAt
+	if newVersion <= staleVersion {
+		t.Fatalf("background update should have bumped version: stale=%d, new=%d", staleVersion, newVersion)
+	}
+
+	// Now try ApplyUpdate with the stale version → must fail
+	staleReq := ConfigUpdateRequest{
+		Provider:  "webdav",
+		Backup:    cfg.Backup,
+		UpdatedAt: staleVersion,
+	}
+	_, err = mgr.ApplyUpdate(staleReq)
+	if err == nil {
+		t.Fatal("expected ApplyUpdate with stale version to fail")
+	}
+	if err.Error() != "配置已被其他页面修改，请刷新后重试" {
+		t.Fatalf("unexpected error message: %s", err.Error())
+	}
+
+	// ApplyUpdate with current version → must succeed
+	currentReq := ConfigUpdateRequest{
+		Provider:  "webdav",
+		Backup:    cfg.Backup,
+		UpdatedAt: newVersion,
+	}
+	_, err = mgr.ApplyUpdate(currentReq)
+	if err != nil {
+		t.Fatalf("ApplyUpdate with current version should succeed, got: %v", err)
+	}
+}

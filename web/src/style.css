@@ -15,20 +15,18 @@
   --font-secondary: "Inter", sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg-primary: #09090b;
-    --bg-card: #18181b;
-    --bg-dark: #ffffff;
+:root.dark {
+  --bg-primary: #09090b;
+  --bg-card: #18181b;
+  --bg-dark: #ffffff;
 
-    --text-primary: #ffffff;
-    --text-secondary: #a1a1aa;
-    --text-tertiary: #71717a;
-    --text-inverted: #18181b;
+  --text-primary: #ffffff;
+  --text-secondary: #a1a1aa;
+  --text-tertiary: #71717a;
+  --text-inverted: #18181b;
 
-    --border-strong: #27272a;
-    --border-subtle: #18181b;
-  }
+  --border-strong: #27272a;
+  --border-subtle: #18181b;
 }
 
 * {

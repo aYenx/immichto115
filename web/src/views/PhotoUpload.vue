@@ -1,83 +1,77 @@
 <template>
   <div class="photo-upload-container">
-    <!-- Hero header with status strip -->
-    <div class="header">
-      <div class="greeting">
-        <p class="eyebrow">Photo Upload</p>
-        <h1>摄影文件上传</h1>
-        <p class="subtitle">扫描本地摄影文件，按拍摄日期自动分类上传到 115 网盘</p>
-        <div class="status-strip">
-          <span :class="['status-chip', uploadStatusTone]">
-            <span v-if="uploadStatus === 'running'" class="pulse-dot"></span>
-            {{ uploadStatusLabel }}
-          </span>
-          <span v-if="uploadStatus === 'running' && lastLogSummary" class="status-detail">{{ lastLogSummary }}</span>
-        </div>
+
+    <!-- Compact Header -->
+    <div class="page-header">
+      <div class="header-left">
+        <h2>摄影文件上传</h2>
+        <span :class="['status-badge', uploadStatusTone]">
+          <span v-if="uploadStatus === BackupStatus.Running" class="pulse-dot"></span>
+          {{ uploadStatusLabel }}
+        </span>
       </div>
-      <div class="actions">
+      <div class="header-actions">
         <button class="btn secondary" @click="stopUpload" :disabled="uploadStatus !== 'running'">
           <LucideSquare :size="16" />
-          停止上传
+          停止
         </button>
-        <button class="btn primary" @click="startUpload" :disabled="uploadStatus === 'running' || !config?.photo_upload?.watch_dir">
+        <button class="btn primary" @click="startUpload"
+          :disabled="uploadStatus === BackupStatus.Running || !config?.photo_upload?.watch_dir">
           <LucideUpload :size="16" />
           开始上传
         </button>
       </div>
     </div>
 
-    <!-- Stats Cards -->
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-icon-wrapper blue">
-          <LucideFolderInput :size="20" />
-        </div>
-        <div class="stat-info">
-          <span class="stat-label">监控目录</span>
-          <span class="stat-value">{{ localWatchDir || '未配置' }}</span>
-        </div>
-      </div>
+    <!-- Running status detail -->
+    <div v-if="uploadStatus === BackupStatus.Running && lastLogSummary" class="running-detail">
+      <LucideActivity :size="14" class="running-icon" />
+      <span>{{ lastLogSummary }}</span>
+    </div>
 
-      <div class="stat-card">
-        <div class="stat-icon-wrapper green">
-          <LucideCloud :size="20" />
-        </div>
-        <div class="stat-info">
-          <span class="stat-label">远端目录</span>
-          <span class="stat-value">{{ remoteDir || '未配置' }}</span>
-        </div>
+    <!-- Compact Info Bar -->
+    <div class="info-bar">
+      <div class="info-item">
+        <LucideFolderInput :size="16" class="info-icon" />
+        <span class="info-label">监控</span>
+        <span class="info-value" :title="localWatchDir || '未配置'">{{ localWatchDir || '未配置' }}</span>
       </div>
+      <div class="info-divider"></div>
+      <div class="info-item">
+        <LucideCloud :size="16" class="info-icon" />
+        <span class="info-label">远端</span>
+        <span class="info-value" :title="remoteDir || '未配置'">{{ remoteDir || '未配置' }}</span>
+      </div>
+      <div class="info-divider"></div>
+      <div class="info-item">
+        <LucideFileType :size="16" class="info-icon" />
+        <span class="info-label">格式</span>
+        <span class="info-value">{{ extensionCount }} 种</span>
+      </div>
+      <div class="info-divider"></div>
+      <div class="info-item">
+        <component :is="deleteAfterUpload ? LucideTrash2 : LucideArchive" :size="16"
+          :class="['info-icon', deleteAfterUpload ? 'text-red' : '']" />
+        <span class="info-label">上传后</span>
+        <span class="info-value">{{ deleteAfterUpload ? '删除本地' : '保留本地' }}</span>
+      </div>
+    </div>
 
-      <div class="stat-card">
-        <div class="stat-icon-wrapper yellow">
-          <LucideFileType :size="20" />
-        </div>
-        <div class="stat-info">
-          <span class="stat-label">监控格式</span>
-          <span class="stat-value">{{ extensionCount }} 种</span>
-        </div>
-      </div>
-
-      <div class="stat-card">
-        <div class="stat-icon-wrapper" :class="deleteAfterUpload ? 'red' : 'neutral'">
-          <LucideTrash2 v-if="deleteAfterUpload" :size="20" />
-          <LucideArchive v-else :size="20" />
-        </div>
-        <div class="stat-info">
-          <span class="stat-label">上传后操作</span>
-          <span class="stat-value">{{ deleteAfterUpload ? '删除本地' : '保留本地' }}</span>
-        </div>
-      </div>
+    <!-- Unconfigured banner -->
+    <div v-if="!config?.photo_upload?.watch_dir && !configExpanded" class="setup-banner" @click="configExpanded = true">
+      <LucideInfo :size="16" />
+      <span>尚未配置监控目录，点击此处展开配置面板开始设置</span>
+      <LucideChevronRight :size="16" />
     </div>
 
     <!-- Config Section (collapsible) -->
     <div class="config-section">
       <button class="config-toggle" @click="configExpanded = !configExpanded">
         <div class="config-toggle-left">
-          <LucideSettings :size="20" />
+          <LucideSettings :size="18" />
           <span>上传配置</span>
         </div>
-        <LucideChevronDown :size="18" :class="['chevron', { expanded: configExpanded }]" />
+        <LucideChevronDown :size="16" :class="['chevron', { expanded: configExpanded }]" />
       </button>
 
       <transition name="slide">
@@ -96,7 +90,12 @@
 
             <div class="config-item">
               <label>远端目标目录</label>
-              <input type="text" v-model="remoteDir" placeholder="例如 /摄影" />
+              <div class="input-with-browse">
+                <input type="text" v-model="remoteDir" placeholder="例如 /摄影" />
+                <button class="btn secondary browse-btn" @click="browseRemote" title="浏览远端目录">
+                  <LucideFolderOpen :size="16" />
+                </button>
+              </div>
               <span class="input-hint">115 网盘上的根目录，文件将按日期子目录归类</span>
             </div>
 
@@ -146,11 +145,11 @@
       </transition>
     </div>
 
-    <!-- Browse Modal -->
+    <!-- Local Browse Modal -->
     <div v-if="showBrowseModal" class="modal-overlay" @click.self="showBrowseModal = false">
       <div class="modal">
         <div class="modal-header">
-          <h3>选择目录</h3>
+          <h3>选择本地目录</h3>
           <button class="icon-btn" @click="showBrowseModal = false">
             <LucideX :size="18" />
           </button>
@@ -181,27 +180,67 @@
       </div>
     </div>
 
+    <!-- Remote Browse Modal -->
+    <div v-if="showRemoteBrowseModal" class="modal-overlay" @click.self="showRemoteBrowseModal = false">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>选择远端目录</h3>
+          <button class="icon-btn" @click="showRemoteBrowseModal = false">
+            <LucideX :size="18" />
+          </button>
+        </div>
+        <div class="browse-path">
+          <span>{{ remoteBrowsePath || '/' }}</span>
+        </div>
+        <div class="browse-list">
+          <div v-if="remoteBrowseLoading" class="browse-empty">
+            <LucideLoader2 :size="20" class="spin-icon" />
+            加载中...
+          </div>
+          <template v-else>
+            <div v-if="remoteBrowsePath && remoteBrowsePath !== '/'" class="browse-item" @click="remoteBrowseUp">
+              <LucideFolderUp :size="16" />
+              <span>..</span>
+            </div>
+            <div v-for="entry in remoteBrowseEntries" :key="entry.Path || entry.Name" class="browse-item" @click="remoteBrowseInto(entry)">
+              <LucideFolder :size="16" />
+              <span>{{ entry.Name }}</span>
+            </div>
+            <div v-if="remoteBrowseEntries.length === 0" class="browse-empty">
+              该目录下没有子文件夹
+            </div>
+          </template>
+        </div>
+        <div class="modal-footer">
+          <button class="btn secondary" @click="showRemoteBrowseModal = false">取消</button>
+          <button class="btn primary" @click="selectRemoteBrowsePath">选择此目录</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Logs Section -->
     <div class="logs-section">
       <div class="logs-header">
-        <h2>上传日志</h2>
-        <div class="logs-meta">
-          <span class="log-count">{{ logs.length }} / {{ MAX_LOGS }} 条</span>
+        <div class="logs-title-row">
+          <h3>上传日志</h3>
+          <span class="log-count">{{ logs.length }} / {{ MAX_LOGS }}</span>
+        </div>
+        <div class="logs-actions">
           <button class="icon-btn" :class="{ active: autoScroll }" @click="autoScroll = !autoScroll"
             :title="autoScroll ? '自动滚动已开启' : '自动滚动已关闭'">
-            <LucideArrowDownToLine :size="16" />
+            <LucideArrowDownToLine :size="15" />
           </button>
           <button class="icon-btn" @click="clearLogs" title="清空日志">
-            <LucideTrash2 :size="16" />
+            <LucideTrash2 :size="15" />
           </button>
         </div>
       </div>
 
       <div class="logs-terminal" ref="terminalRef" @scroll="onTerminalScroll">
         <div v-if="logs.length === 0" class="log-empty-state">
-          <LucideTerminal :size="32" />
+          <LucideTerminal :size="28" />
           <p>暂无日志</p>
-          <span>点击「开始上传」后，实时上传日志将显示在这里</span>
+          <span>点击「开始上传」后，实时日志将显示在这里</span>
         </div>
         <template v-else>
           <div v-for="log in logs" :key="log.id" :class="['log-line', getLogLevelClass(log.text)]">
@@ -234,10 +273,15 @@ import {
   LucideArchive,
   LucideSettings,
   LucideChevronDown,
+  LucideChevronRight,
   LucideTriangleAlert,
-  LucideTerminal
+  LucideTerminal,
+  LucideActivity,
+  LucideInfo,
+  LucideLoader2
 } from 'lucide-vue-next'
-import { api, getErrorMessage, handleAuthFailure, type AppConfig, type DirEntry } from '../api'
+import { api, getErrorMessage, handleAuthFailure, safeConfigToAppConfig, appConfigToUpdateRequest, type AppConfig, type SafeConfigResponse, type DirEntry } from '../api'
+import { BackupStatus } from '../constants'
 import { showToast } from '../composables/toast'
 
 const MAX_LOGS = 200
@@ -245,6 +289,7 @@ let logIdCounter = 0
 
 // Config state
 const config = ref<AppConfig | null>(null)
+const safeResponse = ref<SafeConfigResponse | null>(null)
 const localWatchDir = ref('')
 const remoteDir = ref('/摄影')
 const extensions = ref('cr2,cr3,nef,arw,dng,raf,rw2,orf,pef,srw,jpg,jpeg')
@@ -268,8 +313,8 @@ const extensionCount = computed(() => {
 
 // Upload status
 const uploadStatus = ref<'idle' | 'running'>('idle')
-const uploadStatusTone = computed(() => uploadStatus.value === 'running' ? 'info' : 'neutral')
-const uploadStatusLabel = computed(() => uploadStatus.value === 'running' ? '上传中' : '空闲')
+const uploadStatusTone = computed(() => uploadStatus.value === BackupStatus.Running ? 'info' : 'neutral')
+const uploadStatusLabel = computed(() => uploadStatus.value === BackupStatus.Running ? '上传中' : '空闲')
 
 // Last log summary for status strip
 const lastLogSummary = computed(() => {
@@ -290,10 +335,16 @@ let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let shouldReconnect = true
 
-// Browse
+// Browse local
 const showBrowseModal = ref(false)
 const browsePath = ref('')
 const browseEntries = ref<DirEntry[]>([])
+
+// Browse remote
+const showRemoteBrowseModal = ref(false)
+const remoteBrowsePath = ref('/')
+const remoteBrowseEntries = ref<DirEntry[]>([])
+const remoteBrowseLoading = ref(false)
 const browseLoading = ref(false)
 
 // Status polling
@@ -301,7 +352,9 @@ let statusInterval: ReturnType<typeof setInterval> | null = null
 
 const loadConfig = async () => {
   try {
-    const cfg = await api.getConfig()
+    const safe = await api.getConfig()
+    safeResponse.value = safe
+    const cfg = safeConfigToAppConfig(safe)
     config.value = cfg
     if (cfg.photo_upload) {
       localWatchDir.value = cfg.photo_upload.watch_dir || ''
@@ -324,7 +377,7 @@ const loadConfig = async () => {
 }
 
 const saveConfig = async () => {
-  if (!config.value) return
+  if (!config.value || !safeResponse.value) return
   saving.value = true
   try {
     const updated = { ...config.value }
@@ -337,13 +390,16 @@ const saveConfig = async () => {
       date_format: dateFormat.value,
       delete_after_upload: deleteAfterUpload.value
     }
-    await api.saveConfig(updated)
+    const result = await api.saveConfig(appConfigToUpdateRequest(updated, safeResponse.value))
+    safeResponse.value = { ...safeResponse.value, updated_at: result.updated_at }
     config.value = updated
+    config.value.updated_at = result.updated_at
     savedSnapshot.value = currentSnapshot.value
     showToast('info', '配置已保存', '摄影上传配置已更新')
   } catch (err) {
-    if (handleAuthFailure(err)) return
+    if (handleAuthFailure(err)) throw err
     showToast('error', '保存失败', getErrorMessage(err))
+    throw err // 向调用方传播（startUpload 需要感知保存失败）
   } finally {
     saving.value = false
   }
@@ -360,6 +416,9 @@ const fetchUploadStatus = async () => {
 
 const startUpload = async () => {
   try {
+    // 先保存当前界面配置，确保后端使用的是用户看到的值
+    await saveConfig()
+    await saveConfig()
     logs.value = []
     const result = await api.photoUploadStart()
     await fetchUploadStatus()
@@ -409,7 +468,15 @@ const browseInto = (entry: DirEntry) => {
 const browseUp = () => {
   const parts = browsePath.value.replace(/\\/g, '/').split('/')
   parts.pop()
-  const parent = parts.join('/') || (browsePath.value.includes(':') ? parts[0] + '/' : '/')
+  let parent = parts.join('/')
+  // Only jump to drive list when parent is truly empty (was at root)
+  if (parent === '') {
+    browsePath.value = ''
+    loadBrowseDir('')
+    return
+  }
+  // Normalize "C:" → "C:/" for proper directory loading
+  if (/^[A-Za-z]:$/.test(parent)) parent += '/'
   browsePath.value = parent
   loadBrowseDir(parent)
 }
@@ -417,6 +484,80 @@ const browseUp = () => {
 const selectBrowsePath = () => {
   localWatchDir.value = browsePath.value
   showBrowseModal.value = false
+}
+
+// Browse remote directories
+const browseRemote = async () => {
+  if (!config.value) {
+    showToast('warning', '配置未加载', '请等待配置加载完成后再试')
+    return
+  }
+  const provider = config.value.provider
+  if (provider === 'open115') {
+    if (!config.value.open115?.access_token?.trim() || !config.value.open115?.refresh_token?.trim()) {
+      showToast('warning', '请先完成授权', '需要先在设置中完成 115 Open 授权，才能浏览远端目录。')
+      return
+    }
+  } else {
+    if (!config.value.webdav?.url?.trim() || !config.value.webdav?.user?.trim() || !config.value.webdav?.password?.trim()) {
+      showToast('warning', '请先完善连接信息', '需要先在设置中填写 WebDAV 地址、用户名和密码。')
+      return
+    }
+  }
+  showRemoteBrowseModal.value = true
+  remoteBrowsePath.value = remoteDir.value || '/'
+  await loadRemoteBrowseDir(remoteBrowsePath.value)
+}
+
+const normalizeRemotePath = (p: string) => {
+  const cleaned = ('/' + p.replace(/\\/g, '/')).replace(/\/+/g, '/')
+  return cleaned || '/'
+}
+
+const loadRemoteBrowseDir = async (path: string) => {
+  if (!config.value) return
+  remoteBrowseLoading.value = true
+  const normalizedPath = normalizeRemotePath(path)
+  try {
+    const items = config.value.provider === 'open115'
+      ? await api.open115List(normalizedPath, {
+          access_token: config.value.open115.access_token,
+          refresh_token: config.value.open115.refresh_token,
+          root_id: config.value.open115.root_id,
+        })
+      : await api.listWebDAV({
+          url: config.value.webdav.url,
+          user: config.value.webdav.user,
+          password: config.value.webdav.password,
+          vendor: config.value.webdav.vendor,
+          path: normalizedPath,
+        })
+    remoteBrowseEntries.value = items.filter((e: any) => e.IsDir)
+    remoteBrowsePath.value = normalizedPath
+  } catch (err) {
+    remoteBrowseEntries.value = []
+    if (handleAuthFailure(err)) return
+    showToast('error', '浏览失败', getErrorMessage(err))
+  } finally {
+    remoteBrowseLoading.value = false
+  }
+}
+
+const remoteBrowseInto = (entry: any) => {
+  const newPath = normalizeRemotePath(remoteBrowsePath.value + '/' + entry.Name)
+  loadRemoteBrowseDir(newPath)
+}
+
+const remoteBrowseUp = () => {
+  const parts = remoteBrowsePath.value.split('/').filter(Boolean)
+  parts.pop()
+  const parent = parts.length > 0 ? '/' + parts.join('/') : '/'
+  loadRemoteBrowseDir(parent)
+}
+
+const selectRemoteBrowsePath = () => {
+  remoteDir.value = remoteBrowsePath.value
+  showRemoteBrowseModal.value = false
 }
 
 // Log handling
@@ -515,92 +656,66 @@ onUnmounted(() => {
 .photo-upload-container {
   display: flex;
   flex-direction: column;
-  padding: 48px 64px;
-  gap: 32px;
+  padding: 0 64px 48px;
+  gap: 20px;
   max-width: 1400px;
   margin: 0 auto;
 }
 
-/* ===== Header ===== */
-.header {
+
+
+/* ===== Compact Header ===== */
+.page-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  gap: 16px;
+  align-items: center;
+  padding-top: 32px;
 }
 
-.eyebrow {
-  font-size: 13px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-tertiary);
-  margin-bottom: 4px;
-}
-
-.greeting h1 {
-  font-family: var(--font-primary);
-  font-weight: 800;
-  font-size: 32px;
-  color: var(--text-primary);
-  letter-spacing: -0.5px;
-  margin-bottom: 6px;
-}
-
-.subtitle {
-  color: var(--text-secondary);
-  font-size: 15px;
-  margin-bottom: 12px;
-}
-
-.status-strip {
+.header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+  gap: 14px;
 }
 
-.status-detail {
-  font-size: 13px;
-  color: var(--text-secondary);
-  max-width: 400px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.header-left h2 {
+  font-family: var(--font-primary);
+  font-weight: 800;
+  font-size: 24px;
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
 }
 
-.actions {
+.header-actions {
   display: flex;
-  gap: 12px;
-  flex-shrink: 0;
+  gap: 10px;
 }
 
-/* ===== Status Chips ===== */
-.status-chip {
+/* ===== Status Badge ===== */
+.status-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 26px;
+  height: 26px;
   padding: 0 12px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 700;
 }
 
-.status-chip.info {
+.status-badge.info {
   background: rgba(37, 99, 235, 0.14);
   color: #2563eb;
 }
 
-.status-chip.neutral {
+.status-badge.neutral {
   background: var(--border-subtle);
   color: var(--text-secondary);
 }
 
 .pulse-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background-color: #2563eb;
   animation: pulse 1.5s ease-in-out infinite;
@@ -611,73 +726,115 @@ onUnmounted(() => {
   50% { opacity: 0.5; transform: scale(0.8); }
 }
 
-/* ===== Stats Grid ===== */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-}
-
-.stat-card {
+/* ===== Running Detail ===== */
+.running-detail {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 20px;
-  background-color: var(--bg-card);
-  border-radius: 14px;
-  border: 1px solid var(--border-subtle);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(37, 99, 235, 0.06);
+  border: 1px solid rgba(37, 99, 235, 0.15);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  animation: fadeSlideIn 0.3s ease;
 }
 
-.stat-card:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
-}
-
-.stat-icon-wrapper {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
+.running-icon {
+  color: #3B82F6;
   flex-shrink: 0;
+  animation: breathe 2s ease-in-out infinite;
 }
 
-.stat-icon-wrapper.blue { background: rgba(59, 130, 246, 0.12); color: #3B82F6; }
-.stat-icon-wrapper.green { background: rgba(16, 185, 129, 0.12); color: #10B981; }
-.stat-icon-wrapper.yellow { background: rgba(245, 158, 11, 0.12); color: #F59E0B; }
-.stat-icon-wrapper.red { background: rgba(239, 68, 68, 0.12); color: #EF4444; }
-.stat-icon-wrapper.neutral { background: var(--border-subtle); color: var(--text-secondary); }
+@keyframes breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
 
-.stat-info {
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== Compact Info Bar ===== */
+.info-bar {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 0;
+  padding: 14px 20px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.04), rgba(59, 130, 246, 0.06));
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
   min-width: 0;
 }
 
-.stat-label {
-  font-size: 12px;
+.info-icon {
   color: var(--text-tertiary);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  flex-shrink: 0;
 }
 
-.stat-value {
-  font-size: 14px;
-  font-weight: 700;
+.info-icon.text-red {
+  color: #EF4444;
+}
+
+.info-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.info-value {
+  font-size: 13px;
+  font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.info-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border-strong);
+  margin: 0 16px;
+  flex-shrink: 0;
+}
+
+/* ===== Setup Banner ===== */
+.setup-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px dashed rgba(245, 158, 11, 0.3);
+  border-radius: 12px;
+  color: #D97706;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.setup-banner:hover {
+  background: rgba(245, 158, 11, 0.12);
 }
 
 /* ===== Config Section ===== */
 .config-section {
   background-color: var(--bg-card);
-  border-radius: 16px;
+  border-radius: 14px;
   border: 1px solid var(--border-subtle);
   overflow: hidden;
 }
@@ -687,7 +844,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 20px 28px;
+  padding: 16px 24px;
   cursor: pointer;
   color: var(--text-primary);
   transition: background-color 0.15s;
@@ -700,8 +857,8 @@ onUnmounted(() => {
 .config-toggle-left {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 16px;
+  gap: 10px;
+  font-size: 15px;
   font-weight: 700;
 }
 
@@ -736,15 +893,15 @@ onUnmounted(() => {
 }
 
 .config-body {
-  padding: 0 28px 28px;
+  padding: 0 24px 24px;
   border-top: 1px solid var(--border-subtle);
-  padding-top: 24px;
+  padding-top: 20px;
 }
 
 .config-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  gap: 18px;
 }
 
 .config-item {
@@ -771,7 +928,7 @@ onUnmounted(() => {
 
 .config-item input,
 .config-item select {
-  height: 42px;
+  height: 40px;
   padding: 0 14px;
   border: 1px solid var(--border-strong);
   border-radius: 10px;
@@ -799,11 +956,11 @@ onUnmounted(() => {
 }
 
 .browse-btn {
-  height: 42px !important;
+  height: 40px !important;
   padding: 0 12px !important;
 }
 
-/* Toggle field (same as Settings.vue) */
+/* Toggle field */
 .toggle-field {
   display: flex;
   align-items: center;
@@ -840,7 +997,7 @@ onUnmounted(() => {
   line-height: 1.4;
 }
 
-/* Switch (copied from Settings.vue for consistency) */
+/* Switch */
 .switch {
   position: relative;
   width: 44px;
@@ -885,7 +1042,7 @@ onUnmounted(() => {
 }
 
 .config-actions {
-  margin-top: 24px;
+  margin-top: 20px;
   display: flex;
   justify-content: flex-end;
   align-items: center;
@@ -985,6 +1142,9 @@ onUnmounted(() => {
   font-size: 14px;
 }
 
+.spin-icon { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
 .modal-footer {
   display: flex;
   justify-content: flex-end;
@@ -997,7 +1157,7 @@ onUnmounted(() => {
 .logs-section {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   flex: 1;
 }
 
@@ -1007,31 +1167,35 @@ onUnmounted(() => {
   align-items: center;
 }
 
-.logs-header h2 {
-  font-size: 20px;
+.logs-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logs-header h3 {
+  font-size: 16px;
   font-weight: 700;
   color: var(--text-primary);
 }
 
-.logs-meta {
+.logs-actions {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 
 .log-count {
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
   font-size: 12px;
   font-family: 'Consolas', 'Monaco', monospace;
-  opacity: 0.7;
 }
 
 .icon-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: 8px;
   color: var(--text-secondary);
   background-color: transparent;
@@ -1050,17 +1214,17 @@ onUnmounted(() => {
 
 .logs-terminal {
   flex: 1;
-  min-height: 300px;
-  max-height: 500px;
+  min-height: 180px;
+  max-height: 360px;
   background-color: #0F172A;
-  border-radius: 12px;
-  padding: 24px;
+  border-radius: 10px;
+  padding: 18px 20px;
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 13px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   border: 1px solid var(--border-strong);
   scroll-behavior: smooth;
 }
@@ -1071,25 +1235,25 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   color: #475569;
-  min-height: 200px;
+  min-height: 140px;
 }
 
 .log-empty-state p {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   color: #64748B;
 }
 
 .log-empty-state span {
-  font-size: 13px;
+  font-size: 12px;
   color: #475569;
 }
 
 .log-line {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   line-height: 1.6;
 }
 
@@ -1116,12 +1280,10 @@ onUnmounted(() => {
 /* ===== Responsive ===== */
 @media (max-width: 1024px) {
   .photo-upload-container {
-    padding: 32px 24px;
+    padding: 0 24px 32px;
   }
 
-  .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
+
 
   .config-grid {
     grid-template-columns: 1fr;
@@ -1130,27 +1292,73 @@ onUnmounted(() => {
   .config-item.full-width {
     grid-column: 1;
   }
+
+  .info-bar {
+    flex-wrap: wrap;
+    gap: 0;
+  }
+
+  .info-item {
+    flex: 0 0 calc(50% - 16px);
+    padding: 4px 0;
+  }
+
+  .info-divider {
+    display: none;
+  }
 }
 
 @media (max-width: 640px) {
   .photo-upload-container {
-    padding: 24px 16px;
+    padding: 0 16px 24px;
+    gap: 16px;
   }
 
-  .header {
+
+
+  .page-header {
     flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding-top: 20px;
   }
 
-  .actions {
+  .header-left {
+    flex-wrap: wrap;
+  }
+
+  .header-left h2 {
+    font-size: 20px;
+  }
+
+  .header-actions {
     width: 100%;
   }
 
-  .actions .btn {
+  .header-actions .btn {
     flex: 1;
   }
 
-  .stats-grid {
-    grid-template-columns: 1fr;
+  .info-bar {
+    flex-direction: column;
+    gap: 0;
+    padding: 12px 16px;
+  }
+
+  .info-item {
+    flex: 1 0 100%;
+    padding: 6px 0;
+  }
+
+  .info-divider {
+    display: none;
+  }
+
+  .logs-terminal {
+    min-height: 150px;
+    max-height: 280px;
+    padding: 14px 16px;
+    font-size: 12px;
   }
 }
 </style>

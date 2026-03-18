@@ -52,6 +52,35 @@ func TestIsSetupWhitelistedOpen115(t *testing.T) {
 	if !isSetupWhitelisted(req) {
 		t.Fatalf("expected open115 test to be whitelisted during setup")
 	}
+
+	// Directory listing endpoints needed by setup wizard
+	wizardPaths := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/local/ls"},
+		{http.MethodPost, "/api/v1/open115/ls"},
+	}
+	for _, tc := range wizardPaths {
+		req = httptest.NewRequest(tc.method, tc.path, nil)
+		if !isSetupWhitelisted(req) {
+			t.Fatalf("expected %s %s to be WHITELISTED during setup", tc.method, tc.path)
+		}
+	}
+
+	// Remote/Restore explorer must NOT be whitelisted during setup
+	blockedPaths := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/remote/ls"},
+	}
+	for _, tc := range blockedPaths {
+		req = httptest.NewRequest(tc.method, tc.path, nil)
+		if isSetupWhitelisted(req) {
+			t.Fatalf("expected %s %s to be BLOCKED during setup", tc.method, tc.path)
+		}
+	}
 }
 
 func TestOpen115AuthSessionStore(t *testing.T) {

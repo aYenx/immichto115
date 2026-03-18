@@ -97,19 +97,15 @@ func IsRateLimitedError(err error) bool {
 
 const defaultMaxRetries = 6
 
-func (u *Uploader) listDirItems(ctx context.Context, parentID string) ([]sdk.GetFilesResp_File, error) {
-	client, err := u.service.Client()
-	if err != nil {
-		return nil, err
-	}
-
+// paginateFiles 是去重后的分页 GetFiles 封装，供 listDirItems 和 ListRemoteDirect 共用。
+func paginateFiles(ctx context.Context, api Open115API, pacer *Pacer, parentID string) ([]GetFilesResp_File, error) {
 	const pageSize int64 = 200
 	var offset int64 = 0
-	items := make([]sdk.GetFilesResp_File, 0, pageSize)
+	items := make([]GetFilesResp_File, 0, pageSize)
 
 	for {
-		resp, err := Call(ctx, u.Pacer, "GetFiles", defaultMaxRetries, func() (*sdk.GetFilesResp, error) {
-			return client.GetFiles(ctx, &sdk.GetFilesReq{
+		resp, err := Call(ctx, pacer, "GetFiles", defaultMaxRetries, func() (*GetFilesResp, error) {
+			return api.GetFiles(ctx, &GetFilesReq{
 				CID:     parentID,
 				Limit:   pageSize,
 				Offset:  offset,
@@ -131,8 +127,17 @@ func (u *Uploader) listDirItems(ctx context.Context, parentID string) ([]sdk.Get
 	return items, nil
 }
 
-func (u *Uploader) findDirByName(ctx context.Context, parentID, name string) (string, error) {
-	items, err := u.listDirItems(ctx, parentID)
+func (u *Uploader) listDirItems(ctx context.Context, parentID string) ([]GetFilesResp_File, error) {
+	client, err := u.service.Client()
+	if err != nil {
+		return nil, err
+	}
+	return paginateFiles(ctx, client, u.Pacer, parentID)
+}
+
+// findDirByNameFrom 在 parentID 下查找指定名称的子目录，不依赖 Uploader 实例。
+func findDirByNameFrom(ctx context.Context, api Open115API, pacer *Pacer, parentID, name string) (string, error) {
+	items, err := paginateFiles(ctx, api, pacer, parentID)
 	if err != nil {
 		return "", err
 	}
@@ -142,6 +147,14 @@ func (u *Uploader) findDirByName(ctx context.Context, parentID, name string) (st
 		}
 	}
 	return "", nil
+}
+
+func (u *Uploader) findDirByName(ctx context.Context, parentID, name string) (string, error) {
+	client, err := u.service.Client()
+	if err != nil {
+		return "", err
+	}
+	return findDirByNameFrom(ctx, client, u.Pacer, parentID, name)
 }
 
 // EnsureDir 确保逻辑路径存在，并返回最终目录 ID。
@@ -234,7 +247,7 @@ func (u *Uploader) ensureDirSlow(ctx context.Context, cleaned string) (string, e
 		}
 
 		// 目录不存在 → 创建（不持锁）
-		created, err := Call(ctx, u.Pacer, "Mkdir", defaultMaxRetries, func() (*sdk.MkdirResp, error) {
+		created, err := Call(ctx, u.Pacer, "Mkdir", defaultMaxRetries, func() (*MkdirResp, error) {
 			return client.Mkdir(ctx, currentID, seg)
 		})
 		if err != nil {
@@ -329,7 +342,7 @@ func signValForRange(localPath string, signCheck string) (string, error) {
 	return strings.ToUpper(fmt.Sprintf("%x", h.Sum(nil))), nil
 }
 
-func newOSSBucket(tokenResp *sdk.UploadGetTokenResp, initResp *sdk.UploadInitResp) (*oss.Bucket, error) {
+func newOSSBucket(tokenResp *UploadGetTokenResp, initResp *UploadInitResp) (*oss.Bucket, error) {
 	ossClient, err := oss.New(tokenResp.Endpoint, tokenResp.AccessKeyId, tokenResp.AccessKeySecret, oss.SecurityToken(tokenResp.SecurityToken))
 	if err != nil {
 		return nil, err
@@ -337,7 +350,7 @@ func newOSSBucket(tokenResp *sdk.UploadGetTokenResp, initResp *sdk.UploadInitRes
 	return ossClient.Bucket(initResp.Bucket)
 }
 
-func putObject(ctx context.Context, localPath string, tokenResp *sdk.UploadGetTokenResp, initResp *sdk.UploadInitResp) error {
+func putObject(ctx context.Context, localPath string, tokenResp *UploadGetTokenResp, initResp *UploadInitResp) error {
 	bucket, err := newOSSBucket(tokenResp, initResp)
 	if err != nil {
 		return err
@@ -356,7 +369,7 @@ func putObject(ctx context.Context, localPath string, tokenResp *sdk.UploadGetTo
 	)
 }
 
-func putObjectReader(ctx context.Context, reader io.Reader, tokenResp *sdk.UploadGetTokenResp, initResp *sdk.UploadInitResp) error {
+func putObjectReader(ctx context.Context, reader io.Reader, tokenResp *UploadGetTokenResp, initResp *UploadInitResp) error {
 	bucket, err := newOSSBucket(tokenResp, initResp)
 	if err != nil {
 		return err
@@ -370,7 +383,7 @@ func putObjectReader(ctx context.Context, reader io.Reader, tokenResp *sdk.Uploa
 	)
 }
 
-func multipartUpload(ctx context.Context, localPath string, size int64, tokenResp *sdk.UploadGetTokenResp, initResp *sdk.UploadInitResp) error {
+func multipartUpload(ctx context.Context, localPath string, size int64, tokenResp *UploadGetTokenResp, initResp *UploadInitResp) error {
 	bucket, err := newOSSBucket(tokenResp, initResp)
 	if err != nil {
 		return err
@@ -384,6 +397,15 @@ func multipartUpload(ctx context.Context, localPath string, size int64, tokenRes
 	if err != nil {
 		return err
 	}
+
+	// 上传完成前如果出错或取消，清理远端残留分片
+	completed := false
+	defer func() {
+		if !completed {
+			_ = bucket.AbortMultipartUpload(imur)
+		}
+	}()
+
 	partNum := (size + multipartChunkSize - 1) / multipartChunkSize
 	parts := make([]oss.UploadPart, 0, partNum)
 	for i := int64(0); i < partNum; i++ {
@@ -408,6 +430,9 @@ func multipartUpload(ctx context.Context, localPath string, size int64, tokenRes
 		oss.Callback(base64.StdEncoding.EncodeToString([]byte(initResp.Callback.Value.Callback))),
 		oss.CallbackVar(base64.StdEncoding.EncodeToString([]byte(initResp.Callback.Value.CallbackVar))),
 	)
+	if err == nil {
+		completed = true
+	}
 	return err
 }
 
@@ -471,6 +496,68 @@ func (u *Uploader) ListRemote(ctx context.Context, remotePath string) ([]RemoteE
 	return result, nil
 }
 
+// ListRemoteDirect 使用传入的 token 浏览远端目录，不依赖已保存配置。
+// 供设置页/向导页在用户浏览目录时使用当前表单里的 token。
+func ListRemoteDirect(ctx context.Context, accessToken, refreshToken, rootID, remotePath string) ([]RemoteEntry, error) {
+	if strings.TrimSpace(accessToken) == "" || strings.TrimSpace(refreshToken) == "" {
+		return nil, fmt.Errorf("access_token / refresh_token 不能为空")
+	}
+	api := newSDKClient(sdk.New(
+		sdk.WithAccessToken(accessToken),
+		sdk.WithRefreshToken(refreshToken),
+	))
+	if strings.TrimSpace(rootID) == "" {
+		rootID = "0"
+	}
+	pacer := NewPacer()
+
+	cleaned := normalizeUploadPath(remotePath)
+
+	// 解析目录路径到 dirID
+	currentID := rootID
+	if cleaned != "/" {
+		trimmed := strings.Trim(strings.TrimPrefix(cleaned, "/"), "/")
+		for _, seg := range strings.Split(trimmed, "/") {
+			seg = strings.TrimSpace(seg)
+			if seg == "" {
+				continue
+			}
+			// 在当前目录下通过共用的 findDirByNameFrom 查找子目录
+			found, err := findDirByNameFrom(ctx, api, pacer, currentID, seg)
+			if err != nil {
+				return nil, err
+			}
+			if found == "" {
+				return nil, fmt.Errorf("目录不存在: %s", cleaned)
+			}
+			currentID = found
+		}
+	}
+
+	items, err := paginateFiles(ctx, api, pacer, currentID)
+	if err != nil {
+		return nil, err
+	}
+	base := strings.TrimSuffix(cleaned, "/")
+	if base == "" {
+		base = "/"
+	}
+	result := make([]RemoteEntry, 0, len(items))
+	for _, item := range items {
+		p := path.Join(base, item.Fn)
+		result = append(result, RemoteEntry{
+			ID:       item.Fid,
+			Name:     item.Fn,
+			Path:     p,
+			IsDir:    item.Fc == "0",
+			Size:     item.FS,
+			ModTime:  time.Unix(item.Upt, 0),
+			PickCode: item.Pc,
+		})
+	}
+	return result, nil
+}
+
 // UploadReader 直接上传一个 reader 到指定逻辑远端路径（包含文件名）。
 // 保留为兼容入口，默认使用占位 init 参数；更推荐调用 UploadReaderWithInit。
 func (u *Uploader) UploadReader(ctx context.Context, reader io.Reader, remotePath string) error {
@@ -510,8 +597,8 @@ func (u *Uploader) UploadReaderWithInit(ctx context.Context, reader io.Reader, r
 		preID = strings.Repeat("0", 40)
 	}
 	log.Printf("[open115-reader] UploadInitReader start: remote=%s size=%d", remotePath, size)
-	initResp, err := Call(ctx, u.Pacer, "UploadInitReader", defaultMaxRetries, func() (*sdk.UploadInitResp, error) {
-		return client.UploadInit(ctx, &sdk.UploadInitReq{
+	initResp, err := Call(ctx, u.Pacer, "UploadInitReader", defaultMaxRetries, func() (*UploadInitResp, error) {
+		return client.UploadInit(ctx, &UploadInitReq{
 			FileName: fileName,
 			FileSize: size,
 			Target:   dirID,
@@ -528,7 +615,7 @@ func (u *Uploader) UploadReaderWithInit(ctx context.Context, reader io.Reader, r
 		log.Printf("[open115-reader] fast transfer (秒传) success: remote=%s", remotePath)
 		return nil
 	}
-	tokenResp, err := Call(ctx, u.Pacer, "UploadGetTokenReader", defaultMaxRetries, func() (*sdk.UploadGetTokenResp, error) {
+	tokenResp, err := Call(ctx, u.Pacer, "UploadGetTokenReader", defaultMaxRetries, func() (*UploadGetTokenResp, error) {
 		return client.UploadGetToken(ctx)
 	})
 	if err != nil {
@@ -571,8 +658,8 @@ func (u *Uploader) UploadFile(ctx context.Context, localPath string, remotePath 
 	if err != nil {
 		return err
 	}
-	initResp, err := Call(ctx, u.Pacer, "UploadInit", defaultMaxRetries, func() (*sdk.UploadInitResp, error) {
-		return client.UploadInit(ctx, &sdk.UploadInitReq{
+	initResp, err := Call(ctx, u.Pacer, "UploadInit", defaultMaxRetries, func() (*UploadInitResp, error) {
+		return client.UploadInit(ctx, &UploadInitReq{
 			FileName: fileName,
 			FileSize: size,
 			Target:   dirID,
@@ -591,8 +678,8 @@ func (u *Uploader) UploadFile(ctx context.Context, localPath string, remotePath 
 		if err != nil {
 			return err
 		}
-		initResp, err = Call(ctx, u.Pacer, "UploadInitSign", defaultMaxRetries, func() (*sdk.UploadInitResp, error) {
-			return client.UploadInit(ctx, &sdk.UploadInitReq{
+		initResp, err = Call(ctx, u.Pacer, "UploadInitSign", defaultMaxRetries, func() (*UploadInitResp, error) {
+			return client.UploadInit(ctx, &UploadInitReq{
 				FileName: fileName,
 				FileSize: size,
 				Target:   dirID,
@@ -609,7 +696,7 @@ func (u *Uploader) UploadFile(ctx context.Context, localPath string, remotePath 
 			return nil
 		}
 	}
-	tokenResp, err := Call(ctx, u.Pacer, "UploadGetToken", defaultMaxRetries, func() (*sdk.UploadGetTokenResp, error) {
+	tokenResp, err := Call(ctx, u.Pacer, "UploadGetToken", defaultMaxRetries, func() (*UploadGetTokenResp, error) {
 		return client.UploadGetToken(ctx)
 	})
 	if err != nil {

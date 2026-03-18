@@ -16,4 +16,5 @@ type FileRecord struct {
 	RemotePath        string
 	EncryptionVersion string
 	ContentSHA256     string
+	PendingDeleteAt   int64 // Unix timestamp; 0 = not pending
 }

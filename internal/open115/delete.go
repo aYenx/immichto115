@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	sdk "github.com/xhofe/115-sdk-go"
 )
 
 type remoteEntryRef struct {
@@ -74,8 +72,9 @@ func (u *Uploader) DeleteRemote(ctx context.Context, remotePath string) error {
 		return err
 	}
 	return CallNoReturn(ctx, u.Pacer, "DelFile", defaultMaxRetries, func() error {
-		_, err := client.DelFile(ctx, &sdk.DelFileReq{FileIDs: entry.ID, ParentID: entry.ParentID})
+		_, err := client.DelFile(ctx, &DelFileReq{FileIDs: entry.ID, ParentID: entry.ParentID})
 		return err
 	})
 }
+
 

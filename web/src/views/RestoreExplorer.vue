@@ -103,13 +103,13 @@ import {
   LucideFile,
   LucideFileJson
 } from 'lucide-vue-next'
-import { api, getErrorMessage, handleAuthFailure, type DirEntry, type AppConfig } from '../api'
+import { api, getErrorMessage, handleAuthFailure, type DirEntry, type SafeConfigResponse } from '../api'
 import { showToast } from '../composables/toast'
 
 const currentPath = ref('')
 const isLoading = ref(false)
 const items = ref<DirEntry[]>([])
-const config = ref<AppConfig | null>(null)
+const config = ref<SafeConfigResponse | null>(null)
 const backendLabel = computed(() => config.value?.provider === 'open115' ? '115 Open' : 'WebDAV / Rclone')
 
 

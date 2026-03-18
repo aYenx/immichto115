@@ -18,11 +18,11 @@
         <button class="btn secondary" @click="openSettings">
           编辑配置
         </button>
-        <button class="btn secondary" @click="stopBackup" :disabled="systemStatus?.backup_status !== 'running'">
+        <button class="btn secondary" @click="stopBackup" :disabled="!isBackupRunning">
           <LucidePause :size="16" />
           停止备份
         </button>
-        <button class="btn primary" @click="startBackup" :disabled="systemStatus?.backup_status === 'running'">
+        <button class="btn primary" @click="startBackup" :disabled="isBackupRunning">
           <LucidePlay :size="16" />
           立即备份
         </button>
@@ -97,6 +97,12 @@
         </div>
       </div>
     </div>
+
+    <!-- Version Footer -->
+    <div v-if="systemStatus?.version" class="version-footer">
+      {{ systemStatus.version }}
+      <span v-if="systemStatus.commit && systemStatus.commit !== 'unknown'">({{ systemStatus.commit.slice(0, 7) }})</span>
+    </div>
   </div>
 </template>
 
@@ -115,13 +121,14 @@ import {
   LucideWifiOff
 } from 'lucide-vue-next'
 import { api, getErrorMessage, handleAuthFailure, type SystemStatus } from '../api'
+import { BackupStatus, Provider } from '../constants'
 import { showToast } from '../composables/toast'
 
 const MAX_LOGS = 200
 let logIdCounter = 0
 
 const systemStatus = ref<SystemStatus | null>(null)
-const provider = ref<'webdav' | 'open115'>('webdav')
+const provider = ref<'webdav' | 'open115'>(Provider.WebDAV)
 const logs = ref<Array<{ id: number, time: string, text: string }>>([])
 const lastStatusSnapshot = ref('')
 const suppressStatusDetail = ref(false)
@@ -131,6 +138,8 @@ const wsConnected = ref(false)
 const apiReachable = ref(true)
 let scrollRAF: number | null = null
 const router = useRouter()
+
+const isBackupRunning = computed(() => systemStatus.value?.backup_status === BackupStatus.Running)
 
 const greeting = computed(() => {
   const hour = new Date().getHours()
@@ -187,7 +196,7 @@ const latestStatusLogText = computed(() => {
 const backupPhase = computed<'idle' | 'preparing' | 'library' | 'database' | 'stopping' | 'success' | 'partial' | 'failed'>(() => {
   const phase = derivePhaseFromText(latestStatusLogText.value)
   if (phase) return phase
-  if (systemStatus.value?.backup_status === 'running') return 'preparing'
+  if (systemStatus.value?.backup_status === BackupStatus.Running) return 'preparing'
   return 'idle'
 })
 
@@ -219,7 +228,7 @@ const backupPhaseTone = computed(() => {
 
 const storageBackendStatus = computed(() => {
   const effectiveProvider = systemStatus.value?.provider || provider.value
-  if (effectiveProvider === 'open115') {
+  if (effectiveProvider === Provider.Open115) {
     return 'Open115 可用'
   }
   if (latestLogText.value.toLowerCase().includes('open115') || latestStatusLogText.value.toLowerCase().includes('open115')) {
@@ -230,7 +239,7 @@ const storageBackendStatus = computed(() => {
 
 const backupStatusText = computed(() => {
   if (backupPhase.value === 'idle') {
-    return systemStatus.value?.backup_status === 'running' ? '备份中...' : '空闲'
+    return systemStatus.value?.backup_status === BackupStatus.Running ? '备份中...' : '空闲'
   }
   return backupPhaseLabel.value
 })
@@ -797,6 +806,15 @@ onUnmounted(() => {
   .actions {
     width: 100%;
   }
+
+.version-footer {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+  opacity: 0.5;
+  font-family: 'Consolas', 'Monaco', monospace;
+  padding-top: 8px;
+}
 
   .actions .btn {
     flex: 1;
