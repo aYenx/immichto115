@@ -208,8 +208,8 @@
               :src="lightboxSrc"
               :alt="lightboxItem?.name"
               class="lb-image"
-              @load="lightboxLoading = false"
-              @error="lightboxLoading = false"
+              @load="onLightboxLoad"
+              @error="onLightboxError"
             />
           </div>
 
@@ -259,10 +259,8 @@ const lightboxOpen = ref(false)
 const lightboxIndex = ref(0)
 const lightboxLoading = ref(false)
 const downloading = ref(false)
-const lightboxBlobUrl = ref('')
-
-// Blob URL tracking for cleanup
-const activeBlobUrls: string[] = []
+const lightboxSrc = ref('')
+const lightboxFallbackSrc = ref('')
 
 // Settings
 const GALLERY_ROOT_KEY = 'gallery_root_path'
@@ -293,8 +291,6 @@ const lightboxItem = computed(() => {
   return imgs[lightboxIndex.value] ?? null
 })
 
-const lightboxSrc = computed(() => lightboxBlobUrl.value)
-
 const dirBrowserSegments = computed(() => {
   const p = dirBrowserPath.value.replace(/^\/+|\/+$/g, '')
   return p ? p.split('/') : []
@@ -304,12 +300,23 @@ function isPreviewable(item: GalleryEntry): boolean {
   return Boolean(item.thumbnail || item.original_url)
 }
 
+function shouldProxyImage(rawUrl: string): boolean {
+  return typeof window !== 'undefined'
+    && window.location.protocol === 'https:'
+    && rawUrl.startsWith('http://')
+}
+
+function getRenderableImageUrl(rawUrl: string, type: 'thumb' | 'original'): string {
+  if (!rawUrl) return ''
+  return shouldProxyImage(rawUrl) ? api.galleryProxyURL(rawUrl, type) : rawUrl
+}
+
 function getCardImagePrimaryUrl(item: GalleryEntry): string {
   if (item.thumbnail) {
-    return api.galleryProxyURL(item.thumbnail, 'thumb')
+    return getRenderableImageUrl(item.thumbnail, 'thumb')
   }
   if (item.original_url) {
-    return api.galleryProxyURL(item.original_url, 'original')
+    return getRenderableImageUrl(item.original_url, 'original')
   }
   return ''
 }
@@ -318,7 +325,7 @@ function getCardImageFallbackUrl(item: GalleryEntry): string {
   if (!item.thumbnail || !item.original_url) {
     return ''
   }
-  return api.galleryProxyURL(item.original_url, 'original')
+  return getRenderableImageUrl(item.original_url, 'original')
 }
 
 // ---------------------------------------------------------------------------
@@ -441,23 +448,25 @@ function selectDirBrowserPath() {
 }
 
 // ---------------------------------------------------------------------------
-// Lightbox image loading (fetch with auth)
+// Lightbox image loading
 // ---------------------------------------------------------------------------
-watch(lightboxItem, async (item) => {
-  if (lightboxBlobUrl.value) {
-    URL.revokeObjectURL(lightboxBlobUrl.value)
-    lightboxBlobUrl.value = ''
-  }
+watch(lightboxItem, (item) => {
+  lightboxSrc.value = ''
+  lightboxFallbackSrc.value = ''
   if (!item) return
   lightboxLoading.value = true
-  const rawUrl = item.original_url || item.thumbnail
-  if (!rawUrl) { lightboxLoading.value = false; return }
-  try {
-    const proxyUrl = api.galleryProxyURL(rawUrl, 'original')
-    lightboxBlobUrl.value = await fetchImage(proxyUrl)
-  } catch {
-    lightboxBlobUrl.value = ''
-  } finally {
+
+  if (item.original_url) {
+    lightboxSrc.value = getRenderableImageUrl(item.original_url, 'original')
+    if (item.thumbnail) {
+      lightboxFallbackSrc.value = getRenderableImageUrl(item.thumbnail, 'thumb')
+    }
+    return
+  }
+
+  if (item.thumbnail) {
+    lightboxSrc.value = getRenderableImageUrl(item.thumbnail, 'thumb')
+  } else {
     lightboxLoading.value = false
   }
 })
@@ -509,6 +518,8 @@ function openLightbox(imgIndex: number) {
 
 function closeLightbox() {
   lightboxOpen.value = false
+  lightboxSrc.value = ''
+  lightboxFallbackSrc.value = ''
 }
 
 function lightboxPrev() {
@@ -559,47 +570,36 @@ function onKeyDown(e: KeyboardEvent) {
 }
 
 // ---------------------------------------------------------------------------
-// Authenticated Image Loading
+// Image Loading
 // ---------------------------------------------------------------------------
-async function fetchImage(url: string): Promise<string> {
-  const resp = await fetch(url, { credentials: 'same-origin' })
-  if (!resp.ok) throw new Error(`Image fetch failed: ${resp.status}`)
-  const blob = await resp.blob()
-  const blobUrl = URL.createObjectURL(blob)
-  activeBlobUrls.push(blobUrl)
-  return blobUrl
-}
 
 function markImageLoadError(img: HTMLElement) {
   img.classList.add('error')
   img.classList.remove('lazy')
 }
 
-async function loadCardImage(img: HTMLImageElement) {
+function loadCardImage(img: HTMLImageElement) {
   const primaryUrl = img.dataset.src
-  const fallbackUrl = img.dataset.fallbackSrc
   if (!primaryUrl) return
 
   delete img.dataset.src
+  img.src = primaryUrl
+}
 
-  try {
-    img.src = await fetchImage(primaryUrl)
+function onLightboxLoad() {
+  lightboxLoading.value = false
+}
+
+function onLightboxError(e: Event) {
+  const img = e.target as HTMLImageElement
+  if (lightboxFallbackSrc.value) {
+    const fallbackUrl = lightboxFallbackSrc.value
+    lightboxFallbackSrc.value = ''
+    img.src = fallbackUrl
     return
-  } catch {
-    // Fall through to the original image when the thumbnail URL is missing or broken.
   }
-
-  if (fallbackUrl && fallbackUrl !== primaryUrl) {
-    delete img.dataset.fallbackSrc
-    try {
-      img.src = await fetchImage(fallbackUrl)
-      return
-    } catch {
-      // Ignore and mark the card as failed below.
-    }
-  }
-
-  markImageLoadError(img)
+  lightboxLoading.value = false
+  lightboxSrc.value = ''
 }
 
 // ---------------------------------------------------------------------------
@@ -629,7 +629,13 @@ function onThumbLoad(e: Event) {
 }
 
 function onThumbError(e: Event) {
-  const img = e.target as HTMLElement
+  const img = e.target as HTMLImageElement
+  const fallbackUrl = img.dataset.fallbackSrc
+  if (fallbackUrl) {
+    delete img.dataset.fallbackSrc
+    img.src = fallbackUrl
+    return
+  }
   markImageLoadError(img)
 }
 
@@ -676,9 +682,7 @@ onMounted(async () => {
         if (entry.isIntersecting) {
           const img = entry.target as HTMLImageElement
           if (img.dataset.src) {
-            loadCardImage(img).catch(() => {
-              markImageLoadError(img)
-            })
+            loadCardImage(img)
           }
           imageObserver?.unobserve(img)
         }
@@ -717,12 +721,6 @@ onUnmounted(() => {
   document.removeEventListener('keydown', onKeyDown)
   imageObserver?.disconnect()
   sentinelObserver?.disconnect()
-  // Clean up blob URLs
-  activeBlobUrls.forEach(url => URL.revokeObjectURL(url))
-  activeBlobUrls.length = 0
-  if (lightboxBlobUrl.value) {
-    URL.revokeObjectURL(lightboxBlobUrl.value)
-  }
 })
 </script>
 
