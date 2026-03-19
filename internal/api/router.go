@@ -1702,11 +1702,18 @@ func (s *Server) handleGalleryProxy(c *gin.Context) {
 		maxBytes = 5 * 1024 * 1024 // 5MB
 	}
 
-	// 禁止跟随重定向
+	// 跟随重定向，但每一跳都必须命中白名单
 	httpClient := &http.Client{
 		Timeout: 30 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			target := req.URL.String()
+			if !isGalleryProxyHostAllowed(target) {
+				return fmt.Errorf("redirect to non-whitelisted host: %s", req.URL.Hostname())
+			}
+			return nil
 		},
 	}
 
@@ -1715,7 +1722,12 @@ func (s *Server) handleGalleryProxy(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 URL"})
 		return
 	}
-	proxyReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	// 透传请求 UA，部分 CDN 依赖 UA 判断
+	ua := c.Request.UserAgent()
+	if ua == "" {
+		ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+	}
+	proxyReq.Header.Set("User-Agent", ua)
 
 	resp, err := httpClient.Do(proxyReq)
 	if err != nil {
