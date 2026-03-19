@@ -101,11 +101,12 @@
             </div>
           </template>
 
-          <!-- Image with thumbnail -->
-          <template v-else-if="item.thumbnail">
+          <!-- Previewable image -->
+          <template v-else-if="isPreviewable(item)">
             <div class="card-thumb">
               <img
-                :data-src="api.galleryProxyURL(item.thumbnail, 'thumb')"
+                :data-src="getCardImagePrimaryUrl(item)"
+                :data-fallback-src="getCardImageFallbackUrl(item)"
                 :alt="item.name"
                 class="thumb-img lazy"
                 loading="lazy"
@@ -285,7 +286,7 @@ const pathSegments = computed(() => {
   return p ? p.split('/') : []
 })
 
-const imageItems = computed(() => items.value.filter(i => !i.is_dir && (i.thumbnail || i.original_url)))
+const imageItems = computed(() => items.value.filter(i => !i.is_dir && isPreviewable(i)))
 
 const lightboxItem = computed(() => {
   const imgs = imageItems.value
@@ -298,6 +299,27 @@ const dirBrowserSegments = computed(() => {
   const p = dirBrowserPath.value.replace(/^\/+|\/+$/g, '')
   return p ? p.split('/') : []
 })
+
+function isPreviewable(item: GalleryEntry): boolean {
+  return Boolean(item.thumbnail || item.original_url)
+}
+
+function getCardImagePrimaryUrl(item: GalleryEntry): string {
+  if (item.thumbnail) {
+    return api.galleryProxyURL(item.thumbnail, 'thumb')
+  }
+  if (item.original_url) {
+    return api.galleryProxyURL(item.original_url, 'original')
+  }
+  return ''
+}
+
+function getCardImageFallbackUrl(item: GalleryEntry): string {
+  if (!item.thumbnail || !item.original_url) {
+    return ''
+  }
+  return api.galleryProxyURL(item.original_url, 'original')
+}
 
 // ---------------------------------------------------------------------------
 // Data Loading
@@ -444,7 +466,7 @@ function onCardClick(item: GalleryEntry, _index: number) {
   if (item.is_dir) {
     const target = currentPath.value.replace(/\/+$/, '') + '/' + item.name
     navigateTo(target)
-  } else if (item.thumbnail || item.original_url) {
+  } else if (isPreviewable(item)) {
     // Previewable: open in lightbox
     const imgs = imageItems.value
     const imgIdx = imgs.findIndex(i => i.id === item.id)
@@ -548,6 +570,38 @@ async function fetchImage(url: string): Promise<string> {
   return blobUrl
 }
 
+function markImageLoadError(img: HTMLElement) {
+  img.classList.add('error')
+  img.classList.remove('lazy')
+}
+
+async function loadCardImage(img: HTMLImageElement) {
+  const primaryUrl = img.dataset.src
+  const fallbackUrl = img.dataset.fallbackSrc
+  if (!primaryUrl) return
+
+  delete img.dataset.src
+
+  try {
+    img.src = await fetchImage(primaryUrl)
+    return
+  } catch {
+    // Fall through to the original image when the thumbnail URL is missing or broken.
+  }
+
+  if (fallbackUrl && fallbackUrl !== primaryUrl) {
+    delete img.dataset.fallbackSrc
+    try {
+      img.src = await fetchImage(fallbackUrl)
+      return
+    } catch {
+      // Ignore and mark the card as failed below.
+    }
+  }
+
+  markImageLoadError(img)
+}
+
 // ---------------------------------------------------------------------------
 // Lazy Loading (IntersectionObserver)
 // ---------------------------------------------------------------------------
@@ -576,8 +630,7 @@ function onThumbLoad(e: Event) {
 
 function onThumbError(e: Event) {
   const img = e.target as HTMLElement
-  img.classList.add('error')
-  img.classList.remove('lazy')
+  markImageLoadError(img)
 }
 
 // ---------------------------------------------------------------------------
@@ -622,14 +675,9 @@ onMounted(async () => {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
           const img = entry.target as HTMLImageElement
-          const src = img.dataset.src
-          if (src) {
-            delete img.dataset.src
-            fetchImage(src).then(blobUrl => {
-              img.src = blobUrl
-            }).catch(() => {
-              img.classList.add('error')
-              img.classList.remove('lazy')
+          if (img.dataset.src) {
+            loadCardImage(img).catch(() => {
+              markImageLoadError(img)
             })
           }
           imageObserver?.unobserve(img)
