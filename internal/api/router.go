@@ -1615,8 +1615,8 @@ func (s *Server) handleGalleryList(c *gin.Context) {
 		O:       "file_name",
 	}
 	if !req.DirOnly {
-		sdkReq.Type = "2"  // 只查图片
-		sdkReq.Stdir = 1   // 筛选文件时仍显示文件夹
+		sdkReq.Type = "2" // 只查图片
+		sdkReq.Stdir = 1  // 筛选文件时仍显示文件夹
 	}
 
 	resp, err := open115.Call(c.Request.Context(), pacer, "GalleryGetFiles", 6, func() (*open115.GetFilesResp, error) {
@@ -1743,6 +1743,12 @@ func (s *Server) handleGalleryProxy(c *gin.Context) {
 		ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 	}
 	proxyReq.Header.Set("User-Agent", ua)
+	proxyReq.Header.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+	proxyReq.Header.Set("Referer", "https://115.com/")
+	proxyReq.Header.Set("Origin", "https://115.com")
+	if acceptLanguage := strings.TrimSpace(c.GetHeader("Accept-Language")); acceptLanguage != "" {
+		proxyReq.Header.Set("Accept-Language", acceptLanguage)
+	}
 
 	resp, err := httpClient.Do(proxyReq)
 	if err != nil {
@@ -1878,4 +1884,3 @@ func (s *Server) handleGalleryDownloadURL(c *gin.Context) {
 		return
 	}
 }
-
