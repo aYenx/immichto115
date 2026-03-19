@@ -691,11 +691,11 @@ export const api = {
 
   // --- Gallery (云盘相册) ---
 
-  galleryList: async (path: string, dirId?: string, offset = 0, limit = 50): Promise<GalleryListResponse> => {
+  galleryList: async (path: string, dirId?: string, offset = 0, limit = 50, dirOnly = false): Promise<GalleryListResponse> => {
     return await requestJSON<GalleryListResponse>(`${BASE_URL}/gallery/ls`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path, dir_id: dirId || '', offset, limit }),
+      body: JSON.stringify({ path, dir_id: dirId || '', offset, limit, dir_only: dirOnly }),
     })
   },
 

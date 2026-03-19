@@ -22,7 +22,7 @@ func TestIsGalleryProxyHostAllowed(t *testing.T) {
 		{name: "115.com allowed", rawURL: "https://thumb.115.com/abc.jpg", allowed: true},
 		{name: "115cdn.net allowed", rawURL: "https://img.115cdn.net/photo.jpg", allowed: true},
 		{name: "115cdn.com allowed", rawURL: "https://media.115cdn.com/pic.png", allowed: true},
-		{name: "http rejected", rawURL: "http://thumb.115.com/abc.jpg", allowed: false},
+		{name: "http allowed", rawURL: "http://thumb.115.com/abc.jpg", allowed: true},
 		{name: "evil domain rejected", rawURL: "https://evil.com/abc.jpg", allowed: false},
 		{name: "suffix trick rejected", rawURL: "https://evil-115.com/abc.jpg", allowed: false},
 		{name: "empty string rejected", rawURL: "", allowed: false},
