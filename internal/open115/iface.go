@@ -18,11 +18,12 @@ type (
 	UploadInitResp     = sdk.UploadInitResp
 	UploadGetTokenResp = sdk.UploadGetTokenResp
 	MkdirResp          = sdk.MkdirResp
-	DelFileReq = sdk.DelFileReq
+	DelFileReq         = sdk.DelFileReq
 	UserInfoResp       = sdk.UserInfoResp
 	AuthDeviceCodeResp = sdk.AuthDeviceCodeResp
 	QrCodeStatusResp   = sdk.QrCodeStatusResp
 	CodeToTokenResp    = sdk.CodeToTokenResp
+	DownURLResp        = sdk.DownURLResp
 )
 
 // Open115API 定义 115 Open SDK 的最小方法集。
@@ -54,4 +55,7 @@ type Open115API interface {
 
 	// 换取 Token
 	CodeToToken(ctx context.Context, uid string, codeVerifier string) (*CodeToTokenResp, error)
+
+	// 获取文件下载链接
+	DownURL(ctx context.Context, pickCode string, ua string) (DownURLResp, error)
 }

@@ -51,6 +51,13 @@ const router = createRouter({
             () => import("./views/PhotoUpload.vue"),
           ),
         },
+        {
+          path: "gallery",
+          name: "gallery",
+          component: defineAsyncComponent(
+            () => import("./views/CloudGallery.vue"),
+          ),
+        },
       ],
     },
   ],

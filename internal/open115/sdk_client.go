@@ -51,3 +51,7 @@ func (c *sdkClient) QrCodeStatus(ctx context.Context, uid string, time string, s
 func (c *sdkClient) CodeToToken(ctx context.Context, uid string, codeVerifier string) (*CodeToTokenResp, error) {
 	return c.raw.CodeToToken(ctx, uid, codeVerifier)
 }
+
+func (c *sdkClient) DownURL(ctx context.Context, pickCode string, ua string) (DownURLResp, error) {
+	return c.raw.DownURL(ctx, pickCode, ua)
+}
