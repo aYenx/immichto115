@@ -20,7 +20,28 @@
             <button class="action-btn" @click="refresh" :disabled="loading" title="刷新">
               <LucideRefreshCw :size="18" :class="{ spinning: loading }" />
             </button>
+            <button class="action-btn" @click="showSettings = !showSettings" title="设置">
+              <LucideSettings :size="18" />
+            </button>
           </div>
+
+          <!-- Settings popover -->
+          <Transition name="popover">
+            <div v-if="showSettings" class="settings-popover">
+              <label class="settings-label">浏览根目录</label>
+              <p class="settings-hint">设置Gallery默认浏览的目录路径</p>
+              <div class="settings-input-row">
+                <input
+                  v-model="galleryRootInput"
+                  type="text"
+                  class="settings-input"
+                  placeholder="/ (默认根目录)"
+                  @keydown.enter="applyGalleryRoot"
+                />
+                <button class="settings-apply-btn" @click="applyGalleryRoot">应用</button>
+              </div>
+            </div>
+          </Transition>
         </div>
 
         <!-- Breadcrumb -->
@@ -172,7 +193,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import {
   LucideImage, LucideImageOff, LucideFolder, LucideFileLock, LucideRefreshCw,
   LucideHome, LucideChevronRight, LucideChevronLeft, LucideX, LucideDownload,
-  LucideAlertCircle, LucideShieldAlert
+  LucideAlertCircle, LucideShieldAlert, LucideSettings
 } from 'lucide-vue-next'
 import { api, handleAuthFailure } from '../api'
 import type { GalleryEntry } from '../api'
@@ -194,11 +215,16 @@ const PAGE_SIZE = 50
 
 const sentinelRef = ref<HTMLElement | null>(null)
 
-// Lightbox
 const lightboxOpen = ref(false)
 const lightboxIndex = ref(0)
 const lightboxLoading = ref(false)
 const downloading = ref(false)
+
+// Settings
+const GALLERY_ROOT_KEY = 'gallery_root_path'
+const showSettings = ref(false)
+const galleryRoot = ref(localStorage.getItem(GALLERY_ROOT_KEY) || '/')
+const galleryRootInput = ref(galleryRoot.value)
 
 // ---------------------------------------------------------------------------
 // Computed
@@ -294,6 +320,15 @@ function navigateTo(path: string) {
 function navigateToSegment(index: number) {
   const segs = pathSegments.value.slice(0, index + 1)
   navigateTo('/' + segs.join('/'))
+}
+
+function applyGalleryRoot() {
+  const raw = galleryRootInput.value.trim()
+  const newRoot = raw.startsWith('/') ? raw : '/' + raw
+  galleryRoot.value = newRoot
+  localStorage.setItem(GALLERY_ROOT_KEY, newRoot)
+  showSettings.value = false
+  navigateTo(newRoot)
 }
 
 function onCardClick(item: GalleryEntry, _index: number) {
@@ -457,6 +492,9 @@ onMounted(async () => {
   await checkProvider()
   if (providerError.value) return
 
+  // Use persisted gallery root as initial path
+  currentPath.value = galleryRoot.value
+
   // Image lazy loader
   imageObserver = new IntersectionObserver(
     (entries) => {
@@ -574,6 +612,85 @@ onUnmounted(() => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Settings popover */
+.settings-popover {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 16px;
+  min-width: 320px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  z-index: 50;
+}
+
+.settings-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.settings-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+}
+
+.settings-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-input {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.settings-input:focus {
+  border-color: var(--accent);
+}
+
+.settings-apply-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  white-space: nowrap;
+}
+
+.settings-apply-btn:hover {
+  opacity: 0.85;
+}
+
+.popover-enter-active, .popover-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.popover-enter-from, .popover-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+.gallery-title-row {
+  position: relative;
 }
 
 /* Breadcrumb */
