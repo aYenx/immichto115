@@ -760,6 +760,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+  padding-right: 56px;
 }
 
 .gallery-title {
@@ -1396,6 +1397,10 @@ onUnmounted(() => {
 @media (max-width: 768px) {
   .gallery-page {
     padding: 16px;
+  }
+
+  .gallery-title-row {
+    padding-right: 48px;
   }
 
   .gallery-grid {
