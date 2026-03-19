@@ -14,6 +14,7 @@ type MockClient struct {
 	AuthDeviceCodeFunc func(ctx context.Context, clientID string, codeVerifier string) (*AuthDeviceCodeResp, error)
 	QrCodeStatusFunc   func(ctx context.Context, uid string, time string, sign string) (*QrCodeStatusResp, error)
 	CodeToTokenFunc    func(ctx context.Context, uid string, codeVerifier string) (*CodeToTokenResp, error)
+	DownURLFunc        func(ctx context.Context, pickCode string, ua string) (DownURLResp, error)
 }
 
 // compile-time check
@@ -53,4 +54,8 @@ func (m *MockClient) QrCodeStatus(ctx context.Context, uid string, time string, 
 
 func (m *MockClient) CodeToToken(ctx context.Context, uid string, codeVerifier string) (*CodeToTokenResp, error) {
 	return m.CodeToTokenFunc(ctx, uid, codeVerifier)
+}
+
+func (m *MockClient) DownURL(ctx context.Context, pickCode string, ua string) (DownURLResp, error) {
+	return m.DownURLFunc(ctx, pickCode, ua)
 }

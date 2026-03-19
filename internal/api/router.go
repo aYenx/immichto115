@@ -5,12 +5,15 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -581,6 +584,11 @@ func (s *Server) SetupRouter() *gin.Engine {
 		v1.POST("/photo-upload/start", s.handlePhotoUploadStart)
 		v1.POST("/photo-upload/stop", s.handlePhotoUploadStop)
 		v1.GET("/photo-upload/status", s.handlePhotoUploadStatus)
+
+		// 云盘相册 Gallery
+		v1.POST("/gallery/ls", s.handleGalleryList)
+		v1.GET("/gallery/proxy", s.handleGalleryProxy)
+		v1.POST("/gallery/download-url", s.handleGalleryDownloadURL)
 	}
 
 	// --- WebSocket（使用 auth 中间件保护）---
@@ -1522,3 +1530,325 @@ func (s *Server) handleAuthCSRF(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"csrf_token": claims.CSRF})
 }
+
+// ---------------------------------------------------------------------------
+// Gallery (云盘相册) Handlers
+// ---------------------------------------------------------------------------
+
+// GalleryEntry 是 Gallery 专用的 DTO，不复用 backup.RemoteEntry。
+type GalleryEntry struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	IsDir       bool   `json:"is_dir"`
+	Size        int64  `json:"size"`
+	ModTime     string `json:"mod_time"`
+	PickCode    string `json:"pick_code,omitempty"`
+	Thumbnail   string `json:"thumbnail,omitempty"`
+	OriginalURL string `json:"original_url,omitempty"`
+	FileType    string `json:"file_type,omitempty"`
+}
+
+// handleGalleryList 列目录（真分页，SDK 层过滤图片）。
+// POST /api/v1/gallery/ls
+func (s *Server) handleGalleryList(c *gin.Context) {
+	var req struct {
+		Path   string `json:"path"`
+		DirID  string `json:"dir_id"`
+		Offset int64  `json:"offset"`
+		Limit  int64  `json:"limit"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	// 检查 provider
+	cfg := s.Config.Get()
+	if cfg.Provider != "open115" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Gallery 仅支持 open115 模式"})
+		return
+	}
+	if s.Open115 == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "open115 服务未初始化"})
+		return
+	}
+
+	// 默认和上限
+	if req.Limit <= 0 {
+		req.Limit = 50
+	}
+	if req.Limit > 200 {
+		req.Limit = 200
+	}
+
+	// 解析 dir_id：优先用前端传来的游标，否则走路径解析
+	dirID := strings.TrimSpace(req.DirID)
+	if dirID == "" {
+		remotePath := strings.TrimSpace(req.Path)
+		if remotePath == "" {
+			remotePath = "/"
+		}
+		uploader := open115.NewUploader(s.Open115)
+		resolvedID, err := uploader.ResolveDirID(c.Request.Context(), remotePath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": sanitizeError(err)})
+			return
+		}
+		dirID = resolvedID
+	}
+
+	// 真分页：直接调 SDK GetFiles，Type="2"(图片) + ShowDir
+	client, err := s.Open115.Client()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": sanitizeError(err)})
+		return
+	}
+	pacer := open115.NewPacer()
+	resp, err := open115.Call(c.Request.Context(), pacer, "GalleryGetFiles", 6, func() (*open115.GetFilesResp, error) {
+		return client.GetFiles(c.Request.Context(), &open115.GetFilesReq{
+			CID:     dirID,
+			Limit:   req.Limit,
+			Offset:  req.Offset,
+			Type:    "2",
+			ShowDir: true,
+			ASC:     true,
+			O:       "file_name",
+		})
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": sanitizeError(err)})
+		return
+	}
+
+	// 构建父路径（用于 GalleryEntry.Path）
+	parentPath := strings.TrimSpace(req.Path)
+	if parentPath == "" {
+		parentPath = "/"
+	}
+	parentPath = strings.TrimRight(parentPath, "/")
+
+	// 映射为 GalleryEntry
+	items := make([]GalleryEntry, 0, len(resp.Data))
+	for _, item := range resp.Data {
+		entry := GalleryEntry{
+			ID:       item.Fid,
+			Name:     item.Fn,
+			Path:     parentPath + "/" + item.Fn,
+			IsDir:    item.Fc == "0",
+			Size:     item.FS,
+			ModTime:  time.Unix(item.Upt, 0).Format(time.RFC3339),
+			PickCode: item.Pc,
+			FileType: item.Ico,
+		}
+		if item.Thumbnail != "" {
+			entry.Thumbnail = item.Thumbnail
+		}
+		if item.Uo != "" {
+			entry.OriginalURL = item.Uo
+		}
+		items = append(items, entry)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"items":  items,
+		"total":  resp.Count,
+		"dir_id": dirID,
+	})
+}
+
+// galleryProxyAllowedHosts 是允许代理的 115 CDN 域名后缀。
+var galleryProxyAllowedHosts = []string{
+	".115.com",
+	".115cdn.net",
+	".115cdn.com",
+}
+
+// isGalleryProxyHostAllowed 检查 URL 的 host 是否在白名单内。
+func isGalleryProxyHostAllowed(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme != "https" {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	for _, suffix := range galleryProxyAllowedHosts {
+		if strings.HasSuffix(host, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// handleGalleryProxy 代理 115 CDN 的缩略图/原图请求。
+// GET /api/v1/gallery/proxy?url=<encoded>&type=thumb|original
+func (s *Server) handleGalleryProxy(c *gin.Context) {
+	rawURL := c.Query("url")
+	proxyType := c.DefaultQuery("type", "thumb")
+
+	if rawURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "url 参数不能为空"})
+		return
+	}
+
+	// 安全：白名单域名检查
+	if !isGalleryProxyHostAllowed(rawURL) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "不允许代理此域名"})
+		return
+	}
+
+	// 大小限制
+	var maxBytes int64
+	switch proxyType {
+	case "original":
+		maxBytes = 200 * 1024 * 1024 // 200MB
+	default:
+		maxBytes = 5 * 1024 * 1024 // 5MB
+	}
+
+	// 禁止跟随重定向
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	proxyReq, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, rawURL, nil)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 URL"})
+		return
+	}
+	proxyReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+	resp, err := httpClient.Do(proxyReq)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "上游请求失败"})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("上游返回 %d", resp.StatusCode)})
+		return
+	}
+
+	// 检查 Content-Type
+	ct := resp.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "image/") {
+		c.JSON(http.StatusForbidden, gin.H{"error": "上游响应不是图片类型"})
+		return
+	}
+
+	// Content-Length 前置判定
+	if cl := resp.Header.Get("Content-Length"); cl != "" {
+		size, parseErr := strconv.ParseInt(cl, 10, 64)
+		if parseErr == nil && size > maxBytes {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{
+				"error": fmt.Sprintf("文件大小 %d 字节超过上限 %d 字节", size, maxBytes),
+			})
+			return
+		}
+	}
+
+	// 流式转发，检测截断
+	// 策略：读取 maxBytes+1，如果实际读到 > maxBytes 则说明超限。
+	// 先在内存中缓冲少量数据（缩略图 ≤5MB），或流式分块（原图 ≤200MB）。
+	limitedReader := io.LimitReader(resp.Body, maxBytes+1)
+	buf := make([]byte, 32*1024) // 32KB read buffer
+	var totalRead int64
+
+	// 先尝试读第一个 chunk，确认不会立刻超限
+	n, readErr := limitedReader.Read(buf)
+	if n == 0 && readErr != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "上游读取失败"})
+		return
+	}
+
+	// 设置响应头并写第一个 chunk
+	c.Header("Content-Type", ct)
+	c.Header("Cache-Control", "private, max-age=3600")
+	if cl := resp.Header.Get("Content-Length"); cl != "" {
+		c.Header("Content-Length", cl)
+	}
+	c.Status(http.StatusOK)
+	_, _ = c.Writer.Write(buf[:n])
+	totalRead += int64(n)
+
+	if readErr == nil {
+		// 继续复制剩余数据
+		copied, _ := io.Copy(c.Writer, limitedReader)
+		totalRead += copied
+	}
+
+	// 如果读了 maxBytes+1 字节，说明实际文件超过上限 → 连接被截断
+	// 此时 HTTP 头已发送无法改状态码，但 body 不完整，浏览器/Fetch 会
+	// 因 Content-Length 不匹配或连接异常中断而报网络错误，而非静默渲染坏图。
+	if totalRead > maxBytes {
+		// 不输出完整的超大图片，通过在 body 末尾截断来让客户端检测到错误。
+		// 注意：此时我们故意不 Flush，让连接异常关闭。
+		c.Abort()
+		return
+	}
+}
+
+// handleGalleryDownloadURL 换取文件下载链接。
+// POST /api/v1/gallery/download-url
+func (s *Server) handleGalleryDownloadURL(c *gin.Context) {
+	var req struct {
+		PickCode string `json:"pick_code"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": sanitizeError(err)})
+		return
+	}
+	pickCode := strings.TrimSpace(req.PickCode)
+	if pickCode == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "pick_code 不能为空"})
+		return
+	}
+
+	cfg := s.Config.Get()
+	if cfg.Provider != "open115" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "此功能仅支持 open115 模式"})
+		return
+	}
+	if s.Open115 == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "open115 服务未初始化"})
+		return
+	}
+
+	client, err := s.Open115.Client()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": sanitizeError(err)})
+		return
+	}
+
+	// 透传请求的 User-Agent
+	ua := c.Request.UserAgent()
+	if ua == "" {
+		ua = "Mozilla/5.0"
+	}
+
+	pacer := open115.NewPacer()
+	downResp, err := open115.Call(c.Request.Context(), pacer, "DownURL", 6, func() (open115.DownURLResp, error) {
+		return client.DownURL(c.Request.Context(), pickCode, ua)
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": sanitizeError(err)})
+		return
+	}
+
+	// 严格断言：空 map → 400
+	if len(downResp) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无可用下载链接"})
+		return
+	}
+
+	// 取第一个（也是唯一一个）entry
+	for _, entry := range downResp {
+		c.JSON(http.StatusOK, gin.H{
+			"url":       entry.URL.URL,
+			"file_name": entry.FileName,
+			"file_size": entry.FileSize,
+		})
+		return
+	}
+}
+

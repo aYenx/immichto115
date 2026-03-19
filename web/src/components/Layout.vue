@@ -16,6 +16,10 @@
           <LucideHardDrive :size="20" />
           <span>云端目录</span>
         </router-link>
+        <router-link v-if="provider === 'open115'" to="/gallery" class="nav-item" active-class="active">
+          <LucideImage :size="20" />
+          <span>云盘相册</span>
+        </router-link>
         <router-link to="/settings" class="nav-item" active-class="active">
           <LucideSettings :size="20" />
           <span>设置</span>
@@ -53,6 +57,10 @@
         <LucideHardDrive :size="20" />
         <span>云端</span>
       </router-link>
+      <router-link v-if="provider === 'open115'" to="/gallery" class="tab-item" active-class="active">
+        <LucideImage :size="20" />
+        <span>相册</span>
+      </router-link>
       <router-link to="/settings" class="tab-item" active-class="active">
         <LucideSettings :size="20" />
         <span>设置</span>
@@ -67,10 +75,11 @@
 
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
-import { LucideLayout, LucideHardDrive, LucideSettings, LucideCamera, LucideSun, LucideMoon } from 'lucide-vue-next'
+import { LucideLayout, LucideHardDrive, LucideSettings, LucideCamera, LucideSun, LucideMoon, LucideImage } from 'lucide-vue-next'
 import { api, handleAuthFailure } from '../api'
 
 const serviceHealthy = ref(true)
+const provider = ref('')
 let statusTimer: ReturnType<typeof setInterval> | null = null
 
 // Theme toggle
@@ -94,8 +103,11 @@ const initTheme = () => {
 
 const checkServiceHealth = async () => {
   try {
-    await api.getSystemStatus()
+    const status = await api.getSystemStatus()
     serviceHealthy.value = true
+    if (status.provider) {
+      provider.value = status.provider
+    }
   } catch (error) {
     if (handleAuthFailure(error)) {
       return

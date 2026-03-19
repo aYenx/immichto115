@@ -418,6 +418,34 @@ export class ApiError extends Error {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Gallery (云盘相册) Types
+// ---------------------------------------------------------------------------
+export interface GalleryEntry {
+  id: string
+  name: string
+  path: string
+  is_dir: boolean
+  size: number
+  mod_time: string
+  pick_code?: string
+  thumbnail?: string
+  original_url?: string
+  file_type?: string
+}
+
+export interface GalleryListResponse {
+  items: GalleryEntry[]
+  total: number
+  dir_id: string
+}
+
+export interface GalleryDownloadResponse {
+  url: string
+  file_name: string
+  file_size: number
+}
+
 async function readErrorMessage(res: Response): Promise<string> {
   if (res.status === 401) {
     return AUTH_ERROR_MESSAGE
@@ -659,6 +687,28 @@ export const api = {
     const resp = await requestJSON<{ csrf_token: string }>(`${BASE_URL}/auth/csrf`)
     setCsrfToken(resp.csrf_token)
     return resp
+  },
+
+  // --- Gallery (云盘相册) ---
+
+  galleryList: async (path: string, dirId?: string, offset = 0, limit = 50): Promise<GalleryListResponse> => {
+    return await requestJSON<GalleryListResponse>(`${BASE_URL}/gallery/ls`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, dir_id: dirId || '', offset, limit }),
+    })
+  },
+
+  galleryProxyURL: (rawUrl: string, type: 'thumb' | 'original' = 'thumb'): string => {
+    return `${BASE_URL}/gallery/proxy?url=${encodeURIComponent(rawUrl)}&type=${type}`
+  },
+
+  galleryDownloadUrl: async (pickCode: string): Promise<GalleryDownloadResponse> => {
+    return await requestJSON<GalleryDownloadResponse>(`${BASE_URL}/gallery/download-url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pick_code: pickCode }),
+    })
   },
 }
 
