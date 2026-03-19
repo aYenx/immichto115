@@ -38,6 +38,7 @@
                   placeholder="/ (默认根目录)"
                   @keydown.enter="applyGalleryRoot"
                 />
+                <button class="settings-apply-btn" @click="openDirBrowser">浏览…</button>
                 <button class="settings-apply-btn" @click="applyGalleryRoot">应用</button>
               </div>
             </div>
@@ -146,6 +147,44 @@
 
     <!-- Lightbox -->
     <Teleport to="body">
+      <!-- Directory Browser Modal -->
+      <Transition name="lightbox">
+        <div v-if="dirBrowserOpen" class="lightbox-overlay" @click.self="closeDirBrowser">
+          <div class="dir-browser-modal">
+            <div class="dir-browser-header">
+              <h3>选择目录</h3>
+              <button class="lb-close-inline" @click="closeDirBrowser"><LucideX :size="20" /></button>
+            </div>
+            <div class="dir-browser-path">
+              <LucideHome :size="14" class="path-icon" @click="dirBrowserNavigate('/')" />
+              <template v-for="(seg, i) in dirBrowserSegments" :key="i">
+                <LucideChevronRight :size="12" class="path-sep" />
+                <span class="path-seg" @click="dirBrowserNavigateToSegment(i)">{{ seg }}</span>
+              </template>
+            </div>
+            <div class="dir-browser-list">
+              <div v-if="dirBrowserLoading" class="dir-browser-loading"><div class="loading-spinner small"></div></div>
+              <div v-else-if="dirBrowserItems.length === 0" class="dir-browser-empty">此目录下没有子文件夹</div>
+              <div
+                v-for="folder in dirBrowserItems"
+                :key="folder.name"
+                class="dir-browser-item"
+                @click="dirBrowserNavigate(dirBrowserPath + (dirBrowserPath.endsWith('/') ? '' : '/') + folder.name)"
+              >
+                <LucideFolder :size="18" />
+                <span>{{ folder.name }}</span>
+              </div>
+            </div>
+            <div class="dir-browser-footer">
+              <button class="settings-apply-btn" @click="selectDirBrowserPath">选择当前目录</button>
+              <button class="dir-browser-cancel" @click="closeDirBrowser">取消</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <Teleport to="body">
       <Transition name="lightbox">
         <div v-if="lightboxOpen" class="lightbox-overlay" @click.self="closeLightbox">
           <button class="lb-close" @click="closeLightbox" title="关闭 (ESC)">
@@ -219,12 +258,22 @@ const lightboxOpen = ref(false)
 const lightboxIndex = ref(0)
 const lightboxLoading = ref(false)
 const downloading = ref(false)
+const lightboxBlobUrl = ref('')
+
+// Blob URL tracking for cleanup
+const activeBlobUrls: string[] = []
 
 // Settings
 const GALLERY_ROOT_KEY = 'gallery_root_path'
 const showSettings = ref(false)
 const galleryRoot = ref(localStorage.getItem(GALLERY_ROOT_KEY) || '/')
 const galleryRootInput = ref(galleryRoot.value)
+
+// Directory browser
+const dirBrowserOpen = ref(false)
+const dirBrowserPath = ref('/')
+const dirBrowserItems = ref<{name: string; is_dir: boolean}[]>([])
+const dirBrowserLoading = ref(false)
 
 // ---------------------------------------------------------------------------
 // Computed
@@ -243,16 +292,11 @@ const lightboxItem = computed(() => {
   return imgs[lightboxIndex.value] ?? null
 })
 
-const lightboxSrc = computed(() => {
-  const item = lightboxItem.value
-  if (!item) return ''
-  if (item.original_url) {
-    return api.galleryProxyURL(item.original_url, 'original')
-  }
-  if (item.thumbnail) {
-    return api.galleryProxyURL(item.thumbnail, 'original')
-  }
-  return ''
+const lightboxSrc = computed(() => lightboxBlobUrl.value)
+
+const dirBrowserSegments = computed(() => {
+  const p = dirBrowserPath.value.replace(/^\/+|\/+$/g, '')
+  return p ? p.split('/') : []
 })
 
 // ---------------------------------------------------------------------------
@@ -330,6 +374,70 @@ function applyGalleryRoot() {
   showSettings.value = false
   navigateTo(newRoot)
 }
+
+// ---------------------------------------------------------------------------
+// Directory Browser
+// ---------------------------------------------------------------------------
+function openDirBrowser() {
+  dirBrowserPath.value = galleryRoot.value
+  dirBrowserOpen.value = true
+  loadDirBrowserItems()
+}
+
+function closeDirBrowser() {
+  dirBrowserOpen.value = false
+}
+
+async function loadDirBrowserItems() {
+  dirBrowserLoading.value = true
+  dirBrowserItems.value = []
+  try {
+    const resp = await api.galleryList(dirBrowserPath.value, undefined, 0, 500)
+    dirBrowserItems.value = resp.items.filter(i => i.is_dir)
+  } catch (e) {
+    if (handleAuthFailure(e)) return
+  } finally {
+    dirBrowserLoading.value = false
+  }
+}
+
+function dirBrowserNavigate(path: string) {
+  dirBrowserPath.value = path
+  loadDirBrowserItems()
+}
+
+function dirBrowserNavigateToSegment(index: number) {
+  const segs = dirBrowserSegments.value.slice(0, index + 1)
+  dirBrowserNavigate('/' + segs.join('/'))
+}
+
+function selectDirBrowserPath() {
+  galleryRootInput.value = dirBrowserPath.value
+  closeDirBrowser()
+  applyGalleryRoot()
+}
+
+// ---------------------------------------------------------------------------
+// Lightbox image loading (fetch with auth)
+// ---------------------------------------------------------------------------
+watch(lightboxItem, async (item) => {
+  if (lightboxBlobUrl.value) {
+    URL.revokeObjectURL(lightboxBlobUrl.value)
+    lightboxBlobUrl.value = ''
+  }
+  if (!item) return
+  lightboxLoading.value = true
+  const rawUrl = item.original_url || item.thumbnail
+  if (!rawUrl) { lightboxLoading.value = false; return }
+  try {
+    const proxyUrl = api.galleryProxyURL(rawUrl, 'original')
+    lightboxBlobUrl.value = await fetchImage(proxyUrl)
+  } catch {
+    lightboxBlobUrl.value = ''
+  } finally {
+    lightboxLoading.value = false
+  }
+})
 
 function onCardClick(item: GalleryEntry, _index: number) {
   if (item.is_dir) {
@@ -428,6 +536,18 @@ function onKeyDown(e: KeyboardEvent) {
 }
 
 // ---------------------------------------------------------------------------
+// Authenticated Image Loading
+// ---------------------------------------------------------------------------
+async function fetchImage(url: string): Promise<string> {
+  const resp = await fetch(url, { credentials: 'same-origin' })
+  if (!resp.ok) throw new Error(`Image fetch failed: ${resp.status}`)
+  const blob = await resp.blob()
+  const blobUrl = URL.createObjectURL(blob)
+  activeBlobUrls.push(blobUrl)
+  return blobUrl
+}
+
+// ---------------------------------------------------------------------------
 // Lazy Loading (IntersectionObserver)
 // ---------------------------------------------------------------------------
 let imageObserver: IntersectionObserver | null = null
@@ -503,8 +623,13 @@ onMounted(async () => {
           const img = entry.target as HTMLImageElement
           const src = img.dataset.src
           if (src) {
-            img.src = src
             delete img.dataset.src
+            fetchImage(src).then(blobUrl => {
+              img.src = blobUrl
+            }).catch(() => {
+              img.classList.add('error')
+              img.classList.remove('lazy')
+            })
           }
           imageObserver?.unobserve(img)
         }
@@ -543,6 +668,12 @@ onUnmounted(() => {
   document.removeEventListener('keydown', onKeyDown)
   imageObserver?.disconnect()
   sentinelObserver?.disconnect()
+  // Clean up blob URLs
+  activeBlobUrls.forEach(url => URL.revokeObjectURL(url))
+  activeBlobUrls.length = 0
+  if (lightboxBlobUrl.value) {
+    URL.revokeObjectURL(lightboxBlobUrl.value)
+  }
 })
 </script>
 
@@ -691,6 +822,121 @@ onUnmounted(() => {
 
 .gallery-title-row {
   position: relative;
+}
+
+/* Directory Browser Modal */
+.dir-browser-modal {
+  background: var(--bg-card);
+  border-radius: 16px;
+  width: 480px;
+  max-width: 90vw;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4);
+}
+
+.dir-browser-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.dir-browser-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.lb-close-inline {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: color 0.2s;
+}
+.lb-close-inline:hover { color: var(--text-primary); }
+
+.dir-browser-path {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 20px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-strong);
+  flex-wrap: wrap;
+}
+
+.dir-browser-path .path-icon {
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.dir-browser-path .path-icon:hover { color: var(--accent); }
+.dir-browser-path .path-sep { color: var(--text-muted); flex-shrink: 0; }
+.dir-browser-path .path-seg {
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.dir-browser-path .path-seg:hover { color: var(--accent); }
+
+.dir-browser-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 200px;
+  max-height: 400px;
+}
+
+.dir-browser-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 14px;
+  transition: background 0.15s;
+}
+.dir-browser-item:hover {
+  background: var(--bg-primary);
+}
+.dir-browser-item svg { color: var(--accent); flex-shrink: 0; }
+
+.dir-browser-loading, .dir-browser-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.dir-browser-footer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-strong);
+  justify-content: flex-end;
+}
+
+.dir-browser-cancel {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.dir-browser-cancel:hover {
+  color: var(--text-primary);
+  background: var(--bg-primary);
 }
 
 /* Breadcrumb */
