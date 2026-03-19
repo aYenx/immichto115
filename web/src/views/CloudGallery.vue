@@ -16,7 +16,7 @@
             云盘相册
           </h1>
           <div class="gallery-actions">
-            <span v-if="total >= 0" class="item-count">{{ total }} 项</span>
+            <span v-if="total >= 0" class="item-count">{{ itemCountText }}</span>
             <button class="action-btn" @click="refresh" :disabled="loading" title="刷新">
               <LucideRefreshCw :size="18" :class="{ spinning: loading }" />
             </button>
@@ -137,6 +137,12 @@
 
         <!-- Infinite scroll sentinel -->
         <div ref="sentinelRef" class="scroll-sentinel" v-if="hasMore"></div>
+
+        <div v-if="hasMore && !loadingMore" class="load-more-wrap">
+          <button class="load-more-btn" @click="loadMore">
+            加载更多
+          </button>
+        </div>
 
         <!-- Loading more indicator -->
         <div v-if="loadingMore" class="loading-more">
@@ -285,6 +291,8 @@ const pathSegments = computed(() => {
 })
 
 const imageItems = computed(() => items.value.filter(i => !i.is_dir && isPreviewable(i)))
+const loadedImageCount = computed(() => imageItems.value.length)
+const loadedFolderCount = computed(() => items.value.filter(i => i.is_dir).length)
 
 const lightboxItem = computed(() => {
   const imgs = imageItems.value
@@ -294,6 +302,17 @@ const lightboxItem = computed(() => {
 const dirBrowserSegments = computed(() => {
   const p = dirBrowserPath.value.replace(/^\/+|\/+$/g, '')
   return p ? p.split('/') : []
+})
+
+const itemCountText = computed(() => {
+  if (total.value < 0) return ''
+  const imageText = hasMore.value
+    ? `已加载 ${loadedImageCount.value} / ${total.value} 张图片`
+    : `${total.value} 张图片`
+  if (loadedFolderCount.value <= 0) {
+    return imageText
+  }
+  return `${imageText}，${loadedFolderCount.value} 个文件夹`
 })
 
 function isPreviewable(item: GalleryEntry): boolean {
@@ -1197,6 +1216,30 @@ onUnmounted(() => {
   font-size: 13px;
 }
 
+.load-more-wrap {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 4px;
+}
+
+.load-more-btn {
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.load-more-btn:hover {
+  background: var(--bg-primary);
+  border-color: var(--accent);
+}
+
 /* Lightbox */
 .lightbox-overlay {
   position: fixed;
@@ -1206,6 +1249,9 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
+  padding: 72px 72px 104px;
+  overflow: hidden;
   backdrop-filter: blur(8px);
 }
 
@@ -1257,8 +1303,10 @@ onUnmounted(() => {
 .lb-next { right: 16px; }
 
 .lb-content {
-  max-width: calc(100vw - 120px);
-  max-height: calc(100vh - 120px);
+  width: 100%;
+  height: 100%;
+  max-width: calc(100vw - 144px);
+  max-height: calc(100vh - 176px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1266,7 +1314,7 @@ onUnmounted(() => {
 
 .lb-image {
   max-width: 100%;
-  max-height: calc(100vh - 120px);
+  max-height: 100%;
   object-fit: contain;
   border-radius: 4px;
   user-select: none;
@@ -1278,15 +1326,19 @@ onUnmounted(() => {
 
 .lb-toolbar {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 16px;
   padding: 16px 24px;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
+  width: max-content;
+  max-width: min(calc(100vw - 32px), 960px);
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(14px);
   color: rgba(255, 255, 255, 0.85);
   font-size: 13px;
 }
@@ -1363,9 +1415,19 @@ onUnmounted(() => {
   .lb-prev { left: 8px; }
   .lb-next { right: 8px; }
 
+  .lightbox-overlay {
+    padding: 64px 16px 112px;
+  }
+
+  .lb-content {
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 176px);
+  }
+
   .lb-toolbar {
     flex-wrap: wrap;
     gap: 8px;
+    padding: 12px 14px;
     font-size: 12px;
   }
 }
