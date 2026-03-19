@@ -1553,10 +1553,11 @@ type GalleryEntry struct {
 // POST /api/v1/gallery/ls
 func (s *Server) handleGalleryList(c *gin.Context) {
 	var req struct {
-		Path   string `json:"path"`
-		DirID  string `json:"dir_id"`
-		Offset int64  `json:"offset"`
-		Limit  int64  `json:"limit"`
+		Path    string `json:"path"`
+		DirID   string `json:"dir_id"`
+		Offset  int64  `json:"offset"`
+		Limit   int64  `json:"limit"`
+		DirOnly bool   `json:"dir_only"` // true = 只列目录（目录浏览器用）
 	}
 	_ = c.ShouldBindJSON(&req)
 
@@ -1595,23 +1596,31 @@ func (s *Server) handleGalleryList(c *gin.Context) {
 		dirID = resolvedID
 	}
 
-	// 真分页：直接调 SDK GetFiles，Type="2"(图片) + ShowDir
+	// 真分页：直接调 SDK GetFiles
 	client, err := s.Open115.Client()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": sanitizeError(err)})
 		return
 	}
 	pacer := open115.NewPacer()
+
+	// 构建 SDK 请求：dir_only 模式不设 Type 过滤（返回所有文件+文件夹），
+	// 普通模式用 Type="2"(图片) + Stdir=1（筛选图片时同时显示文件夹）。
+	sdkReq := &open115.GetFilesReq{
+		CID:     dirID,
+		Limit:   req.Limit,
+		Offset:  req.Offset,
+		ShowDir: true,
+		ASC:     true,
+		O:       "file_name",
+	}
+	if !req.DirOnly {
+		sdkReq.Type = "2"  // 只查图片
+		sdkReq.Stdir = 1   // 筛选文件时仍显示文件夹
+	}
+
 	resp, err := open115.Call(c.Request.Context(), pacer, "GalleryGetFiles", 6, func() (*open115.GetFilesResp, error) {
-		return client.GetFiles(c.Request.Context(), &open115.GetFilesReq{
-			CID:     dirID,
-			Limit:   req.Limit,
-			Offset:  req.Offset,
-			Type:    "2",
-			ShowDir: true,
-			ASC:     true,
-			O:       "file_name",
-		})
+		return client.GetFiles(c.Request.Context(), sdkReq)
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": sanitizeError(err)})
@@ -1628,11 +1637,16 @@ func (s *Server) handleGalleryList(c *gin.Context) {
 	// 映射为 GalleryEntry
 	items := make([]GalleryEntry, 0, len(resp.Data))
 	for _, item := range resp.Data {
+		isDir := item.Fc == "0"
+		// dir_only 模式：只返回文件夹
+		if req.DirOnly && !isDir {
+			continue
+		}
 		entry := GalleryEntry{
 			ID:       item.Fid,
 			Name:     item.Fn,
 			Path:     parentPath + "/" + item.Fn,
-			IsDir:    item.Fc == "0",
+			IsDir:    isDir,
 			Size:     item.FS,
 			ModTime:  time.Unix(item.Upt, 0).Format(time.RFC3339),
 			PickCode: item.Pc,
@@ -1662,9 +1676,10 @@ var galleryProxyAllowedHosts = []string{
 }
 
 // isGalleryProxyHostAllowed 检查 URL 的 host 是否在白名单内。
+// 同时接受 http 和 https，因为 115 API 有时返回 http 协议的缩略图 URL。
 func isGalleryProxyHostAllowed(rawURL string) bool {
 	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme != "https" {
+	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") {
 		return false
 	}
 	host := strings.ToLower(parsed.Hostname())

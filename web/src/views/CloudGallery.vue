@@ -392,8 +392,9 @@ async function loadDirBrowserItems() {
   dirBrowserLoading.value = true
   dirBrowserItems.value = []
   try {
-    const resp = await api.galleryList(dirBrowserPath.value, undefined, 0, 500)
-    dirBrowserItems.value = resp.items.filter(i => i.is_dir)
+    // dir_only=true: 后端只返回文件夹，不过滤图片类型
+    const resp = await api.galleryList(dirBrowserPath.value, undefined, 0, 500, true)
+    dirBrowserItems.value = resp.items
   } catch (e) {
     if (handleAuthFailure(e)) return
   } finally {
